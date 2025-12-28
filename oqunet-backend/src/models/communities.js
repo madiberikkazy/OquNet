@@ -1,4 +1,4 @@
-// src/models/community.js (or communities.js)
+// src/models/communities.js
 module.exports = (sequelize, DataTypes) => {
   const Community = sequelize.define('Community', {
     id: { 
@@ -18,6 +18,14 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
       unique: true
+    },
+    owner_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Users',
+        key: 'id'
+      }
     }
   }, {
     tableName: 'Communities',

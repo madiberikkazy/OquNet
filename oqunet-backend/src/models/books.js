@@ -1,4 +1,4 @@
-// src/models/book.js (or books.js)
+// oqunet-backend/src/models/books.js
 module.exports = (sequelize, DataTypes) => {
   const Book = sequelize.define('Book', {
     id: { 
@@ -12,6 +12,10 @@ module.exports = (sequelize, DataTypes) => {
     },
     author: { 
       type: DataTypes.STRING, 
+      allowNull: true
+    },
+    image_url: {
+      type: DataTypes.TEXT,
       allowNull: true
     },
     community_id: { 
@@ -37,7 +41,7 @@ module.exports = (sequelize, DataTypes) => {
     borrow_days: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 14 // Default: 14 days
+      defaultValue: 14
     }
   }, {
     tableName: 'Books',

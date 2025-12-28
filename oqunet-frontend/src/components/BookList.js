@@ -1,4 +1,4 @@
-// src/components/BookList.js
+// src/components/BookList.js - COMPLETE VERSION WITH IMAGE SUPPORT
 import React, { useEffect, useState } from 'react';
 import API, { formatApiError, getCurrentUser } from '../api';
 
@@ -180,152 +180,191 @@ const BookList = () => {
         </div>
       ) : (
         <div style={{ 
-          backgroundColor: 'white', 
-          borderRadius: '8px', 
-          overflow: 'hidden',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+          gap: '20px'
         }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
-                <th style={{ textAlign: 'left', padding: '15px', fontWeight: '600' }}>Кітап</th>
-                <th style={{ textAlign: 'left', padding: '15px', fontWeight: '600' }}>Автор</th>
-                {user.role === 'admin' && (
-                  <th style={{ textAlign: 'left', padding: '15px', fontWeight: '600' }}>Қоғамдастық</th>
-                )}
-                <th style={{ textAlign: 'left', padding: '15px', fontWeight: '600' }}>Мерзімі</th>
-                <th style={{ textAlign: 'left', padding: '15px', fontWeight: '600' }}>Статус</th>
-                <th style={{ textAlign: 'left', padding: '15px', fontWeight: '600' }}>Әрекет</th>
-              </tr>
-            </thead>
-            <tbody>
-              {books.map(book => {
-                const isMyBook = book.current_holder_id === user.id;
-                const isBorrowed = book.current_holder_id !== null;
-                const daysRemaining = isBorrowed ? getDaysRemaining(book.borrowed_at, book.borrow_days) : 0;
-                
-                return (
-                  <tr key={book.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                    <td style={{ padding: '15px' }}>
-                      <div style={{ fontWeight: '600', fontSize: '15px', marginBottom: '4px' }}>
-                        {book.title}
+          {books.map(book => {
+            const isMyBook = book.current_holder_id === user.id;
+            const isBorrowed = book.current_holder_id !== null;
+            const daysRemaining = isBorrowed ? getDaysRemaining(book.borrowed_at, book.borrow_days) : 0;
+            
+            return (
+              <div 
+                key={book.id} 
+                style={{ 
+                  backgroundColor: 'white',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  transition: 'transform 0.2s, box-shadow 0.2s',
+                  cursor: 'pointer',
+                  border: isMyBook ? '2px solid #4CAF50' : '1px solid #e0e0e0'
+                }}
+                onClick={() => openBorrowModal(book)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-4px)';
+                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.15)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                }}
+              >
+                {/* Book Image */}
+                <div style={{ 
+                  width: '100%', 
+                  height: '280px', 
+                  backgroundColor: '#f5f5f5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                  position: 'relative'
+                }}>
+                  {book.image_url ? (
+                    <img 
+                      src={book.image_url} 
+                      alt={book.title}
+                      style={{ 
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover'
+                      }}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        const parent = e.target.parentElement;
+                        const placeholder = document.createElement('div');
+                        placeholder.style.cssText = 'font-size: 64px; color: #bbb;';
+                        placeholder.textContent = '📚';
+                        parent.appendChild(placeholder);
+                      }}
+                    />
+                  ) : (
+                    <div style={{ fontSize: '64px', color: '#bbb' }}>📚</div>
+                  )}
+                  
+                  {/* Status Badge */}
+                  <div style={{ 
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    padding: '6px 12px',
+                    backgroundColor: isMyBook ? '#4CAF50' : (isBorrowed ? '#ff9800' : '#4CAF50'),
+                    color: 'white',
+                    borderRadius: '16px',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  }}>
+                    {isMyBook ? '✓ Сізде' : (isBorrowed ? '📚 Алынған' : '✓ Бос')}
+                  </div>
+                </div>
+
+                {/* Book Info */}
+                <div style={{ padding: '15px' }}>
+                  <h3 style={{ 
+                    margin: '0 0 8px 0', 
+                    fontSize: '18px',
+                    fontWeight: 'bold',
+                    color: '#333',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {book.title}
+                  </h3>
+                  
+                  {book.author && (
+                    <div style={{ 
+                      fontSize: '14px', 
+                      color: '#666',
+                      marginBottom: '8px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      ✍️ {book.author}
+                    </div>
+                  )}
+
+                  <div style={{ 
+                    fontSize: '13px', 
+                    color: '#999',
+                    marginBottom: '12px'
+                  }}>
+                    ⏰ Мерзім: {book.borrow_days} күн
+                  </div>
+
+                  {isBorrowed && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>
+                        {isMyBook ? 'Сізде' : `Алған адам: ${book.holder?.name}`}
                       </div>
-                    </td>
-                    <td style={{ padding: '15px', color: '#666' }}>
-                      {book.author || <em style={{ color: '#999' }}>Автор көрсетілмеген</em>}
-                    </td>
-                    {user.role === 'admin' && (
-                      <td style={{ padding: '15px', color: '#666' }}>
-                        {book.community?.name || book.Community?.name || '—'}
-                      </td>
-                    )}
-                    <td style={{ padding: '15px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: '500' }}>
-                        {book.borrow_days} күн
+                      <div style={{ fontSize: '12px', color: '#999' }}>
+                        {getTimeSince(book.borrowed_at)}
                       </div>
-                    </td>
-                    <td style={{ padding: '15px' }}>
-                      {isBorrowed ? (
-                        <div>
-                          <div style={{ 
-                            display: 'inline-block',
-                            padding: '6px 12px', 
-                            backgroundColor: isMyBook ? '#4CAF50' : '#ff9800', 
-                            color: 'white', 
-                            borderRadius: '16px',
-                            fontSize: '13px',
-                            fontWeight: '500',
-                            marginBottom: '6px'
-                          }}>
-                            {isMyBook ? '✓ Сізде' : `📚 ${book.holder.name}`}
-                          </div>
-                          <div style={{ fontSize: '12px', color: '#999' }}>
-                            {getTimeSince(book.borrowed_at)}
-                          </div>
-                          {daysRemaining > 0 ? (
-                            <div style={{ fontSize: '11px', color: '#4CAF50', fontWeight: '500' }}>
-                              {daysRemaining} күн қалды
-                            </div>
-                          ) : daysRemaining === 0 ? (
-                            <div style={{ fontSize: '11px', color: '#ff9800', fontWeight: '500' }}>
-                              Бүгін қайтару керек
-                            </div>
-                          ) : (
-                            <div style={{ fontSize: '11px', color: '#f44336', fontWeight: '500' }}>
-                              {Math.abs(daysRemaining)} күн кешіктірілген
-                            </div>
-                          )}
+                      {daysRemaining > 0 ? (
+                        <div style={{ fontSize: '12px', color: '#4CAF50', fontWeight: '500' }}>
+                          {daysRemaining} күн қалды
+                        </div>
+                      ) : daysRemaining === 0 ? (
+                        <div style={{ fontSize: '12px', color: '#ff9800', fontWeight: '500' }}>
+                          Бүгін қайтару керек
                         </div>
                       ) : (
-                        <span style={{ 
-                          display: 'inline-block',
-                          padding: '6px 12px', 
-                          backgroundColor: '#e8f5e9', 
-                          color: '#2e7d32', 
-                          borderRadius: '16px',
-                          fontSize: '13px',
-                          fontWeight: '500'
-                        }}>
-                          ✓ Бос
-                        </span>
+                        <div style={{ fontSize: '12px', color: '#f44336', fontWeight: '500' }}>
+                          {Math.abs(daysRemaining)} күн кешіктірілген
+                        </div>
                       )}
-                    </td>
-                    <td style={{ padding: '15px' }}>
-                      {isMyBook ? (
-                        <button
-                          onClick={() => returnBook(book.id)}
-                          style={{
-                            padding: '8px 16px',
-                            backgroundColor: '#ff5722',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontWeight: '500',
-                            fontSize: '13px'
-                          }}
-                        >
-                          ↩️ Қайтару
-                        </button>
-                      ) : isBorrowed ? (
-                        <button
-                          onClick={() => openBorrowModal(book)}
-                          style={{
-                            padding: '8px 16px',
-                            backgroundColor: '#6c757d',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontWeight: '500',
-                            fontSize: '13px'
-                          }}
-                        >
-                          ℹ️ Ақпарат
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => openBorrowModal(book)}
-                          style={{
-                            padding: '8px 16px',
-                            backgroundColor: '#4CAF50',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontWeight: '500',
-                            fontSize: '13px'
-                          }}
-                        >
-                          📖 Алу
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  )}
+
+                  {isMyBook ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        returnBook(book.id);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        backgroundColor: '#ff5722',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                        fontSize: '14px'
+                      }}
+                    >
+                      ↩️ Қайтару
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openBorrowModal(book);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        backgroundColor: isBorrowed ? '#6c757d' : '#4CAF50',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                        fontSize: '14px'
+                      }}
+                    >
+                      {isBorrowed ? 'ℹ️ Ақпарат' : '📖 Алу'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -337,179 +376,227 @@ const BookList = () => {
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: 'rgba(0,0,0,0.6)',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
-          zIndex: 1000
-        }}>
+          zIndex: 1000,
+          padding: '20px'
+        }}
+        onClick={closeModal}
+        >
           <div style={{
             backgroundColor: 'white',
-            borderRadius: '12px',
-            padding: '30px',
-            maxWidth: '500px',
-            width: '90%',
-            maxHeight: '80vh',
+            borderRadius: '16px',
+            maxWidth: '600px',
+            width: '100%',
+            maxHeight: '90vh',
             overflow: 'auto',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
-          }}>
-            <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#2196F3' }}>
-              📚 {selectedBook.title}
-            </h2>
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+          >
+            {/* Book Image in Modal */}
+            {selectedBook.image_url && (
+              <div style={{ 
+                width: '100%', 
+                height: '300px', 
+                backgroundColor: '#f5f5f5',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                borderRadius: '16px 16px 0 0'
+              }}>
+                <img 
+                  src={selectedBook.image_url} 
+                  alt={selectedBook.title}
+                  style={{ 
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover'
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.parentElement.innerHTML = '<div style="font-size: 72px; color: #bbb;">📚</div>';
+                  }}
+                />
+              </div>
+            )}
 
-            {selectedBook.author && (
+            <div style={{ padding: '30px' }}>
+              <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#2196F3' }}>
+                📚 {selectedBook.title}
+              </h2>
+
+              {selectedBook.author && (
+                <div style={{ marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #eee' }}>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Автор</div>
+                  <div style={{ fontSize: '16px', fontWeight: '500' }}>{selectedBook.author}</div>
+                </div>
+              )}
+
               <div style={{ marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #eee' }}>
-                <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Автор</div>
-                <div style={{ fontSize: '16px', fontWeight: '500' }}>{selectedBook.author}</div>
-              </div>
-            )}
-
-            <div style={{ marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #eee' }}>
-              <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Беру мерзімі</div>
-              <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#4CAF50' }}>
-                {selectedBook.borrow_days} күн
-              </div>
-              <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
-                Кітапты {selectedBook.borrow_days} күн ішінде қайтару керек
-              </div>
-            </div>
-
-            {selectedBook.current_holder_id ? (
-              <>
-                <div style={{ 
-                  padding: '15px', 
-                  backgroundColor: '#fff3cd', 
-                  borderRadius: '8px',
-                  marginBottom: '15px'
-                }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#856404', marginBottom: '10px' }}>
-                    ⚠️ Кітап алынған
-                  </div>
-                  
-                  <div style={{ marginBottom: '10px' }}>
-                    <div style={{ fontSize: '12px', color: '#856404', marginBottom: '4px' }}>Алған адам:</div>
-                    <div style={{ fontSize: '15px', fontWeight: '500' }}>{selectedBook.holder.name}</div>
-                  </div>
-
-                  <div style={{ marginBottom: '10px' }}>
-                    <div style={{ fontSize: '12px', color: '#856404', marginBottom: '4px' }}>Телефон нөмірі:</div>
-                    <div style={{ fontSize: '15px', fontWeight: '500' }}>
-                      <a href={`tel:${selectedBook.holder.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
-                        📞 {selectedBook.holder.phone}
-                      </a>
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: '10px' }}>
-                    <div style={{ fontSize: '12px', color: '#856404', marginBottom: '4px' }}>Алған күні:</div>
-                    <div style={{ fontSize: '14px' }}>{formatDate(selectedBook.borrowed_at)}</div>
-                    <div style={{ fontSize: '12px', color: '#999' }}>({getTimeSince(selectedBook.borrowed_at)})</div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: '12px', color: '#856404', marginBottom: '4px' }}>Қайтару мерзімі:</div>
-                    <div style={{ fontSize: '15px', fontWeight: 'bold' }}>
-                      {getReturnDate(selectedBook.borrowed_at, selectedBook.borrow_days)}
-                    </div>
-                    {(() => {
-                      const daysLeft = getDaysRemaining(selectedBook.borrowed_at, selectedBook.borrow_days);
-                      if (daysLeft > 0) {
-                        return (
-                          <div style={{ fontSize: '13px', color: '#4CAF50', fontWeight: '500', marginTop: '4px' }}>
-                            ⏰ {daysLeft} күннен кейін босайды
-                          </div>
-                        );
-                      } else if (daysLeft === 0) {
-                        return (
-                          <div style={{ fontSize: '13px', color: '#ff9800', fontWeight: '500', marginTop: '4px' }}>
-                            ⏰ Бүгін босауы керек
-                          </div>
-                        );
-                      } else {
-                        return (
-                          <div style={{ fontSize: '13px', color: '#f44336', fontWeight: '500', marginTop: '4px' }}>
-                            ⚠️ {Math.abs(daysLeft)} күн кешіктірілген
-                          </div>
-                        );
-                      }
-                    })()}
-                  </div>
+                <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Беру мерзімі</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#4CAF50' }}>
+                  {selectedBook.borrow_days} күн
                 </div>
-
-                <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
-                  💡 Кітапты алғыңыз келсе, жоғарыдағы нөмірге хабарласыңыз
+                <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>
+                  Кітапты {selectedBook.borrow_days} күн ішінде қайтару керек
                 </div>
+              </div>
 
-                {/* Previous borrower info */}
-                {selectedBook.history && selectedBook.history.length > 0 && selectedBook.history[0].borrower && (
+              {selectedBook.current_holder_id ? (
+                <>
                   <div style={{ 
-                    padding: '12px', 
-                    backgroundColor: '#f0f0f0', 
+                    padding: '15px', 
+                    backgroundColor: '#fff3cd', 
                     borderRadius: '8px',
                     marginBottom: '15px'
                   }}>
-                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '8px' }}>
-                      📚 Алдыңғы қолданушы
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#856404', marginBottom: '10px' }}>
+                      ⚠️ Кітап алынған
                     </div>
-                    <div style={{ fontSize: '13px', marginBottom: '4px' }}>
-                      <strong>{selectedBook.history[0].borrower.name}</strong>
+                    
+                    <div style={{ marginBottom: '10px' }}>
+                      <div style={{ fontSize: '12px', color: '#856404', marginBottom: '4px' }}>Алған адам:</div>
+                      <div style={{ fontSize: '15px', fontWeight: '500' }}>{selectedBook.holder.name}</div>
                     </div>
-                    <div style={{ fontSize: '13px', color: '#666' }}>
-                      📞 <a href={`tel:${selectedBook.history[0].borrower.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
-                        {selectedBook.history[0].borrower.phone}
-                      </a>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <div style={{ 
-                  padding: '15px', 
-                  backgroundColor: '#e8f5e9', 
-                  borderRadius: '8px',
-                  marginBottom: '20px'
-                }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#2e7d32', marginBottom: '8px' }}>
-                    ✓ Кітап бос
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#2e7d32' }}>
-                    Кітапты {selectedBook.borrow_days} күнге алуға болады
-                  </div>
-                </div>
 
-                {/* Previous borrower info for available books */}
-                {selectedBook.history && selectedBook.history.length > 0 && selectedBook.history[0].borrower && (
+                    <div style={{ marginBottom: '10px' }}>
+                      <div style={{ fontSize: '12px', color: '#856404', marginBottom: '4px' }}>Телефон нөмірі:</div>
+                      <div style={{ fontSize: '15px', fontWeight: '500' }}>
+                        <a href={`tel:${selectedBook.holder.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
+                          📞 {selectedBook.holder.phone}
+                        </a>
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '10px' }}>
+                      <div style={{ fontSize: '12px', color: '#856404', marginBottom: '4px' }}>Алған күні:</div>
+                      <div style={{ fontSize: '14px' }}>{formatDate(selectedBook.borrowed_at)}</div>
+                      <div style={{ fontSize: '12px', color: '#999' }}>({getTimeSince(selectedBook.borrowed_at)})</div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: '12px', color: '#856404', marginBottom: '4px' }}>Қайтару мерзімі:</div>
+                      <div style={{ fontSize: '15px', fontWeight: 'bold' }}>
+                        {getReturnDate(selectedBook.borrowed_at, selectedBook.borrow_days)}
+                      </div>
+                      {(() => {
+                        const daysLeft = getDaysRemaining(selectedBook.borrowed_at, selectedBook.borrow_days);
+                        if (daysLeft > 0) {
+                          return (
+                            <div style={{ fontSize: '13px', color: '#4CAF50', fontWeight: '500', marginTop: '4px' }}>
+                              ⏰ {daysLeft} күннен кейін босайды
+                            </div>
+                          );
+                        } else if (daysLeft === 0) {
+                          return (
+                            <div style={{ fontSize: '13px', color: '#ff9800', fontWeight: '500', marginTop: '4px' }}>
+                              ⏰ Бүгін босауы керек
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div style={{ fontSize: '13px', color: '#f44336', fontWeight: '500', marginTop: '4px' }}>
+                              ⚠️ {Math.abs(daysLeft)} күн кешіктірілген
+                            </div>
+                          );
+                        }
+                      })()}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
+                    💡 Кітапты алғыңыз келсе, жоғарыдағы нөмірге хабарласыңыз
+                  </div>
+
+                  {selectedBook.history && selectedBook.history.length > 0 && selectedBook.history[0].borrower && (
+                    <div style={{ 
+                      padding: '12px', 
+                      backgroundColor: '#f0f0f0', 
+                      borderRadius: '8px',
+                      marginBottom: '15px'
+                    }}>
+                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '8px' }}>
+                        📚 Алдыңғы қолданушы
+                      </div>
+                      <div style={{ fontSize: '13px', marginBottom: '4px' }}>
+                        <strong>{selectedBook.history[0].borrower.name}</strong>
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#666' }}>
+                        📞 <a href={`tel:${selectedBook.history[0].borrower.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
+                          {selectedBook.history[0].borrower.phone}
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
                   <div style={{ 
-                    padding: '12px', 
-                    backgroundColor: '#f0f0f0', 
+                    padding: '15px', 
+                    backgroundColor: '#e8f5e9', 
                     borderRadius: '8px',
-                    marginBottom: '15px'
+                    marginBottom: '20px'
                   }}>
-                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '8px' }}>
-                      📚 Алдыңғы қолданушы
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#2e7d32', marginBottom: '8px' }}>
+                      ✓ Кітап бос
                     </div>
-                    <div style={{ fontSize: '13px', marginBottom: '4px' }}>
-                      <strong>{selectedBook.history[0].borrower.name}</strong>
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#666' }}>
-                      📞 <a href={`tel:${selectedBook.history[0].borrower.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
-                        {selectedBook.history[0].borrower.phone}
-                      </a>
+                    <div style={{ fontSize: '13px', color: '#2e7d32' }}>
+                      Кітапты {selectedBook.borrow_days} күнге алуға болады
                     </div>
                   </div>
-                )}
-              </>
-            )}
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-              {!selectedBook.current_holder_id && (
+                  {selectedBook.history && selectedBook.history.length > 0 && selectedBook.history[0].borrower && (
+                    <div style={{ 
+                      padding: '12px', 
+                      backgroundColor: '#f0f0f0', 
+                      borderRadius: '8px',
+                      marginBottom: '15px'
+                    }}>
+                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '8px' }}>
+                        📚 Алдыңғы қолданушы
+                      </div>
+                      <div style={{ fontSize: '13px', marginBottom: '4px' }}>
+                        <strong>{selectedBook.history[0].borrower.name}</strong>
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#666' }}>
+                        📞 <a href={`tel:${selectedBook.history[0].borrower.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
+                          {selectedBook.history[0].borrower.phone}
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                {!selectedBook.current_holder_id && (
+                  <button
+                    onClick={borrowBook}
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      backgroundColor: '#4CAF50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      fontSize: '15px'
+                    }}
+                  >
+                    ✓ Алу
+                  </button>
+                )}
                 <button
-                  onClick={borrowBook}
+                  onClick={closeModal}
                   style={{
-                    flex: 1,
+                    flex: selectedBook.current_holder_id ? 1 : 0.5,
                     padding: '12px',
-                    backgroundColor: '#4CAF50',
+                    backgroundColor: '#6c757d',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
@@ -518,85 +605,13 @@ const BookList = () => {
                     fontSize: '15px'
                   }}
                 >
-                  ✓ Алу
+                  Жабу
                 </button>
-              )}
-              <button
-                onClick={closeModal}
-                style={{
-                  flex: selectedBook.current_holder_id ? 1 : 0.5,
-                  padding: '12px',
-                  backgroundColor: '#6c757d',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  fontSize: '15px'
-                }}
-              >
-                Жабу
-              </button>
+              </div>
             </div>
           </div>
         </div>
       )}
-
-      {/* Legend */}
-      <div style={{ 
-        marginTop: '20px', 
-        padding: '15px', 
-        backgroundColor: 'white', 
-        borderRadius: '8px',
-        fontSize: '13px',
-        color: '#666'
-      }}>
-        <strong>Статус түсіндірмесі:</strong>
-        <div style={{ marginTop: '8px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-          <div>
-            <span style={{ 
-              display: 'inline-block',
-              padding: '4px 10px', 
-              backgroundColor: '#e8f5e9', 
-              color: '#2e7d32', 
-              borderRadius: '12px',
-              fontSize: '12px',
-              marginRight: '8px'
-            }}>
-              ✓ Бос
-            </span>
-            - Кітапты алуға болады
-          </div>
-          <div>
-            <span style={{ 
-              display: 'inline-block',
-              padding: '4px 10px', 
-              backgroundColor: '#4CAF50', 
-              color: 'white', 
-              borderRadius: '12px',
-              fontSize: '12px',
-              marginRight: '8px'
-            }}>
-              ✓ Сізде
-            </span>
-            - Кітап сізде
-          </div>
-          <div>
-            <span style={{ 
-              display: 'inline-block',
-              padding: '4px 10px', 
-              backgroundColor: '#ff9800', 
-              color: 'white', 
-              borderRadius: '12px',
-              fontSize: '12px',
-              marginRight: '8px'
-            }}>
-              📚 Есімі
-            </span>
-            - Басқа адам алған
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

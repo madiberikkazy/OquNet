@@ -49,9 +49,10 @@ function App() {
   if (loading) {
     return (
       <div style={{ 
+        minHeight: '100vh',
+        backgroundColor: '#f5f5f5',
         padding: '40px', 
         textAlign: 'center',
-        minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'
@@ -67,16 +68,22 @@ function App() {
 
   // If user doesn't have community, show join page
   if (user.role !== 'admin' && !user.community_id) {
-    return <JoinCommunity user={user} onJoin={handleUserUpdate} onLogout={handleLogout} />;
+    return (
+      <JoinCommunity 
+        user={user} 
+        onJoin={handleUserUpdate} 
+        onLogout={handleLogout}
+      />
+    );
   }
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
-      <header style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        padding: '15px 30px', 
+      <header style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '15px 30px',
         backgroundColor: 'white',
         borderBottom: '2px solid #2196F3',
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
@@ -104,7 +111,7 @@ function App() {
               fontSize: '12px',
               fontWeight: 'bold'
             }}>
-              {user.role === 'admin' ? 'Админ' : 'Қолданушы'}
+              {user.role === 'admin' ? 'Admin' : 'Қолданушы'}
             </span>
           </div>
           {user.role !== 'admin' && (
@@ -147,7 +154,10 @@ function App() {
           currentView === 'books' ? (
             <BookList />
           ) : (
-            <UserSettings onLogout={handleLogout} onUserUpdate={handleUserUpdate} />
+            <UserSettings 
+              onLogout={handleLogout} 
+              onUserUpdate={handleUserUpdate}
+            />
           )
         )}
       </main>

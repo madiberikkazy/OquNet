@@ -7,6 +7,8 @@ const db = require('./models');
 const userRoutes = require('./routes/userRoutes');
 const bookRoutes = require('./routes/bookRoutes');
 const communityRoutes = require('./routes/communityRoutes');
+const messageRoutes = require('./routes/messageRoutes');
+const searchRoutes = require('./routes/searchRoutes');
 
 const app = express();
 
@@ -39,6 +41,8 @@ app.get('/api/debug', (req, res) => {
 app.use('/api/users', userRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/communities', communityRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/search', searchRoutes);
 
 // Sync DB (auto-alter to keep schema in sync with models)
 db.sequelize.sync({ alter: true }).then(() => {

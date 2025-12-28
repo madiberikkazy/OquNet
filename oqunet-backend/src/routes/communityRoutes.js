@@ -2,14 +2,21 @@
 const express = require('express');
 const router = express.Router();
 const communityController = require('../controllers/communityController');
-const { authenticateToken, isAdmin } = require('../middleware/authMiddleware');
+const { authenticateToken, isAdmin, isCommunityOwner } = require('../middleware/authMiddleware');
 
-// Public route - auth not required
+// Public route
 router.get('/public', communityController.getPublicCommunities);
 
-// Protected routes
+// Protected routes - any authenticated user
 router.get('/', authenticateToken, communityController.getAllCommunities);
+router.post('/create', authenticateToken, communityController.createCommunity);
+
+// Admin only routes
 router.post('/add', authenticateToken, isAdmin, communityController.addCommunity);
-router.delete('/delete/:id', authenticateToken, isAdmin, communityController.deleteCommunity);
+
+// Owner or admin routes
+router.delete('/delete/:id', authenticateToken, communityController.deleteCommunity);
+router.get('/:communityId/members', authenticateToken, communityController.getCommunityMembers);
+router.delete('/:communityId/members/:userId', authenticateToken, communityController.removeMember);
 
 module.exports = router;

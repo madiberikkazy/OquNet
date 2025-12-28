@@ -1,12 +1,17 @@
 // src/components/LoginRegister.js
 import React, { useState } from 'react';
 import API, { setToken, setCurrentUser, formatApiError } from '../api';
+import PhoneInput, { getPhoneDigits } from './PhoneInput';
 
 const LoginRegister = ({ setUser }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
 
   const handleChange = e => setForm({ ...form, [e.target.name]: e.target.value });
+  
+  const handlePhoneChange = (formatted) => {
+    setForm({ ...form, phone: formatted });
+  };
 
   const handleSubmit = async e => {
     e.preventDefault();
@@ -17,11 +22,13 @@ const LoginRegister = ({ setUser }) => {
         setCurrentUser(res.data.user);
         setUser(res.data.user);
       } else {
-        // Register without community
+        // Get only digits for backend storage
+        const phoneDigits = getPhoneDigits(form.phone);
+        
         await API.post('/users/register', {
           name: form.name,
           email: form.email,
-          phone: form.phone,
+          phone: phoneDigits, // Store only digits
           password: form.password
         });
         alert('Тіркелді! Енді кіріңіз.');
@@ -67,15 +74,21 @@ const LoginRegister = ({ setUser }) => {
               <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>
                 Телефон нөмірі *
               </label>
-              <input
-                name="phone"
-                placeholder="+7 (___) ___-__-__"
-                type="tel"
+              <PhoneInput
                 value={form.phone}
-                onChange={handleChange}
-                required={!isLogin}
-                style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box' }}
+                onChange={handlePhoneChange}
+                placeholder="+7(___) ___-__-__"
+                style={{ 
+                  width: '100%', 
+                  padding: '10px', 
+                  border: '1px solid #ddd', 
+                  borderRadius: '4px', 
+                  boxSizing: 'border-box' 
+                }}
               />
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                💡 Автоматты форматталады: +7(775) 185-60-15
+              </div>
             </div>
           </>
         )}
@@ -145,19 +158,6 @@ const LoginRegister = ({ setUser }) => {
       >
         {isLogin ? 'Тіркелу' : 'Кіру'}
       </button>
-
-      {!isLogin && (
-        <div style={{ 
-          marginTop: '15px', 
-          padding: '10px', 
-          backgroundColor: '#e3f2fd', 
-          borderRadius: '4px',
-          fontSize: '13px',
-          color: '#1976d2'
-        }}>
-          💡 Тіркелгеннен кейін қоғамдастыққа кіру кодын пайдаланып қосыла аласыз
-        </div>
-      )}
     </div>
   );
 };

@@ -122,7 +122,6 @@ const returnMyBook = async (req, res) => {
     }
 
     // Save to history
-    const db = require('../models');
     await db.BookHistory.create({
       book_id: book.id,
       user_id: userId,
@@ -201,15 +200,16 @@ const getBooksByCommunity = async (req, res) => {
   }
 };
 
-// Admin: Add book
+// Admin: Add book - WITH IMAGE_URL SUPPORT
 const addBook = async (req, res) => {
-  const { title, author, community_id, borrow_days } = req.body;
+  const { title, author, community_id, borrow_days, image_url } = req.body;
   try {
     const book = await Book.create({ 
       title, 
       author, 
       community_id,
-      borrow_days: borrow_days || 14
+      borrow_days: borrow_days || 14,
+      image_url: image_url || null
     });
     res.json({ message: 'Book қосылды', book: book.toJSON() });
   } catch (err) {
@@ -231,6 +231,7 @@ const deleteBook = async (req, res) => {
   }
 };
 
+// IMPORTANT: Export all functions
 module.exports = { 
   assignBook, 
   returnBook, 
