@@ -1,7 +1,7 @@
-// src/controllers/communityController.js
+// src/controllers/communityController.js - WITH RESTRICTIONS
 const db = require('../models');
 
-// User can create their own community
+// User can create their own community (ONLY ONE)
 exports.createCommunity = async (req, res) => {
   const { name, description, access_code } = req.body;
   const userId = req.user.id;
@@ -13,6 +13,18 @@ exports.createCommunity = async (req, res) => {
 
     if (access_code.length < 4) {
       return res.status(400).json({ message: 'Кіру коды кем дегенде 4 таңба болуы керек' });
+    }
+
+    // Check if user already owns a community
+    const existingOwnedCommunity = await db.Community.findOne({ 
+      where: { owner_id: userId } 
+    });
+    
+    if (existingOwnedCommunity) {
+      return res.status(400).json({ 
+        message: 'Сізде қазірдің өзінде қоғамдастық бар. Тек 1 қоғамдастық құруға болады.',
+        existingCommunity: existingOwnedCommunity.name
+      });
     }
 
     // Check if access code already exists
@@ -111,9 +123,47 @@ exports.deleteCommunity = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Сіз бұл қоғамдастықты өшіре алмайсыз' });
     }
 
+    // Check if there are other members besides the owner
+    const membersCount = await db.User.count({
+      where: { 
+        community_id: id,
+        id: { [db.Sequelize.Op.ne]: community.owner_id } // Exclude owner
+      }
+    });
+
+    if (membersCount > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Қоғамдастықта ${membersCount} мүше бар. Алдымен барлық мүшелерді шығарыңыз.`,
+        membersCount
+      });
+    }
+
+    // Check if there are books in the community
+    const booksCount = await db.Book.count({ where: { community_id: id } });
+    if (booksCount > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Қоғамдастықта ${booksCount} кітап бар. Алдымен барлық кітаптарды өшіріңіз.`,
+        booksCount
+      });
+    }
+
+    // Remove owner from community before deleting
+    if (community.owner_id) {
+      await db.User.update(
+        { community_id: null },
+        { where: { id: community.owner_id } }
+      );
+    }
+
     await community.destroy();
     console.log('✅ Community deleted:', id);
-    res.json({ success: true, message: 'Community өшірілді' });
+    
+    res.json({ 
+      success: true, 
+      message: 'Қоғамдастық өшірілді. Енді басқа қоғамдастыққа қосылуға болады.' 
+    });
   } catch (err) {
     console.error('❌ Error deleting community:', err);
     res.status(500).json({ success: false, message: err.message });

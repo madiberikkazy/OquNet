@@ -1,4 +1,4 @@
-// src/routes/bookRoutes.js
+// src/routes/bookRoutes.js - FIXED VERSION
 const express = require('express');
 const router = express.Router();
 const { authenticateToken, isAdmin } = require('../middleware/authMiddleware');
@@ -10,10 +10,12 @@ router.get('/community/:communityId', authenticateToken, bookController.getBooks
 router.post('/borrow', authenticateToken, bookController.borrowBook);
 router.post('/return-my-book', authenticateToken, bookController.returnMyBook);
 
-// Admin routes - can manage all books
-router.post('/add', authenticateToken, isAdmin, bookController.addBook);
+// Routes for BOTH admin AND community owners
+router.post('/add', authenticateToken, bookController.addBook);  // Changed: removed isAdmin
+router.delete('/delete/:id', authenticateToken, bookController.deleteBook);  // Changed: removed isAdmin
+
+// Admin-only routes (for backwards compatibility)
 router.post('/assign', authenticateToken, isAdmin, bookController.assignBook);
 router.post('/return', authenticateToken, isAdmin, bookController.returnBook);
-router.delete('/delete/:id', authenticateToken, isAdmin, bookController.deleteBook);
 
 module.exports = router;

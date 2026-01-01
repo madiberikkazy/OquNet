@@ -1,17 +1,45 @@
-// src/components/BookList.js - COMPLETE VERSION WITH IMAGE SUPPORT
+// src/components/BookList.js - COMPLETE WITH SEARCH AND FILTER
 import React, { useEffect, useState } from 'react';
 import API, { formatApiError, getCurrentUser } from '../api';
 
 const BookList = () => {
   const [books, setBooks] = useState([]);
+  const [filteredBooks, setFilteredBooks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedBook, setSelectedBook] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const user = getCurrentUser();
 
+  // Search and filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedGenre, setSelectedGenre] = useState('all');
+  const [availabilityFilter, setAvailabilityFilter] = useState('all'); // all, available, borrowed
+
+  const GENRES = [
+    'Роман',
+    'Әңгіме',
+    'Поэзия',
+    'Фантастика',
+    'Фэнтези',
+    'Детектив',
+    'Триллер',
+    'Махаббат романы',
+    'Тарихи шығарма',
+    'Ғылыми-көпшілік',
+    'Өмірбаян',
+    'Психология',
+    'Балалар әдебиеті',
+    'Өзін-өзі дамыту',
+    'Діни әдебиет'
+  ];
+
   useEffect(() => {
     fetchBooks();
   }, []);
+
+  useEffect(() => {
+    applyFilters();
+  }, [books, searchQuery, selectedGenre, availabilityFilter]);
 
   const fetchBooks = async () => {
     try {
@@ -23,12 +51,46 @@ const BookList = () => {
       
       const res = await API.get(endpoint);
       setBooks(res.data.books || []);
+      setFilteredBooks(res.data.books || []);
     } catch (err) {
       console.error(err);
       alert(formatApiError(err));
     } finally {
       setLoading(false);
     }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...books];
+
+    // Search filter (title or author)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(book => 
+        book.title.toLowerCase().includes(query) ||
+        (book.author && book.author.toLowerCase().includes(query))
+      );
+    }
+
+    // Genre filter
+    if (selectedGenre !== 'all') {
+      filtered = filtered.filter(book => book.genre === selectedGenre);
+    }
+
+    // Availability filter
+    if (availabilityFilter === 'available') {
+      filtered = filtered.filter(book => !book.current_holder_id);
+    } else if (availabilityFilter === 'borrowed') {
+      filtered = filtered.filter(book => book.current_holder_id !== null);
+    }
+
+    setFilteredBooks(filtered);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSelectedGenre('all');
+    setAvailabilityFilter('all');
   };
 
   const openBorrowModal = (book) => {
@@ -127,6 +189,7 @@ const BookList = () => {
 
   return (
     <div style={{ padding: '20px', marginTop: '20px' }}>
+      {/* Header */}
       <div style={{ 
         display: 'flex', 
         justifyContent: 'space-between', 
@@ -163,7 +226,120 @@ const BookList = () => {
         </button>
       </div>
 
-      {books.length === 0 ? (
+      {/* Search and Filter Bar */}
+      <div style={{
+        padding: '20px',
+        backgroundColor: 'white',
+        borderRadius: '8px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        marginBottom: '20px'
+      }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '15px' }}>
+          {/* Search Input */}
+          <div style={{ flex: '1', minWidth: '250px' }}>
+            <input
+              type="text"
+              placeholder="🔍 Кітап атауы немесе автор..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 15px',
+                border: '2px solid #ddd',
+                borderRadius: '6px',
+                fontSize: '15px',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          {/* Genre Filter */}
+          <div style={{ minWidth: '180px' }}>
+            <select
+              value={selectedGenre}
+              onChange={(e) => setSelectedGenre(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 15px',
+                border: '2px solid #ddd',
+                borderRadius: '6px',
+                fontSize: '15px',
+                backgroundColor: 'white',
+                cursor: 'pointer',
+                boxSizing: 'border-box'
+              }}
+            >
+              <option value="all">📚 Барлық жанрлар</option>
+              {GENRES.map(genre => (
+                <option key={genre} value={genre}>{genre}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Availability Filter */}
+          <div style={{ minWidth: '160px' }}>
+            <select
+              value={availabilityFilter}
+              onChange={(e) => setAvailabilityFilter(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px 15px',
+                border: '2px solid #ddd',
+                borderRadius: '6px',
+                fontSize: '15px',
+                backgroundColor: 'white',
+                cursor: 'pointer',
+                boxSizing: 'border-box'
+              }}
+            >
+              <option value="all">📊 Барлығы</option>
+              <option value="available">✅ Бос кітаптар</option>
+              <option value="borrowed">📚 Алынған</option>
+            </select>
+          </div>
+
+          {/* Clear Button */}
+          {(searchQuery || selectedGenre !== 'all' || availabilityFilter !== 'all') && (
+            <button
+              onClick={clearFilters}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '15px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              ✕ Тазалау
+            </button>
+          )}
+        </div>
+
+        {/* Active Filters Display */}
+        {(searchQuery || selectedGenre !== 'all' || availabilityFilter !== 'all') && (
+          <div style={{
+            padding: '10px',
+            backgroundColor: '#e3f2fd',
+            borderRadius: '4px',
+            fontSize: '14px',
+            color: '#1976d2'
+          }}>
+            <strong>Іздеу нәтижесі:</strong>{' '}
+            {filteredBooks.length} кітап табылды
+            {searchQuery && <span> • "{searchQuery}"</span>}
+            {selectedGenre !== 'all' && <span> • {selectedGenre}</span>}
+            {availabilityFilter === 'available' && <span> • Бос кітаптар</span>}
+            {availabilityFilter === 'borrowed' && <span> • Алынған кітаптар</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Books Grid */}
+      {filteredBooks.length === 0 ? (
         <div style={{ 
           padding: '60px', 
           textAlign: 'center', 
@@ -172,10 +348,13 @@ const BookList = () => {
           border: '1px solid #ddd'
         }}>
           <p style={{ fontSize: '18px', color: '#666' }}>
-            😔 Кітаптар жоқ
+            {books.length === 0 ? '😔 Кітаптар жоқ' : '😔 Іздеген кітабыңыз табылмады'}
           </p>
           <p style={{ fontSize: '14px', color: '#999' }}>
-            Админ кітаптарды қосқанша күтіңіз
+            {books.length === 0 
+              ? 'Админ кітаптарды қосқанша күтіңіз'
+              : 'Басқа іздеу сөзін қолданып көріңіз'
+            }
           </p>
         </div>
       ) : (
@@ -184,7 +363,7 @@ const BookList = () => {
           gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
           gap: '20px'
         }}>
-          {books.map(book => {
+          {filteredBooks.map(book => {
             const isMyBook = book.current_holder_id === user.id;
             const isBorrowed = book.current_holder_id !== null;
             const daysRemaining = isBorrowed ? getDaysRemaining(book.borrowed_at, book.borrow_days) : 0;
@@ -279,12 +458,22 @@ const BookList = () => {
                     <div style={{ 
                       fontSize: '14px', 
                       color: '#666',
-                      marginBottom: '8px',
+                      marginBottom: '4px',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap'
                     }}>
                       ✍️ {book.author}
+                    </div>
+                  )}
+
+                  {book.genre && (
+                    <div style={{ 
+                      fontSize: '13px', 
+                      color: '#999',
+                      marginBottom: '8px'
+                    }}>
+                      📚 {book.genre}
                     </div>
                   )}
 
@@ -436,6 +625,13 @@ const BookList = () => {
                 </div>
               )}
 
+              {selectedBook.genre && (
+                <div style={{ marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #eee' }}>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Жанр</div>
+                  <div style={{ fontSize: '16px', fontWeight: '500' }}>{selectedBook.genre}</div>
+                </div>
+              )}
+
               <div style={{ marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #eee' }}>
                 <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Беру мерзімі</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#4CAF50' }}>
@@ -511,65 +707,21 @@ const BookList = () => {
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
                     💡 Кітапты алғыңыз келсе, жоғарыдағы нөмірге хабарласыңыз
                   </div>
-
-                  {selectedBook.history && selectedBook.history.length > 0 && selectedBook.history[0].borrower && (
-                    <div style={{ 
-                      padding: '12px', 
-                      backgroundColor: '#f0f0f0', 
-                      borderRadius: '8px',
-                      marginBottom: '15px'
-                    }}>
-                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '8px' }}>
-                        📚 Алдыңғы қолданушы
-                      </div>
-                      <div style={{ fontSize: '13px', marginBottom: '4px' }}>
-                        <strong>{selectedBook.history[0].borrower.name}</strong>
-                      </div>
-                      <div style={{ fontSize: '13px', color: '#666' }}>
-                        📞 <a href={`tel:${selectedBook.history[0].borrower.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
-                          {selectedBook.history[0].borrower.phone}
-                        </a>
-                      </div>
-                    </div>
-                  )}
                 </>
               ) : (
-                <>
-                  <div style={{ 
-                    padding: '15px', 
-                    backgroundColor: '#e8f5e9', 
-                    borderRadius: '8px',
-                    marginBottom: '20px'
-                  }}>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#2e7d32', marginBottom: '8px' }}>
-                      ✓ Кітап бос
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#2e7d32' }}>
-                      Кітапты {selectedBook.borrow_days} күнге алуға болады
-                    </div>
+                <div style={{ 
+                  padding: '15px', 
+                  backgroundColor: '#e8f5e9', 
+                  borderRadius: '8px',
+                  marginBottom: '20px'
+                }}>
+                  <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#2e7d32', marginBottom: '8px' }}>
+                    ✓ Кітап бос
                   </div>
-
-                  {selectedBook.history && selectedBook.history.length > 0 && selectedBook.history[0].borrower && (
-                    <div style={{ 
-                      padding: '12px', 
-                      backgroundColor: '#f0f0f0', 
-                      borderRadius: '8px',
-                      marginBottom: '15px'
-                    }}>
-                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '8px' }}>
-                        📚 Алдыңғы қолданушы
-                      </div>
-                      <div style={{ fontSize: '13px', marginBottom: '4px' }}>
-                        <strong>{selectedBook.history[0].borrower.name}</strong>
-                      </div>
-                      <div style={{ fontSize: '13px', color: '#666' }}>
-                        📞 <a href={`tel:${selectedBook.history[0].borrower.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
-                          {selectedBook.history[0].borrower.phone}
-                        </a>
-                      </div>
-                    </div>
-                  )}
-                </>
+                  <div style={{ fontSize: '13px', color: '#2e7d32' }}>
+                    Кітапты {selectedBook.borrow_days} күнге алуға болады
+                  </div>
+                </div>
               )}
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>

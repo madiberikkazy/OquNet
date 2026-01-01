@@ -1,4 +1,4 @@
-// src/controllers/bookController.js
+// src/controllers/bookController.js - WITH PERMISSION CHECKS
 const { User, Book, Community } = require('../models');
 const db = require('../models');
 
@@ -200,33 +200,72 @@ const getBooksByCommunity = async (req, res) => {
   }
 };
 
-// Admin: Add book - WITH IMAGE_URL SUPPORT
+// Add book - WITH PERMISSION CHECK
 const addBook = async (req, res) => {
-  const { title, author, community_id, borrow_days, image_url } = req.body;
+  const { title, author, community_id, borrow_days, image_url, genre } = req.body;
+  
   try {
+    // Check permissions
+    const isAdmin = req.user.role === 'admin';
+    
+    if (!isAdmin) {
+      // If not admin, check if user is the owner of this community
+      const community = await Community.findByPk(community_id);
+      
+      if (!community) {
+        return res.status(404).json({ message: 'Қоғамдастық табылмады' });
+      }
+      
+      if (community.owner_id !== req.user.id) {
+        return res.status(403).json({ 
+          message: 'Сіз тек өз қоғамдастығыңызға кітап қоса аласыз' 
+        });
+      }
+    }
+    
     const book = await Book.create({ 
       title, 
       author, 
       community_id,
       borrow_days: borrow_days || 14,
-      image_url: image_url || null
+      image_url: image_url || null,
+      genre: genre || null
     });
+    
     res.json({ message: 'Book қосылды', book: book.toJSON() });
   } catch (err) {
+    console.error('Add book error:', err);
     res.status(500).json({ message: err.message });
   }
 };
 
-// Admin: Delete book
+// Delete book - WITH PERMISSION CHECK
 const deleteBook = async (req, res) => {
   const { id } = req.params;
+  
   try {
-    const book = await Book.findByPk(id);
-    if (!book) return res.status(404).json({ message: 'Book табылмады' });
+    const book = await Book.findByPk(id, {
+      include: [{ model: Community }]
+    });
+    
+    if (!book) {
+      return res.status(404).json({ message: 'Book табылмады' });
+    }
+    
+    // Check permissions
+    const isAdmin = req.user.role === 'admin';
+    const isOwner = book.Community && book.Community.owner_id === req.user.id;
+    
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ 
+        message: 'Сіз тек өз қоғамдастығыңыздағы кітаптарды өшіре аласыз' 
+      });
+    }
     
     await book.destroy();
     res.json({ message: 'Book өшірілді' });
   } catch (err) {
+    console.error('Delete book error:', err);
     res.status(500).json({ message: err.message });
   }
 };
