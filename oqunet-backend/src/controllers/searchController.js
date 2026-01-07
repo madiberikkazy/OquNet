@@ -1,33 +1,19 @@
-// src/controllers/searchController.js
+// src/controllers/searchController.js - FIXED ASSOCIATIONS
 const { Op } = require('sequelize');
 const db = require('../models');
 
-// Predefined genres list
 const GENRES = [
-  'Роман',
-  'Әңгіме',
-  'Поэзия',
-  'Фантастика',
-  'Фэнтези',
-  'Детектив',
-  'Триллер',
-  'Махаббат романы',
-  'Тарихи шығарма',
-  'Ғылыми-көпшілік',
-  'Өмірбаян',
-  'Психология',
-  'Балалар әдебиеті',
-  'Өзін-өзі дамыту',
-  'Діни әдебиет'
+  'Роман', 'Әңгіме', 'Поэзия', 'Фантастика', 'Фэнтези',
+  'Детектив', 'Триллер', 'Махаббат романы', 'Тарихи шығарма',
+  'Ғылыми-көпшілік', 'Өмірбаян', 'Психология', 'Балалар әдебиеті',
+  'Өзін-өзі дамыту', 'Діни әдебиет'
 ];
 
-// Normalize phone number - remove all non-digits
 function normalizePhone(phone) {
   if (!phone) return '';
   return phone.replace(/\D/g, '');
 }
 
-// Search books
 exports.searchBooks = async (req, res) => {
   try {
     const { query, genre } = req.query;
@@ -36,12 +22,10 @@ exports.searchBooks = async (req, res) => {
     
     const whereConditions = {};
     
-    // Filter by community (non-admin users)
     if (userRole !== 'admin') {
       whereConditions.community_id = req.user.community_id;
     }
     
-    // Search by title or author
     if (query && query.trim()) {
       whereConditions[Op.or] = [
         { title: { [Op.iLike]: `%${query}%` } },
@@ -49,7 +33,6 @@ exports.searchBooks = async (req, res) => {
       ];
     }
     
-    // Filter by genre
     if (genre && genre !== 'all') {
       whereConditions.genre = genre;
     }
@@ -57,9 +40,29 @@ exports.searchBooks = async (req, res) => {
     const books = await db.Book.findAll({
       where: whereConditions,
       include: [
-        { model: db.User, as: 'holder', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: db.User, as: 'pendingUser', attributes: ['id', 'name'] },
-        { model: db.Community, attributes: ['id', 'name'] }
+        { 
+          model: db.User, 
+          as: 'holder', 
+          attributes: ['id', 'name', 'email', 'phone'],
+          required: false
+        },
+        { 
+          model: db.User, 
+          as: 'initialHolder', 
+          attributes: ['id', 'name', 'email', 'phone'],
+          required: false
+        },
+        { 
+          model: db.User, 
+          as: 'pendingUser', 
+          attributes: ['id', 'name'],
+          required: false
+        },
+        { 
+          model: db.Community, 
+          attributes: ['id', 'name'],
+          required: false
+        }
       ],
       order: [['title', 'ASC']]
     });
@@ -75,10 +78,8 @@ exports.searchBooks = async (req, res) => {
   }
 };
 
-// Search users (admin only)
 exports.searchUsers = async (req, res) => {
   try {
-    // Only admin can search users
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Тек админ іздей алады' });
     }
@@ -91,16 +92,20 @@ exports.searchUsers = async (req, res) => {
       });
     }
     
-    // Normalize the search phone number
     const normalizedSearchPhone = normalizePhone(phone);
     
-    // Get all users and filter by normalized phone
     const allUsers = await db.User.findAll({
       attributes: ['id', 'name', 'email', 'phone', 'role', 'community_id'],
-      include: [{ model: db.Community, as: 'community', attributes: ['name'] }]
+      include: [
+        { 
+          model: db.Community, 
+          as: 'community', 
+          attributes: ['name'],
+          required: false
+        }
+      ]
     });
     
-    // Filter users whose normalized phone contains the search digits
     const matchedUsers = allUsers.filter(user => {
       const userNormalizedPhone = normalizePhone(user.phone);
       return userNormalizedPhone.includes(normalizedSearchPhone);
@@ -117,10 +122,8 @@ exports.searchUsers = async (req, res) => {
   }
 };
 
-// Get all unique genres
 exports.getGenres = async (req, res) => {
   try {
-    // Return predefined genres list
     res.json({ 
       success: true,
       genres: GENRES

@@ -18,6 +18,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    genre: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
     community_id: { 
       type: DataTypes.INTEGER, 
       allowNull: false,
@@ -28,6 +32,14 @@ module.exports = (sequelize, DataTypes) => {
     },
     current_holder_id: { 
       type: DataTypes.INTEGER, 
+      allowNull: true,
+      references: {
+        model: 'Users',
+        key: 'id'
+      }
+    },
+    initial_holder_id: {
+      type: DataTypes.INTEGER,
       allowNull: true,
       references: {
         model: 'Users',

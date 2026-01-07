@@ -251,144 +251,182 @@ const AdminPanel = () => {
 
       {/* Add Book - UPDATED WITH IMAGE */}
       <section style={{ marginTop: '16px', padding: '16px', border: '2px solid #2196F3', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
-        <h3>📚 Кітап қосу</h3>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
-          {/* Left Column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <input
-              placeholder="Кітап атауы *"
-              value={newBook.title}
-              onChange={e => setNewBook({ ...newBook, title: e.target.value })}
-              style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
-            />
-            <input
-              placeholder="Автор"
-              value={newBook.author}
-              onChange={e => setNewBook({ ...newBook, author: e.target.value })}
-              style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
-            />
-            <input
-              type="number"
-              min={1}
-              placeholder="Беру мерзімі (күн) *"
-              value={newBook.borrow_days}
-              onChange={e => setNewBook({ ...newBook, borrow_days: parseInt(e.target.value, 10) || 1 })}
-              style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
-            />
-            <select
-              value={newBook.community_id}
-              onChange={e => {
-                const value = e.target.value;
-                setNewBook({ ...newBook, community_id: value });
-              }}
-              style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }}
-            >
-              <option value="">-- Қоғамдастық таңдаңыз ({communities.length} бар) --</option>
-              {communities.length > 0 ? (
-                communities.map((c, index) => {
-                  const communityId = c.id || c._id;
-                  return (
-                    <option key={communityId || index} value={communityId}>
-                      {c.name} (ID: {communityId})
-                    </option>
-                  );
-                })
-              ) : (
-                <option value="" disabled>Қоғамдастықтар жоқ!</option>
-              )}
-            </select>
-          </div>
-
-          {/* Right Column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <input
-              placeholder="Кітап суреті (URL)"
-              value={newBook.image_url}
-              onChange={e => setNewBook({ ...newBook, image_url: e.target.value })}
-              style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
-            />
-
-            {/* Image Preview */}
-            {newBook.image_url ? (
-              <div style={{ 
-                padding: '10px', 
-                border: '1px solid #ddd', 
-                borderRadius: '4px',
-                backgroundColor: 'white',
-                textAlign: 'center',
-                minHeight: '150px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <img 
-                  src={newBook.image_url} 
-                  alt="Кітап суреті"
-                  style={{ 
-                    maxWidth: '100%', 
-                    maxHeight: '200px', 
-                    objectFit: 'contain',
-                    borderRadius: '4px'
-                  }}
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    const parent = e.target.parentElement;
-                    parent.innerHTML = '<div style="padding: 20px; color: #f44336; text-align: center;">❌ Сурет жүктелмеді<br/><small>URL тексеріңіз</small></div>';
-                  }}
-                />
-              </div>
-            ) : (
-              <div style={{ 
-                padding: '20px', 
-                border: '1px dashed #ddd', 
-                borderRadius: '4px',
-                backgroundColor: '#fafafa',
-                textAlign: 'center',
-                color: '#999',
-                minHeight: '150px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '14px'
-              }}>
-                🖼️ Кітап суреті<br/>көрінеді
-              </div>
-            )}
-          </div>
-        </div>
-
-        <button 
-          onClick={addBook} 
+  <h3>📚 Кітап қосу</h3>
+  
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+    {/* Left Column */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <input
+        placeholder="Кітап атауы *"
+        value={newBook.title}
+        onChange={e => setNewBook({ ...newBook, title: e.target.value })}
+        style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
+      />
+      <input
+        placeholder="Автор"
+        value={newBook.author}
+        onChange={e => setNewBook({ ...newBook, author: e.target.value })}
+        style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
+      />
+      <input
+        type="number"
+        min={1}
+        placeholder="Беру мерзімі (күн) *"
+        value={newBook.borrow_days}
+        onChange={e => setNewBook({ ...newBook, borrow_days: parseInt(e.target.value, 10) || 1 })}
+        style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
+      />
+      <select
+        value={newBook.community_id}
+        onChange={e => {
+          const value = e.target.value;
+          setNewBook({ ...newBook, community_id: value });
+        }}
+        style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }}
+      >
+        <option value="">-- Қоғамдастық таңдаңыз ({communities.length} бар) --</option>
+        {communities.length > 0 ? (
+          communities.map((c, index) => {
+            const communityId = c.id || c._id;
+            return (
+              <option key={communityId || index} value={communityId}>
+                {c.name} (ID: {communityId})
+              </option>
+            );
+          })
+        ) : (
+          <option value="" disabled>Қоғамдастықтар жоқ!</option>
+        )}
+      </select>
+      
+      {/* Initial Holder Selection - NEW */}
+      <div style={{ 
+        padding: '12px', 
+        backgroundColor: '#fff3cd', 
+        borderRadius: '4px',
+        border: '1px solid #ffc107'
+      }}>
+        <label style={{ 
+          display: 'block', 
+          marginBottom: '8px', 
+          fontSize: '13px',
+          fontWeight: 'bold',
+          color: '#856404'
+        }}>
+          🏠 Кітапты қайдан алуға болады? *
+        </label>
+        <select
+          value={newBook.initial_holder_id || ''}
+          onChange={e => setNewBook({ ...newBook, initial_holder_id: e.target.value })}
           style={{ 
-            padding: '12px 24px', 
-            cursor: 'pointer', 
-            backgroundColor: '#2196F3', 
-            color: 'white', 
-            border: 'none', 
+            width: '100%',
+            padding: '10px', 
+            border: '1px solid #ddd', 
             borderRadius: '4px',
-            fontWeight: 'bold',
-            fontSize: '15px'
+            backgroundColor: 'white'
           }}
         >
-          ➕ Кітап қосу
-        </button>
-
-        <div style={{ 
-          marginTop: '15px', 
-          padding: '12px', 
-          backgroundColor: '#e3f2fd', 
-          borderRadius: '4px',
-          fontSize: '13px', 
-          color: '#1976d2' 
-        }}>
-          💡 <strong>Кітап суретін қалай қосамын?</strong><br/>
-          1. Кітап суретін интернетке жүктеңіз (imgur.com, imgbb.com, postimages.org)<br/>
-          2. Сурет сілтемесін (URL) көшіріп, "Кітап суреті" өрісіне қойыңыз<br/>
-          3. Немесе Google Images-тен сурет тауып, оң жақпен басып "Copy image address" таңдаңыз<br/>
-          4. Мысал: https://covers.openlibrary.org/b/id/12345-L.jpg
+          <option value="">-- Қолданушы таңдаңыз --</option>
+          {users.filter(u => u.role !== 'admin').map(u => (
+            <option key={u.id} value={u.id}>
+              {u.name} - {u.phone || u.email}
+            </option>
+          ))}
+        </select>
+        <div style={{ fontSize: '11px', color: '#856404', marginTop: '6px' }}>
+          💡 Кітапты осы адамнан алуға болады (ол алғаш иесі)
         </div>
-      </section>
+      </div>
+    </div>
+
+    {/* Right Column - Image */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <input
+        placeholder="Кітап суреті (URL)"
+        value={newBook.image_url}
+        onChange={e => setNewBook({ ...newBook, image_url: e.target.value })}
+        style={{ padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}
+      />
+
+      {newBook.image_url ? (
+        <div style={{ 
+          padding: '10px', 
+          border: '1px solid #ddd', 
+          borderRadius: '4px',
+          backgroundColor: 'white',
+          textAlign: 'center',
+          minHeight: '150px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <img 
+            src={newBook.image_url} 
+            alt="Кітап суреті"
+            style={{ 
+              maxWidth: '100%', 
+              maxHeight: '200px', 
+              objectFit: 'contain',
+              borderRadius: '4px'
+            }}
+            onError={(e) => {
+              e.target.style.display = 'none';
+              const parent = e.target.parentElement;
+              parent.innerHTML = '<div style="padding: 20px; color: #f44336; text-align: center;">❌ Сурет жүктелмеді<br/><small>URL тексеріңіз</small></div>';
+            }}
+          />
+        </div>
+      ) : (
+        <div style={{ 
+          padding: '20px', 
+          border: '1px dashed #ddd', 
+          borderRadius: '4px',
+          backgroundColor: '#fafafa',
+          textAlign: 'center',
+          color: '#999',
+          minHeight: '150px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '14px'
+        }}>
+          🖼️ Кітап суреті<br/>көрінеді
+        </div>
+      )}
+    </div>
+  </div>
+
+  <button 
+    onClick={addBook} 
+    style={{ 
+      padding: '12px 24px', 
+      cursor: 'pointer', 
+      backgroundColor: '#2196F3', 
+      color: 'white', 
+      border: 'none', 
+      borderRadius: '4px',
+      fontWeight: 'bold',
+      fontSize: '15px'
+    }}
+  >
+    ➕ Кітап қосу
+  </button>
+
+  <div style={{ 
+    marginTop: '15px', 
+    padding: '12px', 
+    backgroundColor: '#e3f2fd', 
+    borderRadius: '4px',
+    fontSize: '13px', 
+    color: '#1976d2' 
+  }}>
+    💡 <strong>Кітап қосу нұсқаулығы:</strong><br/>
+    1. Кітап суретін жүктеңіз (imgur.com, imgbb.com)<br/>
+    2. Кітапты қайдан алуға болатынын көрсетіңіз (қолданушы таңдаңыз)<br/>
+    3. Егер кітап басқа адамға берілсе, соңғы иесі автоматты түрде жаңартылады
+  </div>
+</section>
+
 
       {/* Assign/Return Book */}
       <section style={{ marginTop: '16px', padding: '16px', border: '1px solid #ddd', borderRadius: '8px' }}>

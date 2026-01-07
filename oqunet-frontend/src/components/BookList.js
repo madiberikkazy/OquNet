@@ -651,7 +651,7 @@ const BookList = () => {
                     marginBottom: '15px'
                   }}>
                     <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#856404', marginBottom: '10px' }}>
-                      ⚠️ Кітап алынған
+                      ⚠️ Кітап алынған (қазір басқа адамда)
                     </div>
                     
                     <div style={{ marginBottom: '10px' }}>
@@ -707,6 +707,28 @@ const BookList = () => {
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
                     💡 Кітапты алғыңыз келсе, жоғарыдағы нөмірге хабарласыңыз
                   </div>
+
+                  {/* Show initial holder info */}
+                  {selectedBook.initialHolder && (
+                    <div style={{ 
+                      padding: '12px', 
+                      backgroundColor: '#e8f5e9', 
+                      borderRadius: '8px',
+                      marginBottom: '15px'
+                    }}>
+                      <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#2e7d32', marginBottom: '8px' }}>
+                        🏠 Кітапты алғаш қайдан алған
+                      </div>
+                      <div style={{ fontSize: '13px', marginBottom: '4px' }}>
+                        <strong>{selectedBook.initialHolder.name}</strong>
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#666' }}>
+                        📞 <a href={`tel:${selectedBook.initialHolder.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
+                          {selectedBook.initialHolder.phone}
+                        </a>
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div style={{ 
@@ -722,7 +744,56 @@ const BookList = () => {
                     Кітапты {selectedBook.borrow_days} күнге алуға болады
                   </div>
                 </div>
+
               )}
+                {selectedBook.initialHolder ? (
+                  <div style={{ 
+                    padding: '15px', 
+                    backgroundColor: '#e3f2fd', 
+                    borderRadius: '8px',
+                    marginBottom: '20px',
+                    border: '2px solid #2196F3'
+                  }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#1976d2', marginBottom: '10px' }}>
+                      🏠 Кітапты қайдан алуға болады?
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      <div style={{ fontSize: '12px', color: '#1976d2', marginBottom: '4px' }}>Адам:</div>
+                      <div style={{ fontSize: '15px', fontWeight: '500' }}>{selectedBook.initialHolder.name}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '12px', color: '#1976d2', marginBottom: '4px' }}>Телефон:</div>
+                      <div style={{ fontSize: '15px', fontWeight: '500' }}>
+                        <a href={`tel:${selectedBook.initialHolder.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
+                          📞 {selectedBook.initialHolder.phone}
+                        </a>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#1976d2', marginTop: '10px' }}>
+                      💡 Осы адамға хабарласып кітапты алыңыз
+                    </div>
+                  </div>
+                ) : selectedBook.history && selectedBook.history.length > 0 && selectedBook.history[0].borrower ? (
+                  <div style={{ 
+                    padding: '12px', 
+                    backgroundColor: '#f0f0f0', 
+                    borderRadius: '8px',
+                    marginBottom: '15px'
+                  }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '8px' }}>
+                      📚 Соңғы қолданушы (қайтарып берген)
+                    </div>
+                    <div style={{ fontSize: '13px', marginBottom: '4px' }}>
+                      <strong>{selectedBook.history[0].borrower.name}</strong>
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#666' }}>
+                      📞 <a href={`tel:${selectedBook.history[0].borrower.phone}`} style={{ color: '#2196F3', textDecoration: 'none' }}>
+                        {selectedBook.history[0].borrower.phone}
+                      </a>
+                    </div>
+                  </div>
+                ) : null}
+              )
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
                 {!selectedBook.current_holder_id && (

@@ -1,4 +1,4 @@
-// src/controllers/bookController.js - WITH PERMISSION CHECKS
+// src/controllers/bookController.js - WITH FIXED ASSOCIATIONS
 const { User, Book, Community } = require('../models');
 const db = require('../models');
 
@@ -45,7 +45,6 @@ const borrowBook = async (req, res) => {
   const userId = req.user.id;
 
   try {
-    // First check if user already has a borrowed book
     const userCurrentBook = await Book.findOne({
       where: { current_holder_id: userId }
     });
@@ -59,8 +58,23 @@ const borrowBook = async (req, res) => {
 
     const book = await Book.findByPk(book_id, {
       include: [
-        { model: User, as: 'holder', attributes: ['id', 'name', 'phone'] },
-        { model: Community, attributes: ['id', 'name'] }
+        { 
+          model: User, 
+          as: 'holder', 
+          attributes: ['id', 'name', 'phone'],
+          required: false
+        },
+        { 
+          model: User, 
+          as: 'initialHolder', 
+          attributes: ['id', 'name', 'phone'],
+          required: false
+        },
+        { 
+          model: Community, 
+          attributes: ['id', 'name'],
+          required: false
+        }
       ]
     });
 
@@ -68,7 +82,6 @@ const borrowBook = async (req, res) => {
       return res.status(404).json({ message: 'Кітап табылмады' });
     }
 
-    // Check if book is already borrowed
     if (book.current_holder_id) {
       return res.status(400).json({ 
         message: `Кітап басқа адамда: ${book.holder.name}`,
@@ -76,21 +89,33 @@ const borrowBook = async (req, res) => {
       });
     }
 
-    // Check if book is in user's community
     if (req.user.role !== 'admin' && book.community_id !== req.user.community_id) {
       return res.status(403).json({ message: 'Бұл кітап басқа қоғамдастыққа тиесілі' });
     }
 
-    // Assign book to user
     book.current_holder_id = userId;
     book.borrowed_at = new Date();
     await book.save();
 
-    // Reload with associations
     await book.reload({
       include: [
-        { model: User, as: 'holder', attributes: ['id', 'name', 'phone'] },
-        { model: Community, attributes: ['id', 'name'] }
+        { 
+          model: User, 
+          as: 'holder', 
+          attributes: ['id', 'name', 'phone'],
+          required: false
+        },
+        { 
+          model: User, 
+          as: 'initialHolder', 
+          attributes: ['id', 'name', 'phone'],
+          required: false
+        },
+        { 
+          model: Community, 
+          attributes: ['id', 'name'],
+          required: false
+        }
       ]
     });
 
@@ -116,12 +141,10 @@ const returnMyBook = async (req, res) => {
       return res.status(404).json({ message: 'Кітап табылмады' });
     }
 
-    // Check if user is the current holder
     if (book.current_holder_id !== userId) {
       return res.status(403).json({ message: 'Бұл кітап сізде жоқ' });
     }
 
-    // Save to history
     await db.BookHistory.create({
       book_id: book.id,
       user_id: userId,
@@ -143,12 +166,11 @@ const returnMyBook = async (req, res) => {
   }
 };
 
-// Get all books (admin or filtered by community for users)
+// Get all books
 const getAllBooks = async (req, res) => {
   try {
     const where = {};
     
-    // If user is not admin, filter by their community
     if (req.user.role !== 'admin') {
       where.community_id = req.user.community_id;
     }
@@ -156,14 +178,30 @@ const getAllBooks = async (req, res) => {
     const books = await Book.findAll({
       where,
       include: [
-        { model: User, as: 'holder', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: Community, attributes: ['id', 'name'] }
+        { 
+          model: User, 
+          as: 'holder', 
+          attributes: ['id', 'name', 'email', 'phone'],
+          required: false
+        },
+        { 
+          model: User, 
+          as: 'initialHolder', 
+          attributes: ['id', 'name', 'email', 'phone'],
+          required: false
+        },
+        { 
+          model: Community, 
+          attributes: ['id', 'name'],
+          required: false
+        }
       ],
       order: [['id', 'ASC']]
     });
     
     res.json({ books: books.map(b => b.toJSON()) });
   } catch (err) {
+    console.error('Get all books error:', err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -173,7 +211,6 @@ const getBooksByCommunity = async (req, res) => {
   const { communityId } = req.params;
   
   try {
-    // Check if user has access to this community
     if (req.user.role !== 'admin' && req.user.community_id !== parseInt(communityId)) {
       return res.status(403).json({ message: 'Басқа қоғамдастықтың кітаптарын көре алмайсыз' });
     }
@@ -181,14 +218,38 @@ const getBooksByCommunity = async (req, res) => {
     const books = await Book.findAll({
       where: { community_id: communityId },
       include: [
-        { model: User, as: 'holder', attributes: ['id', 'name', 'email', 'phone'] },
-        { model: Community, attributes: ['id', 'name'] },
+        { 
+          model: User, 
+          as: 'holder', 
+          attributes: ['id', 'name', 'email', 'phone'],
+          required: false
+        },
+        { 
+          model: User, 
+          as: 'initialHolder', 
+          attributes: ['id', 'name', 'email', 'phone'],
+          required: false
+        },
+        { 
+          model: Community, 
+          attributes: ['id', 'name'],
+          required: false
+        },
         { 
           model: db.BookHistory, 
           as: 'history',
-          include: [{ model: User, as: 'borrower', attributes: ['id', 'name', 'phone'] }],
+          include: [
+            { 
+              model: User, 
+              as: 'borrower', 
+              attributes: ['id', 'name', 'phone'],
+              required: false
+            }
+          ],
+          separate: true,
           order: [['returned_at', 'DESC']],
-          limit: 1
+          limit: 1,
+          required: false
         }
       ],
       order: [['id', 'ASC']]
@@ -196,20 +257,19 @@ const getBooksByCommunity = async (req, res) => {
 
     res.json({ books: books.map(b => b.toJSON()) });
   } catch (err) {
+    console.error('Get books by community error:', err);
     res.status(500).json({ message: err.message });
   }
 };
 
-// Add book - WITH PERMISSION CHECK
+// Add book - WITH INITIAL HOLDER
 const addBook = async (req, res) => {
-  const { title, author, community_id, borrow_days, image_url, genre } = req.body;
+  const { title, author, community_id, borrow_days, image_url, genre, initial_holder_id } = req.body;
   
   try {
-    // Check permissions
     const isAdmin = req.user.role === 'admin';
     
     if (!isAdmin) {
-      // If not admin, check if user is the owner of this community
       const community = await Community.findByPk(community_id);
       
       if (!community) {
@@ -229,7 +289,20 @@ const addBook = async (req, res) => {
       community_id,
       borrow_days: borrow_days || 14,
       image_url: image_url || null,
-      genre: genre || null
+      genre: genre || null,
+      initial_holder_id: initial_holder_id || null
+    });
+    
+    // Reload with associations
+    await book.reload({
+      include: [
+        { 
+          model: User, 
+          as: 'initialHolder', 
+          attributes: ['id', 'name', 'email', 'phone'],
+          required: false
+        }
+      ]
     });
     
     res.json({ message: 'Book қосылды', book: book.toJSON() });
@@ -239,20 +312,24 @@ const addBook = async (req, res) => {
   }
 };
 
-// Delete book - WITH PERMISSION CHECK
+// Delete book
 const deleteBook = async (req, res) => {
   const { id } = req.params;
   
   try {
     const book = await Book.findByPk(id, {
-      include: [{ model: Community }]
+      include: [
+        { 
+          model: Community,
+          required: false
+        }
+      ]
     });
     
     if (!book) {
       return res.status(404).json({ message: 'Book табылмады' });
     }
     
-    // Check permissions
     const isAdmin = req.user.role === 'admin';
     const isOwner = book.Community && book.Community.owner_id === req.user.id;
     
@@ -270,7 +347,6 @@ const deleteBook = async (req, res) => {
   }
 };
 
-// IMPORTANT: Export all functions
 module.exports = { 
   assignBook, 
   returnBook, 

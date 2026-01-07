@@ -51,12 +51,26 @@ exports.createCommunity = async (req, res) => {
 
     // Reload with owner info
     await community.reload({
-      include: [{ model: db.User, as: 'owner', attributes: ['id', 'name', 'email'] }]
+      include: [
+        { 
+          model: db.User, 
+          as: 'owner', 
+          attributes: ['id', 'name', 'email'],
+          required: false
+        }
+      ]
     });
 
     // Get updated user with community
     const updatedUser = await db.User.findByPk(userId, {
-      include: [{ model: db.Community, as: 'community', attributes: ['id', 'name', 'access_code'] }]
+      include: [
+        { 
+          model: db.Community, 
+          as: 'community', 
+          attributes: ['id', 'name', 'access_code'],
+          required: false
+        }
+      ]
     });
     
     console.log('✅ Community created by user:', community.toJSON());
@@ -185,7 +199,8 @@ exports.getAllCommunities = async (req, res) => {
         { 
           model: db.User, 
           as: 'owner', 
-          attributes: ['id', 'name', 'email'] 
+          attributes: ['id', 'name', 'email'],
+          required: false
         }
       ],
       order: [['id', 'ASC']]

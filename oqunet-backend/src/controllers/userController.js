@@ -1,4 +1,4 @@
-// src/controllers/userController.js
+// src/controllers/userController.js - WITH FIXED ASSOCIATIONS
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../models');
@@ -9,7 +9,14 @@ exports.login = async (req, res) => {
   try {
     const user = await db.User.findOne({ 
       where: { email },
-      include: [{ model: db.Community, as: 'community', attributes: ['id', 'name'] }]
+      include: [
+        { 
+          model: db.Community, 
+          as: 'community', 
+          attributes: ['id', 'name'],
+          required: false
+        }
+      ]
     });
     
     if (!user) return res.status(400).json({ message: 'User табылмады' });
@@ -62,13 +69,10 @@ exports.deleteUser = async (req, res) => {
     const user = await db.User.findByPk(id);
     if (!user) return res.status(404).json({ message: 'User табылмады' });
 
-    // Check if user is admin - can't delete admin
     if (user.role === 'admin') {
       return res.status(403).json({ message: 'Админ аккаунтын өшіруге болмайды' });
     }
 
-    // Check if requesting user has permission
-    // Admin can delete anyone, user can only delete themselves
     if (req.user.role !== 'admin' && req.user.id !== user.id) {
       return res.status(403).json({ message: 'Рұқсат жоқ' });
     }
@@ -85,7 +89,14 @@ exports.getAllUsers = async (req, res) => {
   try {
     const users = await db.User.findAll({
       attributes: ['id', 'name', 'email', 'phone', 'role', 'community_id'],
-      include: [{ model: db.Community, as: 'community', attributes: ['name'] }]
+      include: [
+        { 
+          model: db.Community, 
+          as: 'community', 
+          attributes: ['name'],
+          required: false
+        }
+      ]
     });
     res.json({ users });
   } catch (err) {
@@ -93,7 +104,6 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-// Update user profile
 exports.updateProfile = async (req, res) => {
   const userId = req.user.id;
   const { name, email, phone } = req.body;
@@ -107,7 +117,6 @@ exports.updateProfile = async (req, res) => {
       return res.status(404).json({ message: 'User табылмады' });
     }
 
-    // Check if email is being changed and if it's already taken
     if (email && email !== user.email) {
       const existingUser = await db.User.findOne({ where: { email } });
       if (existingUser) {
@@ -116,7 +125,6 @@ exports.updateProfile = async (req, res) => {
       }
     }
 
-    // Update fields
     if (name) user.name = name;
     if (email) user.email = email;
     if (phone) user.phone = phone;
@@ -124,10 +132,16 @@ exports.updateProfile = async (req, res) => {
     await user.save();
     console.log('User updated successfully:', userId);
 
-    // Return updated user with community
     const updatedUser = await db.User.findByPk(userId, {
       attributes: ['id', 'name', 'email', 'phone', 'role', 'community_id'],
-      include: [{ model: db.Community, as: 'community', attributes: ['id', 'name'] }]
+      include: [
+        { 
+          model: db.Community, 
+          as: 'community', 
+          attributes: ['id', 'name'],
+          required: false
+        }
+      ]
     });
 
     console.log('Returning updated user:', updatedUser.toJSON());
@@ -142,7 +156,6 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// Join community with access code
 exports.joinCommunity = async (req, res) => {
   const userId = req.user.id;
   const { access_code } = req.body;
@@ -155,7 +168,6 @@ exports.joinCommunity = async (req, res) => {
       return res.status(400).json({ message: 'Сіз қазірдің өзінде қоғамдастыққа қосылғансыз' });
     }
 
-    // Find community by access code
     const community = await db.Community.findOne({ where: { access_code: access_code.toUpperCase() } });
     if (!community) {
       return res.status(404).json({ message: 'Қате код. Қоғамдастық табылмады' });
@@ -164,10 +176,16 @@ exports.joinCommunity = async (req, res) => {
     user.community_id = community.id;
     await user.save();
 
-    // Return updated user with community
     const updatedUser = await db.User.findByPk(userId, {
       attributes: ['id', 'name', 'email', 'phone', 'role', 'community_id'],
-      include: [{ model: db.Community, as: 'community', attributes: ['id', 'name', 'access_code'] }]
+      include: [
+        { 
+          model: db.Community, 
+          as: 'community', 
+          attributes: ['id', 'name', 'access_code'],
+          required: false
+        }
+      ]
     });
 
     res.json({ 
@@ -180,13 +198,18 @@ exports.joinCommunity = async (req, res) => {
   }
 };
 
-// Leave community
 exports.leaveCommunity = async (req, res) => {
   const userId = req.user.id;
 
   try {
     const user = await db.User.findByPk(userId, {
-      include: [{ model: db.Community, as: 'community' }]
+      include: [
+        { 
+          model: db.Community, 
+          as: 'community',
+          required: false
+        }
+      ]
     });
     
     if (!user) return res.status(404).json({ message: 'User табылмады' });
@@ -195,7 +218,6 @@ exports.leaveCommunity = async (req, res) => {
       return res.status(400).json({ message: 'Сіз ешбір қоғамдастыққа қосылмағансыз' });
     }
 
-    // Check if user has borrowed books
     const borrowedBook = await db.Book.findOne({ where: { current_holder_id: userId } });
     if (borrowedBook) {
       return res.status(400).json({ 
@@ -207,7 +229,6 @@ exports.leaveCommunity = async (req, res) => {
     user.community_id = null;
     await user.save();
 
-    // Return updated user
     const updatedUser = await db.User.findByPk(userId, {
       attributes: ['id', 'name', 'email', 'phone', 'role', 'community_id']
     });

@@ -22,7 +22,7 @@ const CommunityManager = ({ onUserUpdate, onBack }) => {
   });
 
   const [newBook, setNewBook] = useState({
-    title: '', author: '', borrow_days: 14, genre: '', image_url: ''
+    title: '', author: '', borrow_days: 14, genre: '', image_url: '',  initial_holder_id: ''
   });
 
   const [bookErrors, setBookErrors] = useState({});

@@ -23,6 +23,10 @@ db.Message = require('./messages')(sequelize, DataTypes);
 db.Book.belongsTo(db.User, { as: 'holder', foreignKey: 'current_holder_id' });
 db.User.hasMany(db.Book, { as: 'borrowedBooks', foreignKey: 'current_holder_id' });
 
+// Book -> User (initial holder)
+db.Book.belongsTo(db.User, { as: 'initialHolder', foreignKey: 'initial_holder_id' });
+db.User.hasMany(db.Book, { as: 'initiallyHeldBooks', foreignKey: 'initial_holder_id' });
+
 // Book -> User (pending transfer)
 db.Book.belongsTo(db.User, { as: 'pendingUser', foreignKey: 'pending_user_id' });
 
