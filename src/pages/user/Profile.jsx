@@ -121,30 +121,6 @@ export default function Profile() {
         />
       </div>
 
-      {/* Audio books — Smart TTS reader */}
-      <div className="px-4 mt-4">
-        <Link
-          to="/profile/audio"
-          className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-surface border-2 border-brand-200 hover:bg-brand-50 transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3">
-            <span className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-brand-500">
-                <path d="M3 10v4a2 2 0 0 0 2 2h2l4 4V4L7 8H5a2 2 0 0 0-2 2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                <path d="M15.5 8.5a4 4 0 0 1 0 7M18.5 5.5a8 8 0 0 1 0 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            </span>
-            <div className="text-left">
-              <p className="text-[14px] font-semibold">Аудиокниги</p>
-              <p className="text-[12px] text-ink-500">Слушать PDF · KK · RU · EN</p>
-            </div>
-          </div>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-ink-400 flex-shrink-0">
-            <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </Link>
-      </div>
-
       {/* Admin switch-back banner */}
       {isViewingAsUser && (
         <div className="px-4 mt-4">
