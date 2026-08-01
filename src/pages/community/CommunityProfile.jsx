@@ -9,6 +9,7 @@ import {
   getCommunity, listUsersByCommunity, listPostsByCommunity, listBooks,
   createJoinRequest, createNotification, getActiveBorrowingForUser,
 } from "../../firebase/firestore.js";
+import { t } from "../../utils/i18n.js";
 
 const TABS = ["posts", "books", "members"];
 
@@ -200,10 +201,17 @@ export default function CommunityProfile() {
 
         {/* Action button */}
         <div className="mt-3">
-          {isMember || isOwner ? (
+          {isOwner ? (
             <div className="w-full py-2 rounded-xl bg-ink-100 text-center text-[14px] font-semibold text-ink-600">
-              {isOwner ? "Сіз — Администратор" : "Мүшесіз"}
+              Сіз — Администратор
             </div>
+          ) : isMember ? (
+            <button
+              onClick={() => navigate(`/community/${id}/leave`)}
+              className="w-full py-2 rounded-xl bg-badSoft text-bad text-[14px] font-semibold active:scale-[0.99] transition"
+            >
+              {t.exitCommunity}
+            </button>
           ) : joinDone ? (
             <div className="w-full py-2 rounded-xl bg-ok/10 text-center text-[14px] font-semibold text-ok">
               ✓ Өтініш жіберілді

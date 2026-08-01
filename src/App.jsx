@@ -31,6 +31,7 @@ import AdminMembers from "./pages/admin/AdminMembers.jsx";
 import CreateCommunity from "./pages/community/CreateCommunity.jsx";
 import JoinCommunity from "./pages/community/JoinCommunity.jsx";
 import CommunityProfile from "./pages/community/CommunityProfile.jsx";
+import LeaveCommunity from "./pages/community/LeaveCommunity.jsx";
 import UserProfile from "./pages/community/UserProfile.jsx";
 
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="/community/create" element={<CreateCommunity />} />
           <Route path="/community/join" element={<JoinCommunity />} />
           <Route path="/community/:id" element={<CommunityProfile />} />
+          <Route path="/community/:id/leave" element={<LeaveCommunity />} />
           <Route path="/users/:id" element={<UserProfile />} />
         </Route>
 
