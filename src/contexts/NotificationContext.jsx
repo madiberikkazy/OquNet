@@ -1,81 +1,86 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "./AuthContext.jsx";
 import { listNotifications } from "../firebase/firestore.js";
 import { sendNotification } from "../utils/notificationService.js";
+import { qk } from "../lib/queryKeys.js";
+
+// React Query owns the notification list now. Benefits:
+// - No 3-second polling: refetchInterval only fires while tab is visible,
+//   and refetchOnWindowFocus catches the "user just came back" case.
+// - Instant renders on route return (staleTime + persisted cache).
+// - Dedupe: multiple `useNotifications()` consumers share one fetch.
+// - Consumers keep the same public shape as before.
 
 const NotificationContext = createContext(null);
 
+const REFETCH_INTERVAL = 15_000;
+
 export function NotificationProvider({ children }) {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const prevUnreadIdsRef = useRef(new Set());
 
-  // Load notifications from Firebase
-  const loadNotifications = useCallback(async () => {
-    if (!user?.id) return;
-    
-    setLoading(true);
-    try {
-      const items = await listNotifications(user.id);
-      setNotifications(items);
-      
-      // Count unread
-      const unread = items.filter(n => !n.read).length;
-      setUnreadCount(unread);
-    } catch (err) {
-      console.error("Error loading notifications:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
+  const query = useQuery({
+    queryKey: user?.id ? qk.notifications.forUser(user.id) : ["notifications", "anonymous"],
+    queryFn: () => listNotifications(user.id),
+    enabled: !!user?.id,
+    // Match app-wide defaults but poll while the tab is visible so the badge
+    // stays approximately live without hammering Firestore.
+    refetchInterval: REFETCH_INTERVAL,
+    refetchIntervalInBackground: false,
+    staleTime: 10_000,
+  });
 
-  // Initial load
+  const notifications = query.data ?? [];
+  const unreadCount = useMemo(
+    () => notifications.reduce((n, x) => n + (x.read ? 0 : 1), 0),
+    [notifications]
+  );
+
+  // Fire a system notification when a NEW unread item shows up (id-based diff,
+  // not a count comparison — count-based diffs miscount on read/delete).
   useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
-
-  // Listen for new notifications (polling every 3 seconds)
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const interval = setInterval(() => {
-      loadNotifications();
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [user?.id, loadNotifications]);
-
-  // Show browser notification when new unread notification arrives
-  useEffect(() => {
-    const unread = notifications.filter(n => !n.read);
-    if (unread.length > unreadCount && unreadCount > 0) {
-      const newest = unread[0];
-      if (newest) {
-        sendNotification(newest.title, {
-          body: newest.body,
-          tag: `notification-${newest.id}`,
+    const currentIds = new Set(
+      notifications.filter((n) => !n.read).map((n) => n.id)
+    );
+    if (prevUnreadIdsRef.current.size > 0) {
+      const fresh = notifications.find((n) => !n.read && !prevUnreadIdsRef.current.has(n.id));
+      if (fresh) {
+        sendNotification(fresh.title, {
+          body: fresh.body,
+          tag: `notification-${fresh.id}`,
         });
       }
     }
-  }, [notifications, unreadCount]);
-
-  const markAllAsRead = useCallback(async () => {
-    const updated = notifications.map(n => ({ ...n, read: true }));
-    setNotifications(updated);
-    setUnreadCount(0);
+    prevUnreadIdsRef.current = currentIds;
   }, [notifications]);
 
+  const loadNotifications = useCallback(async () => {
+    if (!user?.id) return;
+    await queryClient.invalidateQueries({ queryKey: qk.notifications.forUser(user.id) });
+  }, [queryClient, user?.id]);
+
+  const markAllAsRead = useCallback(() => {
+    if (!user?.id) return;
+    queryClient.setQueryData(qk.notifications.forUser(user.id), (prev = []) =>
+      prev.map((n) => ({ ...n, read: true }))
+    );
+  }, [queryClient, user?.id]);
+
+  const value = useMemo(
+    () => ({
+      notifications,
+      unreadCount,
+      loading: query.isLoading,
+      loadNotifications,
+      markAllAsRead,
+    }),
+    [notifications, unreadCount, query.isLoading, loadNotifications, markAllAsRead]
+  );
+
   return (
-    <NotificationContext.Provider 
-      value={{ 
-        notifications, 
-        unreadCount, 
-        loading, 
-        loadNotifications,
-        markAllAsRead 
-      }}
-    >
+    <NotificationContext.Provider value={value}>
       {children}
     </NotificationContext.Provider>
   );

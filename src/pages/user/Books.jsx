@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import BookCard from "../../components/BookCard.jsx";
@@ -9,9 +9,9 @@ import { useLang } from "../../contexts/LanguageContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listBooks, updateUser, listRatingsForBooks } from "../../firebase/firestore.js";
 import { t, GENRES, genreLabel } from "../../utils/i18n.js";
-import { debounce, mergeUniqueArrays } from "../../utils/performanceHelpers.js";
-import { cacheService } from "../../utils/cacheService.js";
 import { useInfiniteScroll } from "../../utils/useIntersectionHooks.js";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { qk } from "../../lib/queryKeys.js";
 
 const STATUS_OPTIONS = [
   { v: null,          labelKey: "allBooks"          },
@@ -20,195 +20,122 @@ const STATUS_OPTIONS = [
   { v: "unavailable", labelKey: "statusUnavailable" },
 ];
 
-const PAGE_SIZE = 25; // Load 25 items per page
-const CACHE_TTL = 3 * 60 * 1000; // Cache for 3 minutes
+const PAGE_SIZE = 25;
+
+// The search text updates every keystroke, but we don't want to refire the
+// query on every character — this delays the value used as a query key until
+// typing pauses.
+function useDebounced(value, delay = 300) {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const h = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(h);
+  }, [value, delay]);
+  return v;
+}
 
 export default function Books() {
   const { user, refresh } = useAuth();
   const { community } = useCommunity();
   useLang();
+  const queryClient = useQueryClient();
 
-  const [books, setBooks] = useState([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState(null);
   const [genres, setGenres] = useState([]);
   const [filterOpen, setFilterOpen] = useState(false);
 
-  // Pagination state
-  const [cursor, setCursor] = useState(null);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingInitial, setLoadingInitial] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-
-  // Draft state for filters
   const [draftStatus, setDraftStatus] = useState(null);
   const [draftGenres, setDraftGenres] = useState([]);
 
   const isFilterActive = status !== null || genres.length > 0;
+  const debouncedSearch = useDebounced(search, 300);
 
-  // Generate cache key for current filters
-  const getCacheKey = useCallback(() => {
-    return `books:${community?.id || ""}:${search}:${status || ""}:${genres.join(",")}`;
-  }, [community?.id, search, status, genres]);
-
-  // Debounced search handler
-  const debouncedSearch = useMemo(
-    () => debounce((searchTerm) => {
-      setBooks([]);
-      setCursor(null);
-      setHasMore(true);
-      // Clear cache for this search
-      cacheService.clearPattern(`books:${community?.id || ""}`);
-    }, 300),
-    [community?.id]
+  const filters = useMemo(
+    () => ({ search: debouncedSearch, status, genres }),
+    [debouncedSearch, status, genres]
   );
 
-  // Initial load and on filter change
-  useEffect(() => {
-    if (!community?.id) {
-      setBooks([]);
-      setLoadingInitial(false);
-      return;
-    }
-
-    const loadInitial = async () => {
-      setLoadingInitial(true);
-      setCursor(null);
-      setBooks([]);
-      setHasMore(true);
-
-      const cacheKey = getCacheKey();
-      let cachedBooks = cacheService.get(cacheKey);
-
-      if (cachedBooks) {
-        setBooks(cachedBooks);
-        setLoadingInitial(false);
-        return;
-      }
-
-      try {
-        const result = await listBooks({
-          communityId: community.id,
-          search,
-          status,
-          genres,
-          pageSize: PAGE_SIZE,
-        });
-
-        let itemsWithRatings = result.items || [];
-
-        // Batch fetch ratings for all books
-        if (itemsWithRatings.length > 0) {
-          try {
-            const ratingMap = await listRatingsForBooks(
-              itemsWithRatings.map((b) => b.id),
-              5 // concurrency
-            );
-
-            itemsWithRatings = itemsWithRatings.map((b) => ({
-              ...b,
-              rating: ratingMap[b.id]?.average || 0,
-              ratingCount: ratingMap[b.id]?.count || 0,
-            }));
-          } catch (ratingError) {
-            console.error("Error fetching ratings:", ratingError);
-            // Continue without ratings if they fail to load
-            itemsWithRatings = itemsWithRatings.map((b) => ({
-              ...b,
-              rating: 0,
-              ratingCount: 0,
-            }));
-          }
-        }
-
-        // Cache the result
-        cacheService.set(cacheKey, itemsWithRatings, CACHE_TTL);
-
-        setBooks(itemsWithRatings);
-        setCursor(result.nextCursor || null);
-        setHasMore(result.hasMore || false);
-      } catch (error) {
-        console.error("Failed to load books:", error);
-        setBooks([]);
-      } finally {
-        setLoadingInitial(false);
-      }
-    };
-
-    loadInitial();
-  }, [community?.id, search, status, genres, getCacheKey]);
-
-  // Load more handler for infinite scroll
-  const loadMore = useCallback(async () => {
-    if (!community?.id || loadingMore || !hasMore) return;
-
-    setLoadingMore(true);
-
-    try {
+  const listQuery = useInfiniteQuery({
+    queryKey: qk.books.list(community?.id, filters),
+    enabled: !!community?.id,
+    queryFn: async ({ pageParam }) => {
       const result = await listBooks({
         communityId: community.id,
-        search,
-        status,
-        genres,
+        ...filters,
         pageSize: PAGE_SIZE,
-        cursor,
+        cursor: pageParam ?? null,
       });
 
-      let newItems = result.items || [];
+      const items = result.items || [];
+      if (items.length === 0) return { items: [], nextCursor: null, hasMore: false };
 
-      // Batch fetch ratings for new items
-      if (newItems.length > 0) {
-        try {
-          const ratingMap = await listRatingsForBooks(
-            newItems.map((b) => b.id),
-            5 // concurrency
-          );
+      // Ratings are batched per-page. We reuse the ratings cache so switching
+      // filters that reveal the same books doesn't refetch their ratings.
+      const ids = items.map((b) => b.id);
+      const ratingMap = await queryClient.fetchQuery({
+        queryKey: qk.books.ratings(ids),
+        queryFn: () => listRatingsForBooks(ids, 5),
+        staleTime: 5 * 60_000,
+      });
 
-          newItems = newItems.map((b) => ({
-            ...b,
-            rating: ratingMap[b.id]?.average || 0,
-            ratingCount: ratingMap[b.id]?.count || 0,
-          }));
-        } catch (ratingError) {
-          console.error("Error fetching ratings for load more:", ratingError);
-          // Continue without ratings
-          newItems = newItems.map((b) => ({
-            ...b,
-            rating: 0,
-            ratingCount: 0,
-          }));
-        }
-      }
+      const withRatings = items.map((b) => ({
+        ...b,
+        rating: ratingMap[b.id]?.average || 0,
+        ratingCount: ratingMap[b.id]?.count || 0,
+      }));
 
-      setBooks((prev) => mergeUniqueArrays(prev, newItems));
-      setCursor(result.nextCursor || null);
-      setHasMore(result.hasMore || false);
+      return {
+        items: withRatings,
+        nextCursor: result.nextCursor ?? null,
+        hasMore: !!result.hasMore,
+      };
+    },
+    initialPageParam: null,
+    getNextPageParam: (last) => (last.hasMore ? last.nextCursor : undefined),
+  });
 
-      // Update cache
-      const cacheKey = getCacheKey();
-      const cachedBooks = cacheService.get(cacheKey) || [];
-      const updatedBooks = mergeUniqueArrays(cachedBooks, newItems);
-      cacheService.set(cacheKey, updatedBooks, CACHE_TTL);
-    } catch (error) {
-      console.error("Failed to load more books:", error);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [community?.id, search, status, genres, cursor, hasMore, loadingMore, getCacheKey]);
+  const books = useMemo(
+    () => (listQuery.data?.pages || []).flatMap((p) => p.items),
+    [listQuery.data]
+  );
 
-  // Infinite scroll sentinel
   const { sentinelRef } = useInfiniteScroll({
-    onLoadMore: loadMore,
+    onLoadMore: () => {
+      if (listQuery.hasNextPage && !listQuery.isFetchingNextPage) {
+        listQuery.fetchNextPage();
+      }
+    },
     threshold: 300,
   });
 
   const savedSet = useMemo(() => new Set(user?.savedBookIds || []), [user?.savedBookIds]);
 
-  async function onSaveToggle(book) {
-    const next = new Set(savedSet);
-    if (next.has(book.id)) next.delete(book.id); else next.add(book.id);
-    await updateUser(user.id, { savedBookIds: [...next] });
-    refresh();
+  // Optimistic save toggle. UI flips instantly; the network call happens in
+  // the background. On failure, refresh() will pull the true state from Auth.
+  const saveMutation = useMutation({
+    mutationFn: async (nextIds) => {
+      await updateUser(user.id, { savedBookIds: nextIds });
+    },
+    onSuccess: () => refresh(),
+  });
+
+  // Track a local override so the button reflects the optimistic state until
+  // AuthContext refreshes. Once refresh() lands, savedSet takes over again.
+  const pendingSavedRef = useRef(null);
+  const effectiveSaved = pendingSavedRef.current ?? savedSet;
+
+  function onSaveToggle(book) {
+    if (!user?.id) return;
+    const next = new Set(effectiveSaved);
+    if (next.has(book.id)) next.delete(book.id);
+    else next.add(book.id);
+    pendingSavedRef.current = next;
+    saveMutation.mutate([...next], {
+      onSettled: () => {
+        pendingSavedRef.current = null;
+      },
+    });
   }
 
   function removeGenre(v) { setGenres((prev) => prev.filter((g) => g !== v)); }
@@ -237,11 +164,6 @@ export default function Books() {
     );
   }
 
-  function handleSearchChange(newSearch) {
-    setSearch(newSearch);
-    debouncedSearch(newSearch);
-  }
-
   if (!community) {
     return (
       <MobileShell>
@@ -250,18 +172,21 @@ export default function Books() {
     );
   }
 
+  // We never show a full-page spinner if any cached data is available — the
+  // list renders immediately and a background refetch quietly replaces it.
+  const isInitialLoading = listQuery.isLoading && books.length === 0;
+
   return (
     <MobileShell>
       <div className="pb-2">
         <SearchBar
           value={search}
-          onChange={handleSearchChange}
+          onChange={setSearch}
           onFilterClick={openFilter}
           filterActive={isFilterActive}
         />
       </div>
 
-      {/* Active filter chips */}
       {isFilterActive ? (
         <div className="flex flex-wrap gap-2 px-4 pb-2">
           {status ? (
@@ -276,7 +201,7 @@ export default function Books() {
         </div>
       ) : null}
 
-      {loadingInitial ? (
+      {isInitialLoading ? (
         <EmptyState title="Загрузка..." subtitle="" />
       ) : books.length === 0 ? (
         <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
@@ -284,14 +209,13 @@ export default function Books() {
         <ul className="mt-2">
           {books.map((b) => (
             <li key={b.id}>
-              <BookCard book={b} saved={savedSet.has(b.id)} onSaveToggle={onSaveToggle} />
+              <BookCard book={b} saved={effectiveSaved.has(b.id)} onSaveToggle={onSaveToggle} />
             </li>
           ))}
 
-          {/* Infinite scroll sentinel */}
-          {hasMore && (
+          {listQuery.hasNextPage && (
             <li ref={sentinelRef} className="py-4 text-center">
-              {loadingMore ? (
+              {listQuery.isFetchingNextPage ? (
                 <p className="text-ink-400 text-[14px]">{t.loading || "Загрузка..."}</p>
               ) : (
                 <p className="text-ink-400 text-[13px]">Прокрутите для загрузки больше</p>
@@ -301,9 +225,7 @@ export default function Books() {
         </ul>
       )}
 
-      {/* ── Filter modal ── */}
       <Modal open={filterOpen} onClose={() => setFilterOpen(false)} title={t.filterTitle} scrollable>
-        {/* Status — single select */}
         <div className="mb-5">
           <p className="text-[13px] text-ink-500 mb-2">{t.status}</p>
           <div className="flex flex-wrap gap-2">
@@ -324,7 +246,6 @@ export default function Books() {
           </div>
         </div>
 
-        {/* Genre — multi-select */}
         <div className="mb-5">
           <p className="text-[13px] text-ink-500 mb-2">{t.genre}</p>
           <div className="flex flex-wrap gap-2">
@@ -347,7 +268,6 @@ export default function Books() {
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex gap-3 pt-1">
           <button
             onClick={resetDraft}
@@ -367,7 +287,6 @@ export default function Books() {
   );
 }
 
-// ─── Small removable chip ──────────────────────────────────────────────────────
 function Chip({ label, onRemove }) {
   return (
     <span className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1 rounded-full bg-brand-50 text-brand-700 text-[13px] font-medium">

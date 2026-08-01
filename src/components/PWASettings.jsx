@@ -1,23 +1,14 @@
 import { useState, useEffect } from 'react';
 import {
-  isAppInstalled,
-  isOffline,
-  onOnlineStatusChange,
   getPWAInfo,
   clearAllCache,
-  getCacheSize,
   formatBytes,
-  isPWACapable,
-  isInstallPromptAvailable,
   promptInstall,
   requestPersistentStorage,
-  isPersistentStorageAvailable,
-  getStorageEstimate,
 } from '../utils/pwaUtils.js';
 
 export default function PWASettings() {
   const [pwaInfo, setPwaInfo] = useState(null);
-  const [isOnline, setIsOnline] = useState(!isOffline());
   const [loading, setLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
   const [cacheSize, setCacheSize] = useState('0 Bytes');
@@ -40,13 +31,6 @@ export default function PWASettings() {
     }
 
     loadPWAInfo();
-
-    // Listen for online/offline changes
-    const unsubscribe = onOnlineStatusChange((online) => {
-      setIsOnline(online);
-    });
-
-    return unsubscribe;
   }, []);
 
   async function handleClearCache() {
@@ -102,50 +86,6 @@ export default function PWASettings() {
 
   return (
     <div className="space-y-6 pb-32">
-      {/* Status Section */}
-      <section>
-        <h3 className="text-[17px] font-bold mb-4">Статус PWA</h3>
-
-        <div className="space-y-3">
-          {/* Online Status */}
-          <div className="flex items-center justify-between p-3 rounded-lg bg-ink-50">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`} />
-              <span className="text-[14px] text-ink-700">
-                {isOnline ? 'Онлайн' : 'Оффлайн'}
-              </span>
-            </div>
-            <span className="text-[12px] text-ink-500">
-              {isOnline ? 'Подключено к интернету' : 'Нет интернета'}
-            </span>
-          </div>
-
-          {/* Installation Status */}
-          <div className="flex items-center justify-between p-3 rounded-lg bg-ink-50">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${pwaInfo.isInstalled ? 'bg-green-500' : 'bg-amber-500'}`} />
-              <span className="text-[14px] text-ink-700">
-                {pwaInfo.isInstalled ? 'Приложение установлено' : 'Веб-приложение'}
-              </span>
-            </div>
-            <span className="text-[12px] text-ink-500">
-              {pwaInfo.isInstalled ? 'Запущено как приложение' : 'Запущено в браузере'}
-            </span>
-          </div>
-
-          {/* PWA Support */}
-          <div className="flex items-center justify-between p-3 rounded-lg bg-ink-50">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${pwaInfo.isPWACapable ? 'bg-green-500' : 'bg-red-500'}`} />
-              <span className="text-[14px] text-ink-700">PWA поддержка</span>
-            </div>
-            <span className="text-[12px] text-ink-500">
-              {pwaInfo.isPWACapable ? 'Поддерживается' : 'Не поддерживается'}
-            </span>
-          </div>
-        </div>
-      </section>
-
       {/* Installation Section */}
       {pwaInfo.isInstallPromptAvailable && !pwaInfo.isInstalled && (
         <section>
@@ -222,43 +162,6 @@ export default function PWASettings() {
               </button>
             )}
           </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section>
-        <h3 className="text-[17px] font-bold mb-4">Возможности</h3>
-
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-ink-50">
-            <span className="w-4 h-4 rounded border border-ink-300 flex items-center justify-center text-[10px]">
-              ✓
-            </span>
-            <span className="text-[14px] text-ink-700">Работает без интернета</span>
-          </div>
-
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-ink-50">
-            <span className="w-4 h-4 rounded border border-ink-300 flex items-center justify-center text-[10px]">
-              ✓
-            </span>
-            <span className="text-[14px] text-ink-700">Быстрая загрузка</span>
-          </div>
-
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-ink-50">
-            <span className="w-4 h-4 rounded border border-ink-300 flex items-center justify-center text-[10px]">
-              ✓
-            </span>
-            <span className="text-[14px] text-ink-700">Синхронизация в фоне</span>
-          </div>
-
-          {pwaInfo.isPushSupported && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-ink-50">
-              <span className="w-4 h-4 rounded border border-ink-300 flex items-center justify-center text-[10px]">
-                ✓
-              </span>
-              <span className="text-[14px] text-ink-700">Push-уведомления</span>
-            </div>
-          )}
         </div>
       </section>
 

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
@@ -12,6 +13,7 @@ import {
   getActiveBorrowingByBook, getLastCompletedBorrowingByBook, createNotification,
   updateBook, updateBorrowing, addRating,
 } from "../../firebase/firestore.js";
+import { qk } from "../../lib/queryKeys.js";
 import { t, genreLabel } from "../../utils/i18n.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { logger } from "../../utils/logger.js";
@@ -20,152 +22,137 @@ function makeCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
+// Return the millisecond timestamp for a Firestore Timestamp / number / Date /
+// ISO-string. Firestore round-trips can serialize any of these shapes.
+function toMillis(value) {
+  if (value == null) return null;
+  if (typeof value === "number") return value;
+  if (typeof value?.toMillis === "function") return value.toMillis();
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export default function BookDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user, refresh, viewRole } = useAuth();
-  const [book, setBook]             = useState(null);
-  const [owner, setOwner]           = useState(null);
-  const [currentHolder, setCurrentHolder] = useState(null);
-  const [ratings, setRatings]       = useState([]);
-  const [reviews, setReviews]       = useState([]);
-  const [expand, setExpand]         = useState(false);
-  const [requesting, setRequesting] = useState(false);
-  const [pickupRequest, setPickupRequest] = useState(null);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState(null);
-  const [daysLeft, setDaysLeft]     = useState(null);
-  const [borrowingMaxDays, setBorrowingMaxDays] = useState(null);
-  const [activeBorrowing, setActiveBorrowing] = useState(null);
-  const [returning, setReturning]   = useState(false);
+
+  const [expand, setExpand] = useState(false);
+  const [error, setError] = useState(null);
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [returnStars, setReturnStars] = useState(0);
   const [returnHovered, setReturnHovered] = useState(0);
   const [returnReview, setReturnReview] = useState("");
 
+  // Every fetch below is its own cached query. Ownership: React Query holds
+  // the truth, this component just reads slices. Back navigation re-mounts
+  // this page but every query is already populated from cache — no spinner.
+  const bookQuery = useQuery({
+    queryKey: qk.books.detail(id),
+    queryFn: () => getBook(id),
+  });
+  const book = bookQuery.data ?? null;
+
+  const ownerQuery = useQuery({
+    queryKey: qk.users.byId(book?.ownerId),
+    queryFn: () => getUserById(book.ownerId),
+    enabled: !!book?.ownerId,
+  });
+
+  const ratingsQuery = useQuery({
+    queryKey: qk.ratings.forBook(id),
+    queryFn: () => listRatingsForBook(id),
+  });
+  const reviewsQuery = useQuery({
+    queryKey: qk.reviews.forBook(id),
+    queryFn: () => listReviewsForBook(id),
+  });
+
+  const activeBorrowingQuery = useQuery({
+    queryKey: qk.borrowings.activeByBook(id),
+    queryFn: () => getActiveBorrowingByBook(id),
+    enabled: book?.status === "unavailable",
+  });
+  const lastCompletedQuery = useQuery({
+    queryKey: qk.borrowings.lastCompletedByBook(id),
+    queryFn: () => getLastCompletedBorrowingByBook(id),
+    enabled: !!book && book.status !== "unavailable",
+  });
+
+  const activeBorrowing = activeBorrowingQuery.data ?? null;
+  const holderId =
+    book?.status === "unavailable"
+      ? activeBorrowing?.borrowerId
+      : lastCompletedQuery.data?.borrowerId;
+
+  const holderQuery = useQuery({
+    queryKey: qk.users.byId(holderId),
+    queryFn: () => getUserById(holderId),
+    enabled: !!holderId,
+  });
+
+  const pickupRequestQuery = useQuery({
+    queryKey: qk.pickupRequest.byBookAndUser(id, user?.id),
+    queryFn: () => getPickupRequest(id, user.id),
+    enabled: !!user?.id,
+  });
+
+  const ratings = ratingsQuery.data ?? [];
+  const reviews = reviewsQuery.data ?? [];
+  const owner = ownerQuery.data ?? null;
+  const currentHolder = holderQuery.data ?? null;
+  const pickupRequest = pickupRequestQuery.data ?? null;
+
+  // Countdown + auto-return: when the borrowing period has expired, roll the
+  // book back to available in one shot. The mutation writes both server-side
+  // (Firestore) and to the query cache — no page-level state needed.
+  const { daysLeft, borrowingMaxDays } = useMemo(() => {
+    if (!activeBorrowing?.returnDate) return { daysLeft: null, borrowingMaxDays: null };
+    const retTs = toMillis(activeBorrowing.returnDate);
+    if (retTs == null) return { daysLeft: null, borrowingMaxDays: null };
+    const startTs = toMillis(activeBorrowing.startDate) ?? Date.now();
+    return {
+      daysLeft: Math.ceil((retTs - Date.now()) / 86400000),
+      borrowingMaxDays: Math.ceil((retTs - startTs) / 86400000),
+    };
+  }, [activeBorrowing]);
+
   useEffect(() => {
+    if (!activeBorrowing || daysLeft == null || daysLeft > 0) return;
     (async () => {
       try {
-        setLoading(true);
-        setError(null);
-        console.log("BookDetail: Loading book with id:", id);
-
-        const b = await getBook(id);
-        console.log("BookDetail: Got book:", b);
-        
-        if (!b) {
-          setError(t.bookNotFound);
-          setLoading(false);
-          return;
-        }
-        
-        setBook(b);
-        
-        if (b?.ownerId) {
-          try {
-            const ownerData = await getUserById(b.ownerId);
-            if (ownerData) setOwner(ownerData);
-          } catch (err) {
-            console.error("Error loading owner:", err);
-          }
-        }
-        
-        try {
-          const ratingsData = await listRatingsForBook(id);
-          setRatings(ratingsData || []);
-        } catch (err) {
-          console.error("Error loading ratings:", err);
-          setRatings([]);
-        }
-        
-        try {
-          const reviewsData = await listReviewsForBook(id);
-          setReviews(reviewsData || []);
-        } catch (err) {
-          console.error("Error loading reviews:", err);
-          setReviews([]);
-        }
-
-        if (b?.status === "unavailable") {
-          try {
-            const borrowing = await getActiveBorrowingByBook(id);
-            if (borrowing) {
-              setActiveBorrowing(borrowing);
-              // Compute days left
-              if (borrowing.returnDate) {
-                const retTs = typeof borrowing.returnDate === "number"
-                  ? borrowing.returnDate
-                  : new Date(borrowing.returnDate).getTime();
-                const remaining = Math.ceil((retTs - Date.now()) / 86400000);
-                const startTs = borrowing.startDate?.toMillis?.() ?? borrowing.startDate ?? Date.now();
-                const totalDays = Math.ceil((retTs - startTs) / 86400000);
-                setBorrowingMaxDays(totalDays);
-
-                if (remaining <= 0) {
-                  // Auto-return: booking days expired
-                  await updateBook(id, { status: "available", borrowerId: null, holderId: null });
-                  await updateBorrowing(borrowing.id, { status: "completed" });
-                  b.status = "available";
-                  setBook({ ...b, status: "available" });
-                  setDaysLeft(null);
-                } else {
-                  setDaysLeft(remaining);
-                }
-              }
-
-              if (b.status === "unavailable" && borrowing.borrowerId) {
-                const holderData = await getUserById(borrowing.borrowerId);
-                if (holderData) setCurrentHolder(holderData);
-              }
-            }
-          } catch (err) {
-            console.error("Error loading current holder:", err);
-          }
-        } else {
-          try {
-            const last = await getLastCompletedBorrowingByBook(id);
-            if (last?.borrowerId) {
-              const holderData = await getUserById(last.borrowerId);
-              if (holderData) setCurrentHolder(holderData);
-            }
-          } catch (err) {
-            console.error("Error loading last holder:", err);
-          }
-        }
-
-        // Load any existing pending pickup request for this user+book.
-        if (user?.id) {
-          try {
-            const existing = await getPickupRequest(id, user.id);
-            setPickupRequest(existing || null);
-          } catch (err) {
-            console.error("Error loading pickup request:", err);
-          }
-        }
-
-        console.log("BookDetail: Finished loading all data");
-        setLoading(false);
+        await Promise.all([
+          updateBook(id, { status: "available", borrowerId: null, holderId: null }),
+          updateBorrowing(activeBorrowing.id, { status: "completed" }),
+        ]);
+        queryClient.setQueryData(qk.books.detail(id), (b) =>
+          b ? { ...b, status: "available", borrowerId: null, holderId: null } : b
+        );
+        queryClient.setQueryData(qk.borrowings.activeByBook(id), null);
       } catch (err) {
-        logger.error("bookDetail.load", err?.message, { code: err?.code, bookId: id });
-        setError(t.loadFailed);
-        setLoading(false);
+        logger.error("bookDetail.autoReturn", err?.message, { code: err?.code, bookId: id });
       }
     })();
-  }, [id, user?.id]);
+  }, [activeBorrowing, daysLeft, id, queryClient]);
 
   const saved = (user?.savedBookIds || []).includes(id);
 
-  async function toggleSaved() {
-    if (!user?.id) return;
-    try {
-      const set = new Set(user.savedBookIds || []);
-      if (saved) set.delete(id); else set.add(id);
-      await updateUser(user.id, { savedBookIds: [...set] });
-      refresh();
-    } catch (err) {
+  // Optimistic save. Auth state is the source of truth, but React Query gets
+  // the same treatment so any query that includes saved-book ids updates too.
+  const saveMutation = useMutation({
+    mutationFn: async (nextIds) => updateUser(user.id, { savedBookIds: nextIds }),
+    onSuccess: () => refresh(),
+    onError: (err) => {
       logger.error("bookDetail.toggleSaved", err?.message, { code: err?.code, bookId: id });
-      // No user-facing toast for this micro-action — log only.
-    }
+    },
+  });
+
+  function toggleSaved() {
+    if (!user?.id || saveMutation.isPending) return;
+    const set = new Set(user.savedBookIds || []);
+    if (saved) set.delete(id); else set.add(id);
+    saveMutation.mutate([...set]);
   }
 
   /**
@@ -177,29 +164,16 @@ export default function BookDetail() {
    * Book is only marked "unavailable" AFTER the borrower enters the correct code
    * in PickupBook.jsx.
    */
-  async function requestPickup() {
-    if (!user || !book) return;
-    if (requesting) return; // double-tap guard
-    // Safety: if a request already exists just navigate to pickup page
-    if (pickupRequest) {
-      navigate(`/books/${id}/pickup`);
-      return;
-    }
-    // Don't allow the current holder to "request" their own held book.
-    if (isCurrentHolder) return;
-    setRequesting(true);
-    try {
+  const pickupMutation = useMutation({
+    mutationFn: async () => {
       if (book.status === "unavailable") {
-        const borrowing = await getActiveBorrowingByBook(id);
-
+        const borrowing = activeBorrowing ?? (await getActiveBorrowingByBook(id));
         const req = await createPickupRequest({
           bookId: id,
           bookName: book.name,
           requesterId: user.id,
           requesterName: `${user.firstName} ${user.lastName}`,
         });
-        setPickupRequest(req);
-
         if (borrowing?.borrowerId && borrowing.borrowerId !== user.id) {
           await createNotification({
             recipientId: borrowing.borrowerId,
@@ -211,38 +185,52 @@ export default function BookDetail() {
             pickupCode: borrowing.pickupCode,
           });
         }
-      } else {
-        const newCode = makeCode();
-
-        const req = await createPickupRequest({
+        return req;
+      }
+      const newCode = makeCode();
+      const req = await createPickupRequest({
+        bookId: id,
+        bookName: book.name,
+        requesterId: user.id,
+        requesterName: `${user.firstName} ${user.lastName}`,
+        pickupCode: newCode,
+      });
+      if (book.ownerId && book.ownerId !== user.id) {
+        await createNotification({
+          recipientId: book.ownerId,
+          title: "Запрос на книгу",
+          body: `${user.firstName} ${user.lastName} хочет взять вашу книгу «${book.name}». Назовите ему код для передачи:`,
+          read: false,
+          type: "borrow-request",
           bookId: id,
-          bookName: book.name,
-          requesterId: user.id,
-          requesterName: `${user.firstName} ${user.lastName}`,
           pickupCode: newCode,
         });
-        setPickupRequest(req);
-
-        if (book.ownerId && book.ownerId !== user.id) {
-          await createNotification({
-            recipientId: book.ownerId,
-            title: "Запрос на книгу",
-            body: `${user.firstName} ${user.lastName} хочет взять вашу книгу «${book.name}». Назовите ему код для передачи:`,
-            read: false,
-            type: "borrow-request",
-            bookId: id,
-            pickupCode: newCode,
-          });
-        }
       }
-
+      return req;
+    },
+    onSuccess: (req) => {
+      queryClient.setQueryData(qk.pickupRequest.byBookAndUser(id, user.id), req);
       navigate(`/books/${id}/pickup`);
-    } catch (err) {
+    },
+    onError: (err) => {
       logger.error("bookDetail.requestPickup", err?.message, { code: err?.code, bookId: id });
       setError(err?.message || t.error);
-    } finally {
-      setRequesting(false);
+    },
+  });
+
+  function requestPickup() {
+    if (!user || !book) return;
+    if (pickupMutation.isPending) return;
+    if (pickupRequest) {
+      navigate(`/books/${id}/pickup`);
+      return;
     }
+    if (isCurrentHolder) return;
+    if (book.communityId && user.communityId !== book.communityId) {
+      setError(t.notCommunityMember);
+      return;
+    }
+    pickupMutation.mutate();
   }
 
   function openReturnModal() {
@@ -252,20 +240,8 @@ export default function BookDetail() {
     setReturnModalOpen(true);
   }
 
-  async function handleReturn(stars, reviewText) {
-    if (!activeBorrowing || returning) return;
-    if (!user?.id) return;
-    // Only the actual borrower may return — extra defence vs. a tampered button.
-    if (activeBorrowing.borrowerId !== user.id) {
-      logger.warn("bookDetail.return", "non-borrower attempted return", {
-        bookId: id, borrowerId: activeBorrowing.borrowerId, userId: user.id,
-      });
-      setError(t.notAuthorized);
-      return;
-    }
-    setReturning(true);
-    setReturnModalOpen(false);
-    try {
+  const returnMutation = useMutation({
+    mutationFn: async ({ stars, reviewText }) => {
       const now = Date.now();
       if (stars > 0) {
         await addRating({
@@ -293,18 +269,39 @@ export default function BookDetail() {
           bookId: id,
         });
       }
-      setActiveBorrowing(null);
-      setBook({ ...book, status: "available", borrowerId: null, holderId: null });
-      setDaysLeft(null);
-    } catch (err) {
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(qk.books.detail(id), (b) =>
+        b ? { ...b, status: "available", borrowerId: null, holderId: null } : b
+      );
+      queryClient.setQueryData(qk.borrowings.activeByBook(id), null);
+      queryClient.invalidateQueries({ queryKey: qk.ratings.forBook(id) });
+      queryClient.invalidateQueries({ queryKey: qk.reviews.forBook(id) });
+    },
+    onError: (err) => {
       logger.error("bookDetail.return", err?.message, { code: err?.code, bookId: id });
       setError(err?.message || t.saveFailed);
-    } finally {
-      setReturning(false);
+    },
+  });
+
+  function handleReturn(stars, reviewText) {
+    if (!activeBorrowing || returnMutation.isPending) return;
+    if (!user?.id) return;
+    if (activeBorrowing.borrowerId !== user.id) {
+      logger.warn("bookDetail.return", "non-borrower attempted return", {
+        bookId: id, borrowerId: activeBorrowing.borrowerId, userId: user.id,
+      });
+      setError(t.notAuthorized);
+      return;
     }
+    setReturnModalOpen(false);
+    returnMutation.mutate({ stars, reviewText });
   }
 
-  if (loading) {
+  // Only block on the *root* fetch (book itself). Everything else is layered
+  // in as it arrives — this preserves LCP and lets cached details paint
+  // immediately on return.
+  if (bookQuery.isLoading) {
     return (
       <MobileShell>
         <p className="px-6 py-12 text-ink-500 text-center">{t.loading}</p>
@@ -312,11 +309,11 @@ export default function BookDetail() {
     );
   }
 
-  if (error || !book) {
+  if (bookQuery.isError || !book) {
     return (
       <MobileShell>
         <div className="px-4 py-12 text-center">
-          <p className="text-ink-500 mb-4">{error || t.bookNotFound}</p>
+          <p className="text-ink-500 mb-4">{bookQuery.error?.message || t.bookNotFound}</p>
           <button
             onClick={() => navigate(-1)}
             className="btn-primary"
@@ -339,6 +336,8 @@ export default function BookDetail() {
     book.status === "unavailable" &&
     !!user?.id &&
     (activeBorrowing?.borrowerId === user.id || book.borrowerId === user.id);
+  const isCommunityMember =
+    !!book.communityId && !!user?.communityId && book.communityId === user.communityId;
 
   return (
     <MobileShell>
@@ -524,10 +523,10 @@ export default function BookDetail() {
           <div className="space-y-2">
             <button
               onClick={openReturnModal}
-              disabled={returning}
+              disabled={returnMutation.isPending}
               className="w-full py-3.5 rounded-2xl bg-ok text-white font-semibold text-[15px] active:scale-[0.99] transition disabled:opacity-60"
             >
-              {returning ? "…" : t.returnBook}
+              {returnMutation.isPending ? "…" : t.returnBook}
             </button>
             <p className="text-[12px] text-ink-500 text-center">
               {t.youHoldBook}
@@ -536,6 +535,10 @@ export default function BookDetail() {
         ) : isOwner ? (
           <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
             {t.yourBook}
+          </p>
+        ) : !isCommunityMember ? (
+          <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+            {t.notCommunityMember}
           </p>
         ) : pickupRequest ? (
           /* Already requested — show a resume button, no new code is generated */
@@ -553,18 +556,18 @@ export default function BookDetail() {
         ) : book.status === "unavailable" ? (
           <button
             onClick={requestPickup}
-            disabled={requesting}
+            disabled={pickupMutation.isPending}
             className="btn-primary"
           >
-            {requesting ? "…" : t.getBook}
+            {pickupMutation.isPending ? "…" : t.getBook}
           </button>
         ) : (
           <button
             onClick={requestPickup}
-            disabled={requesting}
+            disabled={pickupMutation.isPending}
             className="btn-primary"
           >
-            {requesting ? "…" : t.borrowBook}
+            {pickupMutation.isPending ? "…" : t.borrowBook}
           </button>
         )}
       </div>
@@ -615,14 +618,14 @@ export default function BookDetail() {
             <div className="space-y-2">
               <button
                 onClick={() => handleReturn(returnStars, returnReview)}
-                disabled={returning}
+                disabled={returnMutation.isPending}
                 className="btn-primary"
               >
-                {returning ? "…" : returnStars > 0 ? t.returnWithRating : t.returnBook}
+                {returnMutation.isPending ? "…" : returnStars > 0 ? t.returnWithRating : t.returnBook}
               </button>
               <button
                 onClick={() => handleReturn(0, "")}
-                disabled={returning}
+                disabled={returnMutation.isPending}
                 className="w-full py-3 text-[14px] text-ink-500 font-medium"
               >
                 {t.returnWithoutRating}
