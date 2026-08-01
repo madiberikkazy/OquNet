@@ -19,7 +19,6 @@ import ReadingNow from "./pages/user/ReadingNow.jsx";
 import CompletedBooks from "./pages/user/CompletedBooks.jsx";
 import SavedBooks from "./pages/user/SavedBooks.jsx";
 import Settings from "./pages/user/Settings.jsx";
-import AudioBooks from "./pages/user/AudioBooks.jsx";
 
 import AdminHome from "./pages/admin/AdminHome.jsx";
 import AdminBooks from "./pages/admin/AdminBooks.jsx";
@@ -74,7 +73,6 @@ export default function App() {
           <Route path="/profile/reading"   element={<ReadingNow />} />
           <Route path="/profile/completed" element={<CompletedBooks />} />
           <Route path="/profile/saved"     element={<SavedBooks />} />
-          <Route path="/profile/audio"     element={<AudioBooks />} />
           <Route path="/settings" element={<Settings />} />
 
           <Route path="/community/create" element={<CreateCommunity />} />
