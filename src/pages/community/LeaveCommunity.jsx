@@ -11,6 +11,7 @@ import {
   getActiveBorrowingByBook,
   createNotification,
   updateUser,
+  deleteBook,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { t } from "../../utils/i18n.js";
@@ -32,7 +33,7 @@ export default function LeaveCommunity() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, refresh } = useAuth();
+  const { user, setUser } = useAuth();
   const { setCommunity } = useCommunity();
 
   const communityQuery = useQuery({
@@ -50,19 +51,19 @@ export default function LeaveCommunity() {
   });
 
   const myBooks = useMemo(() => {
-    const items = booksQuery.data?.items || booksQuery.data || [];
+    const raw = booksQuery.data;
+    const items = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
     return items.filter((b) => b.ownerId === user?.id);
   }, [booksQuery.data, user?.id]);
 
-  // Track user selections and which books have already been sent a return
-  // request in this session (so the UI doesn't offer to send twice).
+  // Selection scopes which books get a "please return" nudge. The leave itself
+  // is gated on *every* owned book being with the user — anything else would
+  // orphan books mid-loan when the owner walks away.
   const [selected, setSelected] = useState(() => new Set());
   const [requestSent, setRequestSent] = useState(() => new Set());
   const [error, setError] = useState("");
 
-  // On the first successful load, tick every book so the "leave" path is the
-  // default and the user just confirms.
-  const initializedRef = useSelectionInit(myBooks, setSelected);
+  useSelectionInit(myBooks, setSelected, user?.id);
 
   function toggle(bookId) {
     setSelected((prev) => {
@@ -77,16 +78,21 @@ export default function LeaveCommunity() {
     () => myBooks.filter((b) => selected.has(b.id)),
     [myBooks, selected]
   );
-  const booksOutOnLoan = useMemo(
-    () => selectedBooks.filter((b) => !isBookWithUser(b, user?.id)),
-    [selectedBooks, user?.id]
+  const outstanding = useMemo(
+    () =>
+      selectedBooks.filter(
+        (b) => !isBookWithUser(b, user?.id) && !requestSent.has(b.id)
+      ),
+    [selectedBooks, user?.id, requestSent]
   );
-  const outstanding = booksOutOnLoan.filter((b) => !requestSent.has(b.id));
-  const canLeaveNow = selectedBooks.length > 0 && booksOutOnLoan.length === 0;
 
-  // Send a return-request notification to each not-yet-with-user book's holder.
-  // We resolve holder via the active borrowing rather than trusting book.borrowerId
-  // alone — borrowerId is denormalized and can lag.
+  // Cannot leave while ANY owned book is still with someone else. This is
+  // stricter than "the ones you ticked" — otherwise unchecking an out-book
+  // would let you leave while it's still on loan, then we'd delete it out
+  // from under the current reader.
+  const allWithUser = myBooks.every((b) => isBookWithUser(b, user?.id));
+  const canLeaveNow = myBooks.length === 0 || allWithUser;
+
   const sendReturnRequests = useMutation({
     mutationFn: async (books) => {
       const sent = [];
@@ -131,15 +137,29 @@ export default function LeaveCommunity() {
     onError: (err) => setError(err?.message || t.error),
   });
 
+  // Leave: (1) remove every owned book from the community, (2) drop
+  // membership, (3) sync local state so the profile re-renders without waiting
+  // on a round-trip. We delete first so the writes still pass any
+  // "must-be-a-member" security rules that might exist.
   const leaveMutation = useMutation({
-    mutationFn: async () => updateUser(user.id, { communityId: null }),
-    onSuccess: async () => {
+    mutationFn: async () => {
+      await Promise.all(myBooks.map((b) => deleteBook(b.id).catch((err) => {
+        logger.error("leave.deleteBook", err?.message, { bookId: b.id });
+      })));
+      await updateUser(user.id, { communityId: null });
+    },
+    onSuccess: () => {
+      // Immediate local propagation. AuthContext's setUser + CommunityContext's
+      // setCommunity both write to state that other screens read from; without
+      // this, the profile would keep showing the old community until the
+      // effect chain caught up (which was the bug).
+      setUser({ ...user, communityId: null });
       setCommunity(null);
-      await refresh();
-      // Any cached derived data (profile stats, community lists) is now stale.
-      queryClient.invalidateQueries({ queryKey: ["community", id] });
+
+      queryClient.removeQueries({ queryKey: ["community", id] });
       queryClient.invalidateQueries({ queryKey: qk.books.all });
       queryClient.invalidateQueries({ queryKey: qk.profile.stats(user.id) });
+
       navigate("/community/join", { replace: true });
     },
     onError: (err) => setError(err?.message || t.error),
@@ -157,6 +177,7 @@ export default function LeaveCommunity() {
   }
 
   const community = communityQuery.data;
+  const someOutOnLoan = myBooks.some((b) => !isBookWithUser(b, user?.id));
 
   return (
     <MobileShell>
@@ -195,6 +216,7 @@ export default function LeaveCommunity() {
                     checked={checked}
                     onChange={() => toggle(book.id)}
                     className="mt-1 w-5 h-5 accent-brand-500"
+                    disabled={withUser}
                   />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-[15px] truncate">{book.name}</p>
@@ -222,8 +244,8 @@ export default function LeaveCommunity() {
         </ul>
       )}
 
-      {/* Status band: waiting for returns */}
-      {selectedBooks.length > 0 && booksOutOnLoan.length > 0 && outstanding.length === 0 && (
+      {/* Status band: still waiting for at least one book */}
+      {someOutOnLoan && outstanding.length === 0 && (
         <div className="mx-4 mt-5 rounded-2xl bg-warnSoft px-4 py-3">
           <p className="font-semibold text-[14px] text-warn">{t.waitingReturnsTitle}</p>
           <p className="text-[13px] text-ink-700 mt-1 leading-relaxed">
@@ -239,48 +261,49 @@ export default function LeaveCommunity() {
       ) : null}
 
       {/* Primary action */}
-      {myBooks.length > 0 && (
-        <div className="px-4 mt-6 mb-6">
-          <button
-            onClick={handlePrimary}
-            disabled={
-              selectedBooks.length === 0 ||
-              sendReturnRequests.isPending ||
-              leaveMutation.isPending ||
-              (outstanding.length === 0 && !canLeaveNow)
-            }
-            className="btn-primary"
-          >
-            {leaveMutation.isPending || sendReturnRequests.isPending
-              ? "…"
-              : canLeaveNow
-                ? t.leaveNow
-                : outstanding.length > 0
-                  ? t.sendReturnRequest
-                  : t.waitingReturnsTitle}
-          </button>
-          <p className="text-[12px] text-ink-500 mt-2 text-center">
-            {canLeaveNow
-              ? t.confirmLeave
+      <div className="px-4 mt-6 mb-6">
+        <button
+          onClick={handlePrimary}
+          disabled={
+            sendReturnRequests.isPending ||
+            leaveMutation.isPending ||
+            (!canLeaveNow && outstanding.length === 0)
+          }
+          className="btn-primary"
+        >
+          {leaveMutation.isPending || sendReturnRequests.isPending
+            ? "…"
+            : canLeaveNow
+              ? t.leaveNow
               : outstanding.length > 0
-                ? `${outstanding.length} · ${t.sendReturnRequest}`
-                : t.waitingReturnsBody}
-          </p>
-        </div>
-      )}
+                ? t.sendReturnRequest
+                : t.waitingReturnsTitle}
+        </button>
+        <p className="text-[12px] text-ink-500 mt-2 text-center">
+          {canLeaveNow
+            ? t.confirmLeave
+            : outstanding.length > 0
+              ? `${outstanding.length} · ${t.sendReturnRequest}`
+              : t.waitingReturnsBody}
+        </p>
+      </div>
     </MobileShell>
   );
 }
 
-// One-time seed of the checked-set once the book list arrives — kept in a hook
-// so the effect isn't tangled up with rendering logic in the main component.
-function useSelectionInit(books, setSelected) {
+// One-time seed of the checked set once the book list arrives. We only tick
+// the books that actually need action (out on loan and not yet held by user)
+// — those with-you rows are display-only and stay unchecked.
+function useSelectionInit(books, setSelected, userId) {
   const initializedRef = useRef(false);
   useEffect(() => {
     if (initializedRef.current) return;
     if (books.length === 0) return;
     initializedRef.current = true;
-    setSelected(new Set(books.map((b) => b.id)));
-  }, [books, setSelected]);
-  return initializedRef;
+    setSelected(
+      new Set(
+        books.filter((b) => !isBookWithUser(b, userId)).map((b) => b.id)
+      )
+    );
+  }, [books, setSelected, userId]);
 }
