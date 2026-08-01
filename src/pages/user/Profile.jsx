@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
@@ -7,41 +7,48 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
   listBorrowingsForUser, listBooks,
 } from "../../firebase/firestore.js";
+import { qk } from "../../lib/queryKeys.js";
 import { t } from "../../utils/i18n.js";
+
+const DEFAULT_STATS = { owned: 0, reading: 0, completed: 0, saved: 0 };
 
 export default function Profile() {
   const { user, isAdmin, isViewingAsUser, switchView } = useAuth();
   const { community } = useCommunity();
   const navigate = useNavigate();
 
-  const [stats, setStats]                         = useState({ owned: 0, reading: 0, completed: 0, saved: 0 });
-  const [activeBorrowing, setActiveBorrowing]     = useState(null);
-
-  useEffect(() => {
-    (async () => {
-      if (!user) return;
-      const readingList = await listBorrowingsForUser(user.id, "active");
-      const completed   = await listBorrowingsForUser(user.id, "completed");
-      const allBooksResult = community?.id ? await listBooks({ communityId: community.id }) : { items: [] };
+  // Stats are three parallel fetches that then combine — Promise.all keeps
+  // wall time to the slowest request instead of summing them.
+  const statsQuery = useQuery({
+    queryKey: qk.profile.stats(user?.id, community?.id),
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const [readingList, completed, allBooksResult] = await Promise.all([
+        listBorrowingsForUser(user.id, "active"),
+        listBorrowingsForUser(user.id, "completed"),
+        community?.id ? listBooks({ communityId: community.id }) : Promise.resolve({ items: [] }),
+      ]);
       const allBooks = allBooksResult?.items || allBooksResult || [];
-      // Same logic as OwnedBooks.jsx — books you physically hold right now
       const owned = allBooks.filter(
         (b) =>
           (b.ownerId === user.id && b.status !== "unavailable") ||
           (b.borrowerId === user.id && b.status === "unavailable")
       );
-
-      setActiveBorrowing(readingList[0] || null);
-
       const savedIds = user.savedBookIds || [];
-      setStats({
-        owned:     owned.length,
-        reading:   readingList.length,
-        completed: completed.length,
-        saved:     savedIds.length,
-      });
-    })();
-  }, [user?.id, community?.id]);
+      return {
+        stats: {
+          owned: owned.length,
+          reading: readingList.length,
+          completed: completed.length,
+          saved: savedIds.length,
+        },
+        activeBorrowing: readingList[0] || null,
+      };
+    },
+  });
+
+  const stats = statsQuery.data?.stats ?? DEFAULT_STATS;
+  const activeBorrowing = statsQuery.data?.activeBorrowing ?? null;
 
   return (
     <MobileShell>
