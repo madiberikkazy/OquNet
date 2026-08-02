@@ -8,7 +8,7 @@ import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { listBooks, updateUser, listRatingsForBooks } from "../../firebase/firestore.js";
+import { listBooks, updateUser, getRatingSummaries } from "../../firebase/firestore.js";
 import { t, GENRES, genreLabel } from "../../utils/i18n.js";
 import { useInfiniteScroll } from "../../utils/useIntersectionHooks.js";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -71,18 +71,20 @@ export default function Books() {
       const items = result.items || [];
       if (items.length === 0) return { items: [], nextCursor: null, hasMore: false };
 
-      // Ratings are batched per-page. We reuse the ratings cache so switching
-      // filters that reveal the same books doesn't refetch their ratings.
+      // Books carry their own rating counters, so this is normally free; it
+      // only fans out for documents written before those counters existed. The
+      // result is cached per page so re-filtering doesn't refetch.
       const ids = items.map((b) => b.id);
       const ratingMap = await queryClient.fetchQuery({
         queryKey: qk.books.ratings(ids),
-        queryFn: () => listRatingsForBooks(ids, 5),
+        queryFn: () => getRatingSummaries(items, 5),
         staleTime: 5 * 60_000,
       });
 
       const withRatings = items.map((b) => ({
         ...b,
         rating: ratingMap[b.id]?.average || 0,
+        ratingSum: ratingMap[b.id]?.sum || 0,
         ratingCount: ratingMap[b.id]?.count || 0,
       }));
 

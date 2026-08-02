@@ -3,10 +3,12 @@ import { useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
+import StarRating from "../../components/StarRating.jsx";
 import {
-  listBorrowingsForUser, updateBorrowing, updateBook, createNotification, addRating,
+  listBorrowingsForUser, updateBorrowing, updateBook, createNotification, submitRating,
 } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
+import { logger } from "../../utils/logger.js";
 
 export default function ReadingNow() {
   const { user } = useAuth();
@@ -18,7 +20,6 @@ export default function ReadingNow() {
   // Rating modal state
   const [ratingOpen, setRatingOpen] = useState(false);
   const [stars, setStars] = useState(0);
-  const [hovered, setHovered] = useState(0);
   const [review, setReview] = useState("");
 
   useEffect(() => {
@@ -37,23 +38,24 @@ export default function ReadingNow() {
     try {
       const now = Date.now();
 
-      // Save rating if user gave one
-      if (ratingStars > 0) {
-        await addRating({
-          bookId: borrowing.bookId,
-          userId: user.id,
-          stars: ratingStars,
-          review: reviewText.trim() || "",
-          createdAt: now,
-        });
-      }
-
-      // Complete the borrowing, store rating on the record too
+      // Complete the borrowing first — only a finished read earns the right to
+      // rate — then record the rating, which also refreshes the book's average.
       await updateBorrowing(borrowing.id, {
         status: "completed",
         returnDate: now,
         rating: ratingStars || 0,
       });
+
+      if (ratingStars > 0) {
+        await submitRating({
+          bookId: borrowing.bookId,
+          userId: user.id,
+          value: ratingStars,
+          review: reviewText,
+          authorName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
+          photoURL: user.photoURL || "",
+        });
+      }
 
       await updateBook(borrowing.bookId, { status: "available", borrowerId: null });
 
@@ -69,7 +71,9 @@ export default function ReadingNow() {
       }
       setBorrowing(null);
     } catch (err) {
-      console.error(err);
+      logger.error("readingNow.finishBorrowing", err?.message, {
+        code: err?.code, bookId: borrowing.bookId,
+      });
     } finally {
       setFinishing(false);
     }
@@ -77,7 +81,6 @@ export default function ReadingNow() {
 
   function openRatingModal() {
     setStars(0);
-    setHovered(0);
     setReview("");
     setRatingOpen(true);
   }
@@ -193,28 +196,8 @@ export default function ReadingNow() {
             </div>
 
             {/* Stars */}
-            <div className="flex justify-center gap-3">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStars(s)}
-                  onMouseEnter={() => setHovered(s)}
-                  onMouseLeave={() => setHovered(0)}
-                  className="transition active:scale-90"
-                >
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
-                      fill={(hovered || stars) >= s ? "#F59E0B" : "none"}
-                      stroke={(hovered || stars) >= s ? "#F59E0B" : "currentColor"}
-                      strokeWidth="1.6"
-                      strokeLinejoin="round"
-                      className={(hovered || stars) >= s ? "" : "text-ink-300"}
-                    />
-                  </svg>
-                </button>
-              ))}
+            <div className="flex justify-center">
+              <StarRating value={stars} onChange={setStars} size={40} label={t.rateBook} />
             </div>
 
             {/* Optional review */}

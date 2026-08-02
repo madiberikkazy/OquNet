@@ -7,6 +7,7 @@ import {
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "./config.js";
 import { logger } from "../utils/logger.js";
+import { clampStars, aggregateFromRatings } from "../utils/rating.js";
 
 // Wraps a Firestore operation. Re-throws so callers can decide what to do,
 // but always logs the failure first so it doesn't get swallowed silently.
@@ -121,6 +122,28 @@ async function createOne(name, payload) {
   });
 }
 
+// Upsert at a known id. Unlike createOne this is idempotent — calling it twice
+// with the same id updates instead of duplicating, which is what any
+// "one row per (entity, user)" record needs.
+async function setOne(name, id, payload) {
+  if (!id) throw new Error("setOne: missing id");
+  if (!payload || typeof payload !== "object") throw new Error("setOne: payload must be an object");
+  return runFs(`setOne.${name}`, async () => {
+    if (isFirebaseConfigured) {
+      await setDoc(doc(db, name, id), { ...payload, updatedAt: serverTimestamp() }, { merge: true });
+      return { id, ...payload };
+    }
+    const data = readLS();
+    data[name] = data[name] || [];
+    const idx = data[name].findIndex((r) => r.id === id);
+    const record = { ...(idx >= 0 ? data[name][idx] : { id, createdAt: Date.now() }), ...payload, id, updatedAt: Date.now() };
+    if (idx >= 0) data[name][idx] = record;
+    else data[name].push(record);
+    writeLS(data);
+    return record;
+  });
+}
+
 async function updateOne(name, id, patch) {
   if (!id) throw new Error("updateOne: missing id");
   if (!patch || typeof patch !== "object") throw new Error("updateOne: patch must be an object");
@@ -220,6 +243,38 @@ export async function listBooks({ communityId, search, status, genres, pageSize 
 }
 
 /**
+ * Rating summaries for a page of books, as bookId -> { count, average, sum }.
+ *
+ * Books carry their own denormalised counters, so the common case costs zero
+ * extra reads. Only documents written before those counters existed are backed
+ * by a fan-out over the ratings collection — and rating one of them repairs it
+ * for good (see recalcBookRating).
+ */
+export async function getRatingSummaries(books, concurrency = 5) {
+  const summaries = {};
+  const legacyIds = [];
+
+  for (const book of books || []) {
+    if (book?.ratingCount == null) {
+      legacyIds.push(book.id);
+      continue;
+    }
+    const count = Number(book.ratingCount) || 0;
+    const sum = Number(book.ratingSum);
+    summaries[book.id] = {
+      count,
+      sum: Number.isFinite(sum) ? sum : count * (Number(book.rating) || 0),
+      average: count ? (Number.isFinite(sum) ? sum / count : Number(book.rating) || 0) : 0,
+    };
+  }
+
+  if (legacyIds.length) {
+    Object.assign(summaries, await listRatingsForBooks(legacyIds, concurrency));
+  }
+  return summaries;
+}
+
+/**
  * Batch fetch ratings for multiple books with concurrency control
  */
 export async function listRatingsForBooks(bookIds, concurrency = 5) {
@@ -230,7 +285,7 @@ export async function listRatingsForBooks(bookIds, concurrency = 5) {
   
   // Initialize all books with empty ratings
   bookIds.forEach((bookId) => {
-    ratingMap[bookId] = { count: 0, average: 0 };
+    ratingMap[bookId] = { count: 0, sum: 0, average: 0 };
   });
 
   // Fetch ratings in batches
@@ -242,13 +297,7 @@ export async function listRatingsForBooks(bookIds, concurrency = 5) {
     
     // Map results back to book IDs
     batchResults.forEach((ratings, idx) => {
-      const bookId = batch[idx];
-      if (ratings && ratings.length > 0) {
-        ratingMap[bookId] = {
-          count: ratings.length,
-          average: ratings.reduce((s, r) => s + (r.value || 0), 0) / ratings.length,
-        };
-      }
+      ratingMap[batch[idx]] = aggregateFromRatings(ratings || []);
     });
   }
   
@@ -430,8 +479,96 @@ export async function listBorrowingsByOwner(ownerId) {
 export async function updateBorrowing(id, patch) { return updateOne("borrowings", id, patch); }
 
 // ---------- Ratings & reviews ----------
-export async function addRating(payload) { return createOne("ratings", payload); }
+//
+// One rating per (book, user). The document id is derived from the pair, so a
+// second rating from the same person overwrites the first instead of stuffing
+// the ballot box — and reading "did I already rate this?" is a point read.
+//
+// The book document carries a denormalised { rating, ratingSum, ratingCount }
+// so list screens never have to fan out over the ratings collection. It is
+// recomputed from the rating documents after every write: without Cloud
+// Functions there is no server-side trigger, and a full recompute is both
+// cheap at this scale and self-healing — any drift is corrected by the next
+// person who rates.
+
+function ratingDocId(bookId, userId) { return `${bookId}__${userId}`; }
+
 export async function listRatingsForBook(bookId) { return getCollection("ratings", { where: [["bookId", "==", bookId]] }); }
+
+/** The rating this user left for this book, or null. */
+export async function getUserRatingForBook(bookId, userId) {
+  if (!bookId || !userId) return null;
+  const direct = await getOne("ratings", ratingDocId(bookId, userId));
+  if (direct) return direct;
+  // Ratings written before the deterministic-id scheme live under random ids.
+  const rows = await getCollection("ratings", {
+    where: [["bookId", "==", bookId], ["userId", "==", userId]],
+  });
+  return rows[0] || null;
+}
+
+/** Recompute a book's aggregate from its rating documents and persist it. */
+export async function recalcBookRating(bookId) {
+  const summary = aggregateFromRatings(await listRatingsForBook(bookId));
+  await updateOne("books", bookId, {
+    rating: summary.average,
+    ratingSum: summary.sum,
+    ratingCount: summary.count,
+  });
+  return summary;
+}
+
+/**
+ * Create or replace this user's rating for a book, then refresh the book's
+ * aggregate. Returns { rating, summary } so callers can update their caches
+ * without a round trip.
+ *
+ * Eligibility (only people who actually read the book may rate) is enforced by
+ * the caller via hasUserCompletedBook — this function is the write path.
+ */
+export async function submitRating({ bookId, userId, value, review = "", authorName = "", photoURL = "" }) {
+  if (!bookId) throw new Error("submitRating: missing bookId");
+  if (!userId) throw new Error("submitRating: missing userId");
+  const stars = clampStars(value);
+  if (!stars) throw new Error("submitRating: value must be between 1 and 5");
+
+  const id = ratingDocId(bookId, userId);
+  const existing = await getCollection("ratings", {
+    where: [["bookId", "==", bookId], ["userId", "==", userId]],
+  });
+  const previous = existing.find((r) => r.id === id) || null;
+
+  const rating = await setOne("ratings", id, {
+    bookId,
+    userId,
+    value: stars,
+    stars,                       // legacy readers still look at `stars`
+    review: String(review || "").trim(),
+    authorName,
+    photoURL,
+    ...(previous ? {} : { createdAt: Date.now() }),
+  });
+
+  // Collapse pre-deterministic duplicates so this user is counted exactly once.
+  await Promise.all(
+    existing.filter((r) => r.id !== id).map((r) => deleteOne("ratings", r.id))
+  );
+
+  const summary = await recalcBookRating(bookId);
+  return { rating, summary };
+}
+
+/**
+ * True when the user has borrowed and returned this book — the gate for being
+ * allowed to rate it.
+ */
+export async function hasUserCompletedBook(bookId, userId) {
+  if (!bookId || !userId) return false;
+  const rows = await getCollection("borrowings", {
+    where: [["bookId", "==", bookId], ["borrowerId", "==", userId], ["status", "==", "completed"]],
+  });
+  return rows.length > 0;
+}
 
 /**
  * Batch fetch books by IDs with concurrency control
@@ -451,5 +588,6 @@ export async function getBooksByIds(bookIds, concurrency = 5) {
   return results;
 }
 
-export async function addReview(payload) { return createOne("reviews", payload); }
-export async function listReviewsForBook(bookId) { return getCollection("reviews", { where: [["bookId", "==", bookId]] }); }
+// Reviews are not a separate collection: a review is the optional text a
+// reader attaches to their rating, so it lives on the rating document and is
+// derived from listRatingsForBook via reviewsFromRatings (utils/rating.js).

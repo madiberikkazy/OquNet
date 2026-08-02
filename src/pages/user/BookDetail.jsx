@@ -6,15 +6,17 @@ import SearchBar from "../../components/SearchBar.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import SaveButton from "../../components/SaveButton.jsx";
 import Avatar from "../../components/Avatar.jsx";
+import StarRating from "../../components/StarRating.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
-  getBook, getUserById, listRatingsForBook, listReviewsForBook, updateUser,
+  getBook, getUserById, listRatingsForBook, updateUser,
   getPickupRequest, createPickupRequest,
   getActiveBorrowingByBook, getLastCompletedBorrowingByBook, createNotification,
-  updateBook, updateBorrowing, addRating,
+  updateBook, updateBorrowing, submitRating, getUserRatingForBook, hasUserCompletedBook,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { t, genreLabel } from "../../utils/i18n.js";
+import { aggregateFromRatings, reviewsFromRatings, formatRating, DEFAULT_RATING } from "../../utils/rating.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { logger } from "../../utils/logger.js";
 
@@ -42,8 +44,13 @@ export default function BookDetail() {
   const [error, setError] = useState(null);
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [returnStars, setReturnStars] = useState(0);
-  const [returnHovered, setReturnHovered] = useState(0);
   const [returnReview, setReturnReview] = useState("");
+
+  // Inline "your rating" editor. Both start as null meaning "not touched" —
+  // they fall back to whatever the user's stored rating says.
+  const [draftStars, setDraftStars] = useState(null);
+  const [draftReview, setDraftReview] = useState(null);
+  const [ratingSavedAt, setRatingSavedAt] = useState(0);
 
   // Every fetch below is its own cached query. Ownership: React Query holds
   // the truth, this component just reads slices. Back navigation re-mounts
@@ -60,13 +67,24 @@ export default function BookDetail() {
     enabled: !!book?.ownerId,
   });
 
+  // Every rating document for this book: the average, the count and the review
+  // list are all derived from this one fetch.
   const ratingsQuery = useQuery({
     queryKey: qk.ratings.forBook(id),
     queryFn: () => listRatingsForBook(id),
   });
-  const reviewsQuery = useQuery({
-    queryKey: qk.reviews.forBook(id),
-    queryFn: () => listReviewsForBook(id),
+
+  // Rating is earned, not offered: you may only score a book you have borrowed
+  // and returned.
+  const canRateQuery = useQuery({
+    queryKey: qk.borrowings.userCompletedBook(id, user?.id),
+    queryFn: () => hasUserCompletedBook(id, user.id),
+    enabled: !!user?.id,
+  });
+  const myRatingQuery = useQuery({
+    queryKey: qk.ratings.byUser(id, user?.id),
+    queryFn: () => getUserRatingForBook(id, user.id),
+    enabled: !!user?.id,
   });
 
   const activeBorrowingQuery = useQuery({
@@ -99,7 +117,7 @@ export default function BookDetail() {
   });
 
   const ratings = ratingsQuery.data ?? [];
-  const reviews = reviewsQuery.data ?? [];
+  const myRating = myRatingQuery.data ?? null;
   const owner = ownerQuery.data ?? null;
   const currentHolder = holderQuery.data ?? null;
   const pickupRequest = pickupRequestQuery.data ?? null;
@@ -235,29 +253,67 @@ export default function BookDetail() {
 
   function openReturnModal() {
     setReturnStars(0);
-    setReturnHovered(0);
     setReturnReview("");
     setReturnModalOpen(true);
+  }
+
+  // Writing a rating: upserts this user's single rating document and refreshes
+  // the book's aggregate. Shared by the inline editor and the return sheet.
+  const ratingMutation = useMutation({
+    mutationFn: ({ stars, reviewText }) =>
+      submitRating({
+        bookId: id,
+        userId: user.id,
+        value: stars,
+        review: reviewText || "",
+        authorName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
+        photoURL: user.photoURL || "",
+      }),
+    onSuccess: ({ rating, summary }) => {
+      queryClient.setQueryData(qk.ratings.byUser(id, user.id), rating);
+      queryClient.setQueryData(qk.books.detail(id), (b) =>
+        b ? { ...b, rating: summary.average, ratingSum: summary.sum, ratingCount: summary.count } : b
+      );
+      queryClient.invalidateQueries({ queryKey: qk.ratings.forBook(id) });
+      // The list screens read the denormalised counters off the book document.
+      queryClient.invalidateQueries({ queryKey: qk.books.all });
+      setDraftStars(null);
+      setDraftReview(null);
+      setRatingSavedAt(Date.now());
+    },
+    onError: (err) => {
+      logger.error("bookDetail.rate", err?.message, { code: err?.code, bookId: id });
+      setError(err?.message || t.saveFailed);
+    },
+  });
+
+  function saveRating() {
+    if (!user?.id || ratingMutation.isPending) return;
+    const stars = draftStars ?? myRating?.value ?? 0;
+    if (!stars) return;
+    if (!canRate) return;
+    ratingMutation.mutate({ stars, reviewText: draftReview ?? myRating?.review ?? "" });
   }
 
   const returnMutation = useMutation({
     mutationFn: async ({ stars, reviewText }) => {
       const now = Date.now();
-      if (stars > 0) {
-        await addRating({
-          bookId: id,
-          userId: user.id,
-          stars,
-          value: stars,
-          review: (reviewText || "").trim(),
-          createdAt: now,
-        });
-      }
+      // Complete the borrowing first — the rating is only legitimate once the
+      // book has actually been read and returned.
       await updateBorrowing(activeBorrowing.id, {
         status: "completed",
         returnDate: now,
         rating: stars || 0,
       });
+      if (stars > 0) {
+        // The rating is a nice-to-have; a failure here must not strand the book
+        // in "unavailable" with its borrowing already closed.
+        try {
+          await ratingMutation.mutateAsync({ stars, reviewText });
+        } catch (err) {
+          logger.error("bookDetail.returnRating", err?.message, { code: err?.code, bookId: id });
+        }
+      }
       await updateBook(id, { status: "available", borrowerId: null, holderId: null });
       if (book.ownerId && book.ownerId !== user.id) {
         await createNotification({
@@ -276,7 +332,8 @@ export default function BookDetail() {
       );
       queryClient.setQueryData(qk.borrowings.activeByBook(id), null);
       queryClient.invalidateQueries({ queryKey: qk.ratings.forBook(id) });
-      queryClient.invalidateQueries({ queryKey: qk.reviews.forBook(id) });
+      // The return just made this user eligible to rate the book.
+      queryClient.setQueryData(qk.borrowings.userCompletedBook(id, user.id), true);
     },
     onError: (err) => {
       logger.error("bookDetail.return", err?.message, { code: err?.code, bookId: id });
@@ -325,10 +382,11 @@ export default function BookDetail() {
     );
   }
 
-  const ratingCount = ratings.length;
-  const ratingAvg   = ratingCount
-    ? ratings.reduce((s, r) => s + r.value, 0) / ratingCount
-    : 0;
+  // Derived straight from the rating documents — this page is the source of
+  // truth that the denormalised counters on the book are trying to mirror.
+  const { count: ratingCount, average } = aggregateFromRatings(ratings);
+  const ratingAvg = ratingCount ? average : DEFAULT_RATING;
+  const reviews = reviewsFromRatings(ratings);
 
   const isAdminView = viewRole === "admin";
   const isOwner     = book.ownerId === user?.id;
@@ -338,6 +396,15 @@ export default function BookDetail() {
     (activeBorrowing?.borrowerId === user.id || book.borrowerId === user.id);
   const isCommunityMember =
     !!book.communityId && !!user?.communityId && book.communityId === user.communityId;
+
+  // Only a reader who has returned this book may rate it. Admins browse in a
+  // read-only capacity and never borrow, so they never qualify.
+  const canRate = !isAdminView && !!user?.id && canRateQuery.data === true;
+  const pendingStars = draftStars ?? myRating?.value ?? 0;
+  const pendingReview = draftReview ?? myRating?.review ?? "";
+  const ratingDirty =
+    pendingStars > 0 &&
+    (pendingStars !== (myRating?.value ?? 0) || pendingReview.trim() !== (myRating?.review ?? "").trim());
 
   return (
     <MobileShell>
@@ -412,16 +479,55 @@ export default function BookDetail() {
         </section>
       )}
 
-      <section className="px-4 mt-5 flex items-center justify-between">
-        <div>
-          <h3 className="section-title">{t.rating}</h3>
-          <div className="flex items-center gap-1 mt-1">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="#F5B100">
-              <path d="M12 2.5l2.9 6 6.6.9-4.8 4.5 1.2 6.6L12 17.4 6.1 20.5l1.2-6.6L2.5 9.4l6.6-.9L12 2.5z" />
-            </svg>
-            <span className="font-semibold">{ratingAvg.toFixed(1)}</span>
+      <section className="px-4 mt-5">
+        <h3 className="section-title">{t.rating}</h3>
+        <div className="mt-2 flex items-center gap-3">
+          <span className="text-[32px] font-bold leading-none">{formatRating(ratingAvg)}</span>
+          <div>
+            <StarRating value={ratingAvg} size={18} />
+            <p className="text-[12px] text-ink-500 mt-0.5">
+              {ratingCount > 0 ? `${ratingCount} ${t.ratingCount}` : `${t.noRatingsYet} · ${t.defaultRatingNote}`}
+            </p>
           </div>
-          <p className="text-[12px] text-ink-500 mt-0.5">{ratingCount} {t.ratingCount}</p>
+        </div>
+
+        {/* Your rating — the write side of the same number above. */}
+        <div className="card mt-3 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[13px] font-medium text-ink-700">{t.yourRating}</p>
+            <StarRating
+              value={pendingStars}
+              size={26}
+              label={t.yourRating}
+              onChange={canRate ? (v) => setDraftStars(v) : undefined}
+            />
+          </div>
+
+          {canRate ? (
+            <>
+              <textarea
+                value={pendingReview}
+                onChange={(e) => setDraftReview(e.target.value)}
+                placeholder={t.reviewOptional}
+                rows={2}
+                className="input resize-none text-[14px] mt-3"
+              />
+              <button
+                onClick={saveRating}
+                disabled={!ratingDirty || ratingMutation.isPending}
+                className="btn-primary mt-2 disabled:opacity-50"
+              >
+                {ratingMutation.isPending ? "…" : myRating ? t.updateRating : t.sendRating}
+              </button>
+              {ratingSavedAt && !ratingDirty ? (
+                <p className="text-[12px] text-ok text-center mt-2">{t.ratingSaved}</p>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-[12px] text-ink-500 mt-2">
+              {isCurrentHolder ? t.rateAfterReturn : t.rateOnlyReaders}
+            </p>
+          )}
         </div>
       </section>
 
@@ -434,7 +540,16 @@ export default function BookDetail() {
             {reviews.map((r) => (
               <li key={r.id} className="bg-ink-100/60 rounded-xl p-3 flex gap-2">
                 <Avatar src={r.photoURL} name={r.authorName} size={32} />
-                <p className="text-[13px] text-ink-700 flex-1">{r.body}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[13px] font-medium text-ink-700 truncate">
+                      {r.authorName || "—"}
+                      {r.userId === user?.id ? <span className="text-[12px] text-ink-500 ml-1">{t.youMark}</span> : null}
+                    </p>
+                    <StarRating value={r.value ?? r.stars ?? 0} size={12} />
+                  </div>
+                  <p className="text-[13px] text-ink-700 mt-1 whitespace-pre-wrap break-words">{r.review}</p>
+                </div>
               </li>
             ))}
           </ul>
@@ -585,28 +700,8 @@ export default function BookDetail() {
               <h2 className="text-[18px] font-bold">{t.rateBook}</h2>
               <p className="text-[13px] text-ink-500 mt-1">«{book.name}»</p>
             </div>
-            <div className="flex justify-center gap-3">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setReturnStars(s)}
-                  onMouseEnter={() => setReturnHovered(s)}
-                  onMouseLeave={() => setReturnHovered(0)}
-                  className="transition active:scale-90"
-                >
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
-                      fill={(returnHovered || returnStars) >= s ? "#F59E0B" : "none"}
-                      stroke={(returnHovered || returnStars) >= s ? "#F59E0B" : "currentColor"}
-                      strokeWidth="1.6"
-                      strokeLinejoin="round"
-                      className={(returnHovered || returnStars) >= s ? "" : "text-ink-300"}
-                    />
-                  </svg>
-                </button>
-              ))}
+            <div className="flex justify-center">
+              <StarRating value={returnStars} onChange={setReturnStars} size={40} label={t.rateBook} />
             </div>
             <textarea
               value={returnReview}
