@@ -11,13 +11,15 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getBook, getUserById, listRatingsForBook, updateUser,
   getPickupRequest, createPickupRequest,
-  getActiveBorrowingByBook, getLastCompletedBorrowingByBook, createNotification,
+  getActiveBorrowingByBook, createNotification,
   updateBook, updateBorrowing, submitRating, getUserRatingForBook, hasUserCompletedBook,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { t, genreLabel } from "../../utils/i18n.js";
 import { aggregateFromRatings, reviewsFromRatings, formatRating, DEFAULT_RATING } from "../../utils/rating.js";
 import { safeImageUrl } from "../../utils/validators.js";
+import { holderIdOf, readerHolderIdOf } from "../../utils/bookHolder.js";
+import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { logger } from "../../utils/logger.js";
 
 function makeCode() {
@@ -92,17 +94,10 @@ export default function BookDetail() {
     queryFn: () => getActiveBorrowingByBook(id),
     enabled: book?.status === "unavailable",
   });
-  const lastCompletedQuery = useQuery({
-    queryKey: qk.borrowings.lastCompletedByBook(id),
-    queryFn: () => getLastCompletedBorrowingByBook(id),
-    enabled: !!book && book.status !== "unavailable",
-  });
-
   const activeBorrowing = activeBorrowingQuery.data ?? null;
-  const holderId =
-    book?.status === "unavailable"
-      ? activeBorrowing?.borrowerId
-      : lastCompletedQuery.data?.borrowerId;
+  // The book document names its own holder, so the card paints as soon as the
+  // book loads; the borrowing is only consulted for older documents.
+  const holderId = holderIdOf(book, activeBorrowing);
 
   const holderQuery = useQuery({
     queryKey: qk.users.byId(holderId),
@@ -148,6 +143,7 @@ export default function BookDetail() {
           b ? { ...b, status: "available", borrowerId: null, holderId: null } : b
         );
         queryClient.setQueryData(qk.borrowings.activeByBook(id), null);
+        invalidateHolderCaches(id);
       } catch (err) {
         logger.error("bookDetail.autoReturn", err?.message, { code: err?.code, bookId: id });
       }
@@ -334,6 +330,7 @@ export default function BookDetail() {
       queryClient.invalidateQueries({ queryKey: qk.ratings.forBook(id) });
       // The return just made this user eligible to rate the book.
       queryClient.setQueryData(qk.borrowings.userCompletedBook(id, user.id), true);
+      invalidateHolderCaches(id);
     },
     onError: (err) => {
       logger.error("bookDetail.return", err?.message, { code: err?.code, bookId: id });
@@ -391,9 +388,7 @@ export default function BookDetail() {
   const isAdminView = viewRole === "admin";
   const isOwner     = book.ownerId === user?.id;
   const isCurrentHolder =
-    book.status === "unavailable" &&
-    !!user?.id &&
-    (activeBorrowing?.borrowerId === user.id || book.borrowerId === user.id);
+    !!user?.id && readerHolderIdOf(book, activeBorrowing) === user.id;
   const isCommunityMember =
     !!book.communityId && !!user?.communityId && book.communityId === user.communityId;
 
@@ -576,11 +571,10 @@ export default function BookDetail() {
         </section>
       )}
 
-      {/* Holder — who physically has the book right now. Shown to all users. */}
+      {/* Holder — who physically has the book right now. Shown to all users.
+          Lent out → the reader who picked it up; otherwise → the owner. */}
       {(() => {
-        // available → owner is the holder (book not lent out)
-        // unavailable → currentHolder (active borrower)
-        const holder = book.status === "unavailable" ? currentHolder : owner;
+        const holder = holderId === book.ownerId ? owner : currentHolder;
         if (!holder) return null;
         return (
           <section className="px-4 mt-5">

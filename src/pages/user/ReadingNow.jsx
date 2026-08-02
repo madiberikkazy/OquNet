@@ -9,6 +9,7 @@ import {
 } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
+import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 
 export default function ReadingNow() {
   const { user } = useAuth();
@@ -57,7 +58,8 @@ export default function ReadingNow() {
         });
       }
 
-      await updateBook(borrowing.bookId, { status: "available", borrowerId: null });
+      // Book goes home: the owner is the holder again.
+      await updateBook(borrowing.bookId, { status: "available", borrowerId: null, holderId: null });
 
       if (borrowing.ownerId && borrowing.ownerId !== user.id) {
         await createNotification({
@@ -69,6 +71,7 @@ export default function ReadingNow() {
           bookId: borrowing.bookId,
         });
       }
+      invalidateHolderCaches(borrowing.bookId);
       setBorrowing(null);
     } catch (err) {
       logger.error("readingNow.finishBorrowing", err?.message, {

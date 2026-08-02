@@ -16,6 +16,7 @@ import {
   createNotification,
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
+import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 
 function makeCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
@@ -184,6 +185,7 @@ export default function PickupBook() {
           });
         }
         if (pickupRequest?.id) await fulfillPickupRequest(pickupRequest.id);
+        invalidateHolderCaches(id);
         setSuccess(true);
       } catch (err) {
         setError(err?.message || "Ошибка");
@@ -232,6 +234,7 @@ export default function PickupBook() {
         });
       }
       if (pickupRequest?.id) await fulfillPickupRequest(pickupRequest.id);
+      invalidateHolderCaches(id);
       setSuccess(true);
     } catch (err) {
       setError(err?.message || "Ошибка");

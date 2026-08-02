@@ -7,6 +7,7 @@ import {
   updateBook, createNotification,
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
+import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 
 function addDays(date, days) { const d = new Date(date); d.setDate(d.getDate() + days); return d; }
 function fmt(d) { return new Date(d).toISOString().slice(0, 10); }
@@ -45,12 +46,13 @@ export default function RequestBook() {
         communityId: book.communityId, startDate: Date.now(),
         returnDate: new Date(returnDate).getTime(), status: "active",
       });
-      await updateBook(book.id, { status: "unavailable", borrowerId: user.id });
+      await updateBook(book.id, { status: "unavailable", borrowerId: user.id, holderId: user.id });
       await createNotification({
         recipientId: book.ownerId, title: "Запрос на книгу",
         body: `${user.firstName} ${user.lastName} запросил вашу книгу «${book.name}» до ${returnDate}`,
         read: false, type: "borrow-request", bookId: book.id,
       });
+      invalidateHolderCaches(book.id);
       navigate(`/books/${book.id}`, { replace: true });
     } catch (err) { setError(err?.message || "Ошибка"); }
     finally { setSubmitting(false); }
