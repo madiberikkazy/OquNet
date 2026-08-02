@@ -8,6 +8,7 @@ import {
   listBorrowingsForUser, listBooks,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
+import { isHeldBy } from "../../utils/bookHolder.js";
 import { t } from "../../utils/i18n.js";
 
 const DEFAULT_STATS = { owned: 0, reading: 0, completed: 0, saved: 0 };
@@ -26,14 +27,14 @@ export default function Profile() {
       const [readingList, completed, allBooksResult] = await Promise.all([
         listBorrowingsForUser(user.id, "active"),
         listBorrowingsForUser(user.id, "completed"),
-        community?.id ? listBooks({ communityId: community.id }) : Promise.resolve({ items: [] }),
+        community?.id
+          ? listBooks({ communityId: community.id, pageSize: 200 })
+          : Promise.resolve({ items: [] }),
       ]);
       const allBooks = allBooksResult?.items || allBooksResult || [];
-      const owned = allBooks.filter(
-        (b) =>
-          (b.ownerId === user.id && b.status !== "unavailable") ||
-          (b.borrowerId === user.id && b.status === "unavailable")
-      );
+      // Books currently in this user's hands: their own shelf plus anything
+      // they have borrowed and not yet returned.
+      const owned = allBooks.filter((b) => isHeldBy(b, user.id));
       const savedIds = user.savedBookIds || [];
       return {
         stats: {

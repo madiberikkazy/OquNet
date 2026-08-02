@@ -748,7 +748,7 @@ const en = {
   reviewOptional: "Review (optional)",
 
   // Profile
-  ownedBooks: "Books you own",
+  ownedBooks: "Books you have now",
   readingNow: "Currently reading",
   completed: "Completed books",
   saved: "Saved books",

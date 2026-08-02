@@ -16,6 +16,7 @@ import {
 import { qk } from "../../lib/queryKeys.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
+import { readerHolderIdOf } from "../../utils/bookHolder.js";
 
 function makeCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
@@ -26,7 +27,7 @@ function makeCode() {
 function isBookWithUser(book, userId) {
   if (!book) return false;
   if (book.status !== "unavailable") return true;
-  return book.borrowerId === userId;
+  return readerHolderIdOf(book) === userId;
 }
 
 export default function LeaveCommunity() {
@@ -99,7 +100,7 @@ export default function LeaveCommunity() {
       for (const book of books) {
         try {
           const borrowing = await getActiveBorrowingByBook(book.id);
-          const holderId = borrowing?.borrowerId ?? book.borrowerId;
+          const holderId = readerHolderIdOf(book, borrowing);
           if (!holderId || holderId === user.id) {
             sent.push(book.id);
             continue;

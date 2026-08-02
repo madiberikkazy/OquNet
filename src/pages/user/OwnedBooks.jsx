@@ -7,6 +7,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listBooks } from "../../firebase/firestore.js";
 import { cacheService } from "../../utils/cacheService.js";
+import { isHeldBy } from "../../utils/bookHolder.js";
 import { t } from "../../utils/i18n.js";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -40,12 +41,9 @@ export default function OwnedBooks() {
         const result = await listBooks({ communityId: community.id, pageSize: 200 });
         const allBooks = result.items || result;
 
-        // Filter books user currently has
-        const yours = allBooks.filter(
-          (b) =>
-            (b.ownerId === user.id && b.status !== "unavailable") ||
-            (b.borrowerId === user.id && b.status === "unavailable")
-        );
+        // Books currently in this user's hands: their own shelf plus anything
+        // they have borrowed and not yet returned.
+        const yours = allBooks.filter((b) => isHeldBy(b, user.id));
 
         // Cache the results
         cacheService.set(cacheKey, yours, CACHE_TTL);
