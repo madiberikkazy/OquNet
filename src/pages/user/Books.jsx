@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import BookCard from "../../components/BookCard.jsx";
@@ -167,6 +168,9 @@ export default function Books() {
   if (!community) {
     return (
       <MobileShell>
+        <div className="px-4 pt-2">
+          <JoinCommunityBanner />
+        </div>
         <EmptyState title="Books недоступны" subtitle="Вступите в сообщество, чтобы видеть книги." />
       </MobileShell>
     );
@@ -284,6 +288,27 @@ export default function Books() {
         </div>
       </Modal>
     </MobileShell>
+  );
+}
+
+function JoinCommunityBanner() {
+  return (
+    <div className="card px-4 py-3 flex items-center gap-3">
+      <div className="w-8 h-8 rounded-full bg-brand-50 flex items-center justify-center shrink-0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-brand-500">
+          <circle cx="9" cy="7" r="3" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M3 21c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M16 3.1a3 3 0 0 1 0 5.8M21 21c0-2.7-1.7-5-4-5.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-medium text-ink-700">Қоғамдастыққа қосылыңыз</p>
+        <p className="text-[12px] text-ink-400">Кітаптарды алу үшін қоғамдастық керек</p>
+      </div>
+      <Link to="/community/join" className="text-[12px] font-semibold text-brand-600 shrink-0">
+        Табу →
+      </Link>
+    </div>
   );
 }
 
