@@ -9,6 +9,7 @@ import {
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { isHeldBy } from "../../utils/bookHolder.js";
+import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 
 const DEFAULT_STATS = { owned: 0, reading: 0, completed: 0, saved: 0 };
@@ -18,32 +19,50 @@ export default function Profile() {
   const { community } = useCommunity();
   const navigate = useNavigate();
 
-  // Stats are three parallel fetches that then combine — Promise.all keeps
-  // wall time to the slowest request instead of summing them.
+  // Stats are three parallel fetches that then combine — allSettled keeps wall
+  // time to the slowest request, and keeps one failing fetch from zeroing the
+  // counters that did load.
   const statsQuery = useQuery({
     queryKey: qk.profile.stats(user?.id, community?.id),
     enabled: !!user?.id,
+    // These counters are the screen's whole point, and the query cache is
+    // persisted to IndexedDB — without this, a count captured before the user
+    // borrowed a book survives app restarts and only ever refreshes on window
+    // focus. Show the cached number instantly, correct it in the background.
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: async () => {
-      const [readingList, completed, allBooksResult] = await Promise.all([
+      const results = await Promise.allSettled([
         listBorrowingsForUser(user.id, "active"),
         listBorrowingsForUser(user.id, "completed"),
         community?.id
           ? listBooks({ communityId: community.id, pageSize: 200 })
           : Promise.resolve({ items: [] }),
       ]);
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          logger.error("profile.stats", r.reason?.message, {
+            code: r.reason?.code,
+            source: ["active", "completed", "books"][i],
+          });
+        }
+      });
+      const [readingList, completed, allBooksResult] = results.map((r) =>
+        r.status === "fulfilled" ? r.value : null
+      );
       const allBooks = allBooksResult?.items || allBooksResult || [];
-      // Books currently in this user's hands: their own shelf plus anything
-      // they have borrowed and not yet returned.
+      // Books currently in this user's hands — see holderIdOf: their own shelf,
+      // plus anything handed to them that nobody has taken on yet.
       const owned = allBooks.filter((b) => isHeldBy(b, user.id));
       const savedIds = user.savedBookIds || [];
       return {
         stats: {
           owned: owned.length,
-          reading: readingList.length,
-          completed: completed.length,
+          reading: readingList?.length ?? 0,
+          completed: completed?.length ?? 0,
           saved: savedIds.length,
         },
-        activeBorrowing: readingList[0] || null,
+        activeBorrowing: readingList?.[0] || null,
       };
     },
   });

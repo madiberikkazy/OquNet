@@ -16,19 +16,16 @@ import {
 import { qk } from "../../lib/queryKeys.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
-import { readerHolderIdOf } from "../../utils/bookHolder.js";
+import { holderIdOf, isHeldBy } from "../../utils/bookHolder.js";
 
 function makeCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
-// A book is "with the leaving user" when it's not out on loan or when they
-// happen to also be the current holder (unusual, but the data model allows it).
-function isBookWithUser(book, userId) {
-  if (!book) return false;
-  if (book.status !== "unavailable") return true;
-  return readerHolderIdOf(book) === userId;
-}
+// A book is "with the leaving user" when they are its holder. Being free to
+// borrow is not enough: a book someone finished reading is still on *their*
+// shelf until the next reader collects it.
+const isBookWithUser = (book, userId) => isHeldBy(book, userId);
 
 export default function LeaveCommunity() {
   const { id } = useParams();
@@ -100,7 +97,7 @@ export default function LeaveCommunity() {
       for (const book of books) {
         try {
           const borrowing = await getActiveBorrowingByBook(book.id);
-          const holderId = readerHolderIdOf(book, borrowing);
+          const holderId = holderIdOf(book, borrowing);
           if (!holderId || holderId === user.id) {
             sent.push(book.id);
             continue;

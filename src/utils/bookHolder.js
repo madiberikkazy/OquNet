@@ -2,27 +2,34 @@
  * Who physically has a book right now.
  *
  * Ownership never moves — `ownerId` is whoever added the book and stays put.
- * The *holder* is whoever the copy is with today: the owner while the book sits
- * on their shelf, the reader once it has been handed over.
+ * The *holder* is whoever the copy is with today, and it only changes at a
+ * handoff: finishing a read does not send the book back to its owner, it stays
+ * with the reader until the next reader comes to collect it. So a user can hold
+ * many books at once while reading only one.
  */
 
 /**
- * The reader a book was handed to, or null when it is not out on loan.
- *
- * The book document carries the answer (`holderId`, written at every handoff),
- * so screens can name the holder without waiting on a borrowings fetch.
- * `borrowerId` is the older field, kept as a fallback for books last handed
- * over before `holderId` existed; `activeBorrowing` is the last resort for
- * documents that predate both.
+ * The person the book is with. `holderId` is written at every handoff and
+ * outlives the loan; `borrowerId` is the older field, kept as a fallback for
+ * books last handed over before `holderId` existed, and `activeBorrowing` is
+ * the last resort for documents that predate both. A book that has never left
+ * the shelf is with its owner.
+ */
+export function holderIdOf(book, activeBorrowing = null) {
+  if (!book) return null;
+  return (
+    book.holderId || readerHolderIdOf(book, activeBorrowing) || book.ownerId || null
+  );
+}
+
+/**
+ * The reader who has the book *on loan* right now, or null when it isn't out.
+ * Narrower than the holder: someone who has finished a book still holds it, but
+ * is no longer its reader — the book can be requested from them.
  */
 export function readerHolderIdOf(book, activeBorrowing = null) {
   if (!book || book.status !== "unavailable") return null;
   return book.holderId || book.borrowerId || activeBorrowing?.borrowerId || null;
-}
-
-/** The person the book is with: its reader while on loan, otherwise its owner. */
-export function holderIdOf(book, activeBorrowing = null) {
-  return readerHolderIdOf(book, activeBorrowing) || book?.ownerId || null;
 }
 
 /** True when `userId` is the person the book is currently with. */
