@@ -161,6 +161,15 @@ const kz = {
   showMore: "Толығырақ",
   hide: "Жасыру",
   ratingCount: "бағалау",
+  noRatingsYet: "Әзірге бағалау жоқ",
+  defaultRatingNote: "Бастапқы баға — 5,0",
+  yourRating: "Сіздің бағаңыз",
+  rateOnlyReaders: "Кітапты тек оқып шыққандар бағалай алады.",
+  rateAfterReturn: "Кітапты қайтарғаннан кейін бағалай аласыз.",
+  sendRating: "Бағалау",
+  updateRating: "Бағаны жаңарту",
+  ratingSaved: "Бағаңыз сақталды",
+  reviewOptional: "Пікір (міндетті емес)",
 
   // Profile
   ownedBooks: "Сізде қазір бар кітаптар",
@@ -440,6 +449,15 @@ const ru = {
   showMore: "Подробнее",
   hide: "Скрыть",
   ratingCount: "оценок",
+  noRatingsYet: "Пока нет оценок",
+  defaultRatingNote: "Начальная оценка — 5,0",
+  yourRating: "Ваша оценка",
+  rateOnlyReaders: "Оценить книгу могут только те, кто её прочитал.",
+  rateAfterReturn: "Вы сможете оценить книгу после того, как вернёте её.",
+  sendRating: "Оценить",
+  updateRating: "Обновить оценку",
+  ratingSaved: "Оценка сохранена",
+  reviewOptional: "Отзыв (необязательно)",
 
   // Profile
   ownedBooks: "Книги, которые у вас сейчас",
@@ -719,6 +737,15 @@ const en = {
   showMore: "Show more",
   hide: "Hide",
   ratingCount: "ratings",
+  noRatingsYet: "No ratings yet",
+  defaultRatingNote: "Starting rating — 5.0",
+  yourRating: "Your rating",
+  rateOnlyReaders: "Only readers who finished this book can rate it.",
+  rateAfterReturn: "You can rate this book once you return it.",
+  sendRating: "Submit rating",
+  updateRating: "Update rating",
+  ratingSaved: "Rating saved",
+  reviewOptional: "Review (optional)",
 
   // Profile
   ownedBooks: "Books you own",

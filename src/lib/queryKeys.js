@@ -16,15 +16,15 @@ export const qk = {
     activeByBook: (bookId) => ["borrowings", "activeByBook", bookId],
     lastCompletedByBook: (bookId) => ["borrowings", "lastCompletedByBook", bookId],
     forUser: (userId, status) => ["borrowings", "forUser", userId, status],
+    // "has this user finished this book?" — the gate for rating it
+    userCompletedBook: (bookId, userId) => ["borrowings", "userCompleted", bookId, userId],
   },
   notifications: {
     forUser: (userId) => ["notifications", userId],
   },
   ratings: {
     forBook: (bookId) => ["ratings", bookId],
-  },
-  reviews: {
-    forBook: (bookId) => ["reviews", bookId],
+    byUser: (bookId, userId) => ["ratings", bookId, "byUser", userId],
   },
   pickupRequest: {
     byBookAndUser: (bookId, userId) => ["pickupRequest", bookId, userId],
