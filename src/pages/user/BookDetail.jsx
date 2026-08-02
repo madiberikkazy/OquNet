@@ -135,13 +135,18 @@ export default function BookDetail() {
     if (!activeBorrowing || daysLeft == null || daysLeft > 0) return;
     (async () => {
       try {
+        // The loan lapses, but the book doesn't teleport home: the reader still
+        // has it, so they stay the holder until someone collects it from them.
+        const patch = {
+          status: "available",
+          borrowerId: null,
+          holderId: activeBorrowing.borrowerId ?? null,
+        };
         await Promise.all([
-          updateBook(id, { status: "available", borrowerId: null, holderId: null }),
+          updateBook(id, patch),
           updateBorrowing(activeBorrowing.id, { status: "completed" }),
         ]);
-        queryClient.setQueryData(qk.books.detail(id), (b) =>
-          b ? { ...b, status: "available", borrowerId: null, holderId: null } : b
-        );
+        queryClient.setQueryData(qk.books.detail(id), (b) => (b ? { ...b, ...patch } : b));
         queryClient.setQueryData(qk.borrowings.activeByBook(id), null);
         invalidateHolderCaches(id);
       } catch (err) {
@@ -209,11 +214,13 @@ export default function BookDetail() {
         requesterName: `${user.firstName} ${user.lastName}`,
         pickupCode: newCode,
       });
-      if (book.ownerId && book.ownerId !== user.id) {
+      // The code goes to whoever physically has the book — usually the owner,
+      // but a previous reader keeps it until someone collects it from them.
+      if (holderId && holderId !== user.id) {
         await createNotification({
-          recipientId: book.ownerId,
+          recipientId: holderId,
           title: "Запрос на книгу",
-          body: `${user.firstName} ${user.lastName} хочет взять вашу книгу «${book.name}». Назовите ему код для передачи:`,
+          body: `${user.firstName} ${user.lastName} хочет взять книгу «${book.name}», которая сейчас у вас. Назовите ему код для передачи:`,
           read: false,
           type: "borrow-request",
           bookId: id,
@@ -239,7 +246,7 @@ export default function BookDetail() {
       navigate(`/books/${id}/pickup`);
       return;
     }
-    if (isCurrentHolder) return;
+    if (isCurrentHolder || holderId === user.id) return;
     if (book.communityId && user.communityId !== book.communityId) {
       setError(t.notCommunityMember);
       return;
@@ -310,12 +317,14 @@ export default function BookDetail() {
           logger.error("bookDetail.returnRating", err?.message, { code: err?.code, bookId: id });
         }
       }
-      await updateBook(id, { status: "available", borrowerId: null, holderId: null });
+      // Finishing frees the book for the next reader, but it is still on this
+      // user's shelf — they remain its holder until someone collects it.
+      await updateBook(id, { status: "available", borrowerId: null, holderId: user.id });
       if (book.ownerId && book.ownerId !== user.id) {
         await createNotification({
           recipientId: book.ownerId,
-          title: "Кітап қайтарылды",
-          body: `${user.firstName} ${user.lastName} сіздің «${book.name}» кітабыңызды қайтарды.`,
+          title: "Кітап оқылып бітті",
+          body: `${user.firstName} ${user.lastName} сіздің «${book.name}» кітабыңызды оқып бітірді. Кітап келесі оқырман алғанша сонда қалады.`,
           read: false,
           type: "book-returned",
           bookId: id,
@@ -324,7 +333,7 @@ export default function BookDetail() {
     },
     onSuccess: () => {
       queryClient.setQueryData(qk.books.detail(id), (b) =>
-        b ? { ...b, status: "available", borrowerId: null, holderId: null } : b
+        b ? { ...b, status: "available", borrowerId: null, holderId: user.id } : b
       );
       queryClient.setQueryData(qk.borrowings.activeByBook(id), null);
       queryClient.invalidateQueries({ queryKey: qk.ratings.forBook(id) });
@@ -389,6 +398,9 @@ export default function BookDetail() {
   const isOwner     = book.ownerId === user?.id;
   const isCurrentHolder =
     !!user?.id && readerHolderIdOf(book, activeBorrowing) === user.id;
+  // Has the book but isn't reading it: they finished (or the loan lapsed) and
+  // the next reader hasn't collected it yet.
+  const isBookHolder = !isOwner && !isCurrentHolder && !!user?.id && holderId === user.id;
   const isCommunityMember =
     !!book.communityId && !!user?.communityId && book.communityId === user.communityId;
 
@@ -644,6 +656,12 @@ export default function BookDetail() {
         ) : isOwner ? (
           <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
             {t.yourBook}
+          </p>
+        ) : isBookHolder ? (
+          /* Finished reading but nobody has collected it yet — the book is
+             still on this user's shelf, so there is nothing to request. */
+          <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+            {t.bookOnYourShelf}
           </p>
         ) : !isCommunityMember ? (
           <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">

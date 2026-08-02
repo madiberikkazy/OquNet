@@ -73,7 +73,7 @@ export default function OwnedBooks() {
       {loading ? (
         <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
       ) : books.length === 0 ? (
-        <EmptyState title="Кітаптар жоқ" subtitle="Сіз қауымдастыққа кітап қоспадыңыз." />
+        <EmptyState title="Кітаптар жоқ" subtitle="Қазір сізде кітап жоқ." />
       ) : (
         <ul className="px-4 space-y-0 divide-y divide-ink-100">
           {books.map((book) => (

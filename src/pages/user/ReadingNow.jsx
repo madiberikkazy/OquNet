@@ -58,14 +58,19 @@ export default function ReadingNow() {
         });
       }
 
-      // Book goes home: the owner is the holder again.
-      await updateBook(borrowing.bookId, { status: "available", borrowerId: null, holderId: null });
+      // Finishing frees the book for the next reader, but it is still on this
+      // user's shelf — they remain its holder until someone collects it.
+      await updateBook(borrowing.bookId, {
+        status: "available",
+        borrowerId: null,
+        holderId: user.id,
+      });
 
       if (borrowing.ownerId && borrowing.ownerId !== user.id) {
         await createNotification({
           recipientId: borrowing.ownerId,
-          title: "Кітап қайтарылды",
-          body: `${user.firstName} ${user.lastName} сіздің «${borrowing.bookName}» кітабыңызды қайтарды.`,
+          title: "Кітап оқылып бітті",
+          body: `${user.firstName} ${user.lastName} сіздің «${borrowing.bookName}» кітабыңызды оқып бітірді. Кітап келесі оқырман алғанша сонда қалады.`,
           read: false,
           type: "book-returned",
           bookId: borrowing.bookId,

@@ -17,6 +17,7 @@ import {
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
+import { holderIdOf } from "../../utils/bookHolder.js";
 
 function makeCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
@@ -58,13 +59,15 @@ export default function PickupBook() {
       setLoanDays(defaultDays);
       setReturnDate(fmt(addDays(Date.now(), defaultDays)));
 
+      let borrowing = null;
       if (b?.status === "unavailable") {
-        const borrowing = await getActiveBorrowingByBook(id);
+        borrowing = await getActiveBorrowingByBook(id);
         setExistingBorrowing(borrowing);
-        if (borrowing?.borrowerId) {
-          setCurrentHolder(await getUserById(borrowing.borrowerId));
-        }
       }
+      // Whoever has the book is who hands it over and names the code — that is
+      // a previous reader when the book is free but still on their shelf.
+      const holderId = holderIdOf(b, borrowing);
+      if (holderId) setCurrentHolder(await getUserById(holderId));
 
       if (user?.id) {
         const req = await getPickupRequest(id, user.id);
@@ -106,11 +109,11 @@ export default function PickupBook() {
           pickupCode: newCode,
         });
       } else if (pickupRequest) {
-        // Refresh the code on the pickup request so the owner sees a new one
+        // Refresh the code on the pickup request so the holder sees a new one
         await updatePickupRequest(pickupRequest.id, { pickupCode: newCode });
         setPickupRequest((prev) => ({ ...prev, pickupCode: newCode }));
         await createNotification({
-          recipientId: book.ownerId,
+          recipientId: currentHolder?.id || book.ownerId,
           title: "Жаңа код: кітап беру",
           body: `${user.firstName} ${user.lastName} «${book.name}» кітабын алғысы келеді. Жаңа 4 таңбалы код:`,
           read: false,
@@ -286,9 +289,13 @@ export default function PickupBook() {
 
   const isUnavailable = book.status === "unavailable";
   const needsCode = isUnavailable || Boolean(pickupRequest?.pickupCode);
-  const holderLabel = isUnavailable
-    ? (currentHolder ? `@${currentHolder.nickname}` : "текущего читателя")
-    : "владельца книги";
+  // Name the person who actually has the book; fall back to their role only
+  // when we could not load them.
+  const holderLabel = currentHolder
+    ? `@${currentHolder.nickname}`
+    : isUnavailable
+      ? "текущего читателя"
+      : "владельца книги";
 
   return (
     <MobileShell withNav={false}>
@@ -322,9 +329,7 @@ export default function PickupBook() {
                 Когда получите книгу — введите код
               </p>
               <p className="text-[13px] text-brand-700 leading-relaxed">
-                {isUnavailable
-                  ? <>Попросите текущего читателя{currentHolder ? ` (@${currentHolder.nickname})` : ""} назвать вам 4-значный код.</>
-                  : <>Попросите владельца книги назвать вам 4-значный код.</>}
+                Попросите {holderLabel} назвать вам 4-значный код.
               </p>
             </div>
 
@@ -332,7 +337,7 @@ export default function PickupBook() {
               {/* Code boxes */}
               <div>
                 <p className="section-title mb-3 text-center">
-                  {isUnavailable ? "Код от текущего читателя" : "Код от владельца книги"}
+                  Код от {holderLabel}
                 </p>
                 <div className="flex gap-3 justify-center">
                   {digits.map((d, i) => (
