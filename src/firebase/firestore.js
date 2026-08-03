@@ -215,7 +215,27 @@ export async function searchCommunities(qStr) {
 export async function listCommunities() { return getCollection("communities"); }
 
 // ---------- Books ----------
-export async function createBook(payload) { return createOne("books", payload); }
+//
+// A book has two people attached to it, and they are not the same thing:
+//
+//   ownerId  — who the book belongs to. Set once, at creation, and never moves.
+//   holderId — who physically has the copy right now. Moves at every handoff.
+//
+// A new book starts with both pointing at the same person, and they diverge the
+// first time it is lent out. Finishing a book does not send it home: the reader
+// stays its holder until the next reader collects it from them. Everything below
+// is written so that a handoff *cannot* touch `ownerId` even by accident — see
+// `updateBook`.
+
+export async function createBook(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("createBook: payload must be an object");
+  }
+  if (!payload.ownerId) throw new Error("createBook: missing ownerId");
+  // A book starts out with its owner, so `holderId` is a real stored value from
+  // day one rather than something the read path has to infer.
+  return createOne("books", { ...payload, holderId: payload.holderId || payload.ownerId });
+}
 export async function listBooks({ communityId, search, status, genres, pageSize = 30, cursor = null } = {}) {
   const wheres = [];
   if (communityId) wheres.push(["communityId", "==", communityId]);
@@ -305,8 +325,94 @@ export async function listRatingsForBooks(bookIds, concurrency = 5) {
 }
 
 export async function getBook(id) { return getOne("books", id); }
-export async function updateBook(id, patch) { return updateOne("books", id, patch); }
+
+/**
+ * Update a book. `ownerId` is dropped from the patch — ownership is fixed at
+ * creation, and every lending operation goes through here, so the one way to
+ * lose an owner is a patch that carries a stale or borrowed `ownerId` along for
+ * the ride. Dropping it makes that impossible rather than merely discouraged.
+ * Admin correction of a genuinely wrong owner goes through `reassignBookOwner`.
+ */
+export async function updateBook(id, patch) {
+  if (!patch || typeof patch !== "object") throw new Error("updateBook: patch must be an object");
+  if ("ownerId" in patch) {
+    const { ownerId, ...rest } = patch;
+    logger.warn("firestore.updateBook", "ownerId is immutable; dropped from patch", {
+      bookId: id, attempted: ownerId,
+    });
+    return updateOne("books", id, rest);
+  }
+  return updateOne("books", id, patch);
+}
+
+/**
+ * Deliberately move ownership — the one sanctioned way. This is a data
+ * correction (the admin picked the wrong member when adding the book), not part
+ * of lending: it leaves `holderId` alone, because who has the copy right now is
+ * unaffected by fixing who it belongs to.
+ */
+export async function reassignBookOwner(id, ownerId) {
+  if (!ownerId) throw new Error("reassignBookOwner: missing ownerId");
+  return updateOne("books", id, { ownerId });
+}
+
 export async function deleteBook(id) { return deleteOne("books", id); }
+
+/**
+ * Hand a book to its next holder.
+ *
+ * This is the only place a book changes hands. `ownerId` is read from the stored
+ * book rather than taken from the caller, so a stale copy held in component
+ * state can't quietly rewrite who the book belongs to — and it is never part of
+ * the patch, so the owner survives the transfer untouched.
+ *
+ * @param previousBorrowingId  loan to close out, when taking from a live reader
+ * @param borrowing            fields for the new loan; ids are filled in here
+ */
+export async function transferBookHolder({
+  bookId, toUserId, previousBorrowingId = null, borrowing = null,
+}) {
+  if (!bookId) throw new Error("transferBookHolder: missing bookId");
+  if (!toUserId) throw new Error("transferBookHolder: missing toUserId");
+
+  const book = await getBook(bookId);
+  if (!book) throw new Error("transferBookHolder: book not found");
+  const ownerId = book.ownerId ?? null;
+
+  if (previousBorrowingId) {
+    await updateBorrowing(previousBorrowingId, { status: "completed", returnDate: Date.now() });
+  }
+
+  let createdBorrowing = null;
+  if (borrowing) {
+    createdBorrowing = await createBorrowing({
+      ...borrowing,
+      bookId,
+      borrowerId: toUserId,
+      ownerId, // the loan records who it belongs to, which is not who lent it
+      status: "active",
+    });
+  }
+
+  // Note the absence of `ownerId`. The holder moves, the owner does not.
+  const patch = { status: "unavailable", borrowerId: toUserId, holderId: toUserId };
+  await updateBook(bookId, patch);
+
+  return { book: { ...book, ...patch }, borrowing: createdBorrowing, ownerId };
+}
+
+/**
+ * The reader is done, so the book is free for whoever wants it next — but it is
+ * still on their shelf. `holderId` stays put; only `borrowerId` (the *active
+ * loan*) clears. The book leaves them when someone collects it, not before.
+ */
+export async function releaseBookAfterReading({ bookId, holderId }) {
+  if (!bookId) throw new Error("releaseBookAfterReading: missing bookId");
+  if (!holderId) throw new Error("releaseBookAfterReading: missing holderId");
+  const patch = { status: "available", borrowerId: null, holderId };
+  await updateBook(bookId, patch);
+  return patch;
+}
 
 // ---------- Posts ----------
 export async function createPost(payload) { return createOne("posts", payload); }

@@ -1,6 +1,5 @@
 import { queryClient } from "./queryClient.js";
 import { qk } from "./queryKeys.js";
-import { cacheService } from "../utils/cacheService.js";
 
 /**
  * Drop every cache that names a book's holder, after the book changes hands.
@@ -24,5 +23,7 @@ export function invalidateHolderCaches(bookId) {
     // offering "continue getting this book".
     queryClient.invalidateQueries({ queryKey: ["pickupRequest", bookId], refetchType });
   }
-  cacheService.clearPattern("^ownedBooks:");
+  // The "books you have now" list lives under `qk.books.heldBy`, so the
+  // `qk.books.all` prefix above already covers it — both the list and the
+  // profile counter that mirrors it refresh from this one call.
 }

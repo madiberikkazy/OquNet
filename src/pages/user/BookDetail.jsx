@@ -12,7 +12,7 @@ import {
   getBook, getUserById, listRatingsForBook, updateUser,
   getPickupRequest, createPickupRequest,
   getActiveBorrowingByBook, createNotification,
-  updateBook, updateBorrowing, submitRating, getUserRatingForBook, hasUserCompletedBook,
+  releaseBookAfterReading, updateBorrowing, submitRating, getUserRatingForBook, hasUserCompletedBook,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { t, genreLabel } from "../../utils/i18n.js";
@@ -137,13 +137,14 @@ export default function BookDetail() {
       try {
         // The loan lapses, but the book doesn't teleport home: the reader still
         // has it, so they stay the holder until someone collects it from them.
-        const patch = {
-          status: "available",
-          borrowerId: null,
-          holderId: activeBorrowing.borrowerId ?? null,
-        };
-        await Promise.all([
-          updateBook(id, patch),
+        // `holderId` is the fallback for loans old enough to predate
+        // `borrowerId` — the book itself still knows who it is with, and losing
+        // that would strand the copy with nobody holding it.
+        const [patch] = await Promise.all([
+          releaseBookAfterReading({
+            bookId: id,
+            holderId: activeBorrowing.borrowerId || holderId,
+          }),
           updateBorrowing(activeBorrowing.id, { status: "completed" }),
         ]);
         queryClient.setQueryData(qk.books.detail(id), (b) => (b ? { ...b, ...patch } : b));
@@ -153,7 +154,7 @@ export default function BookDetail() {
         logger.error("bookDetail.autoReturn", err?.message, { code: err?.code, bookId: id });
       }
     })();
-  }, [activeBorrowing, daysLeft, id, queryClient]);
+  }, [activeBorrowing, daysLeft, holderId, id, queryClient]);
 
   const saved = (user?.savedBookIds || []).includes(id);
 
@@ -318,8 +319,9 @@ export default function BookDetail() {
         }
       }
       // Finishing frees the book for the next reader, but it is still on this
-      // user's shelf — they remain its holder until someone collects it.
-      await updateBook(id, { status: "available", borrowerId: null, holderId: user.id });
+      // user's shelf — they remain its holder until someone collects it, and
+      // they do not become its owner by having read it.
+      await releaseBookAfterReading({ bookId: id, holderId: user.id });
       if (book.ownerId && book.ownerId !== user.id) {
         await createNotification({
           recipientId: book.ownerId,
@@ -583,10 +585,12 @@ export default function BookDetail() {
         </section>
       )}
 
-      {/* Holder — who physically has the book right now. Shown to all users.
-          Lent out → the reader who picked it up; otherwise → the owner. */}
+      {/* Holder — who physically has the book right now. Shown to all users,
+          always, and always alongside the owner above: when the two are the
+          same person both cards name them, which is the point — the book is
+          with its owner *at the moment*, not permanently. */}
       {(() => {
-        const holder = holderId === book.ownerId ? owner : currentHolder;
+        const holder = currentHolder;
         if (!holder) return null;
         return (
           <section className="px-4 mt-5">

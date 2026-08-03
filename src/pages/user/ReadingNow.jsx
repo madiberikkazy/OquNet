@@ -5,7 +5,7 @@ import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import StarRating from "../../components/StarRating.jsx";
 import {
-  listBorrowingsForUser, updateBorrowing, updateBook, createNotification, submitRating,
+  listBorrowingsForUser, updateBorrowing, releaseBookAfterReading, createNotification, submitRating,
 } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
@@ -59,12 +59,9 @@ export default function ReadingNow() {
       }
 
       // Finishing frees the book for the next reader, but it is still on this
-      // user's shelf — they remain its holder until someone collects it.
-      await updateBook(borrowing.bookId, {
-        status: "available",
-        borrowerId: null,
-        holderId: user.id,
-      });
+      // user's shelf — they remain its holder until someone collects it, and
+      // they do not become its owner by having read it.
+      await releaseBookAfterReading({ bookId: borrowing.bookId, holderId: user.id });
 
       if (borrowing.ownerId && borrowing.ownerId !== user.id) {
         await createNotification({
