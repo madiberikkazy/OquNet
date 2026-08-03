@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
-import { getBook, updateBook, listUsersByCommunity } from "../../firebase/firestore.js";
+import { getBook, updateBook, reassignBookOwner, listUsersByCommunity } from "../../firebase/firestore.js";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { t, GENRES } from "../../utils/i18n.js";
 
@@ -22,6 +22,9 @@ export default function EditBook() {
   const [success, setSuccess]       = useState(false);
   const [members, setMembers]       = useState([]);
   const [showOwner, setShowOwner]   = useState(false);
+  // The owner as stored, so a save can tell "admin reassigned this" apart from
+  // "admin edited the blurb and the owner field came along unchanged".
+  const [originalOwnerId, setOriginalOwnerId] = useState("");
 
   const [form, setForm] = useState({
     name: "", author: "", year: "", maxDays: 14,
@@ -46,6 +49,7 @@ export default function EditBook() {
         status:      book.status      || "available",
         genres:      book.genres || (book.genre ? [book.genre] : []),
       });
+      setOriginalOwnerId(book.ownerId || "");
       if (community?.id) setMembers(await listUsersByCommunity(community.id));
       setLoading(false);
     })();
@@ -63,7 +67,18 @@ export default function EditBook() {
     setError("");
     setSuccess(false);
     try {
-      await updateBook(id, { ...form, genre: form.genres[0] });
+      // `ownerId` is held out of the general save: `updateBook` refuses it, and
+      // replaying it on every unrelated edit is how an owner gets quietly
+      // rewritten. Reassignment is its own call, made only when the admin
+      // actually picked someone else. Note that neither call touches
+      // `holderId` — correcting who a book belongs to, or flipping its status
+      // by hand, does not move the physical copy.
+      const { ownerId, ...fields } = form;
+      await updateBook(id, { ...fields, genre: form.genres[0] });
+      if (ownerId && ownerId !== originalOwnerId) {
+        await reassignBookOwner(id, ownerId);
+        setOriginalOwnerId(ownerId);
+      }
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {

@@ -1,62 +1,42 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listBooks } from "../../firebase/firestore.js";
-import { cacheService } from "../../utils/cacheService.js";
+import { qk } from "../../lib/queryKeys.js";
 import { isHeldBy } from "../../utils/bookHolder.js";
 import { t } from "../../utils/i18n.js";
-
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export default function OwnedBooks() {
   const { user } = useAuth();
   const { community } = useCommunity();
   const navigate = useNavigate();
-  const [books, setBooks] = useState([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!user || !community?.id) {
-      setLoading(false);
-      return;
-    }
+  // This list and the counter on the profile answer the same question, so they
+  // are fetched the same way — same cache family, same staleness rules. When
+  // they had separate caches with different lifetimes the count and the list
+  // could disagree after a handoff, which reads as the book being in two places.
+  const booksQuery = useQuery({
+    queryKey: qk.books.heldBy(user?.id, community?.id),
+    enabled: !!user?.id && !!community?.id,
+    // A book can leave this list because of something someone *else* did, so a
+    // cached answer is never trusted on arrival: show it, then correct it.
+    staleTime: 0,
+    refetchOnMount: "always",
+    queryFn: async () => {
+      const result = await listBooks({ communityId: community.id, pageSize: 200 });
+      const allBooks = result?.items || result || [];
+      // Books currently in this user's hands: their own shelf, plus anything
+      // handed to them that nobody has collected yet — finished or not.
+      return allBooks.filter((b) => isHeldBy(b, user.id));
+    },
+  });
 
-    const loadOwnedBooks = async () => {
-      setLoading(true);
-      try {
-        const cacheKey = `ownedBooks:${user.id}:${community.id}`;
-
-        // Check cache first
-        const cached = cacheService.get(cacheKey);
-        if (cached) {
-          setBooks(cached);
-          setLoading(false);
-          return;
-        }
-
-        const result = await listBooks({ communityId: community.id, pageSize: 200 });
-        const allBooks = result.items || result;
-
-        // Books currently in this user's hands: their own shelf plus anything
-        // they have borrowed and not yet returned.
-        const yours = allBooks.filter((b) => isHeldBy(b, user.id));
-
-        // Cache the results
-        cacheService.set(cacheKey, yours, CACHE_TTL);
-        setBooks(yours);
-      } catch (error) {
-        console.error("Failed to load owned books:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadOwnedBooks();
-  }, [user?.id, community?.id]);
+  const books = booksQuery.data ?? [];
+  const loading = booksQuery.isPending && !!user?.id && !!community?.id;
 
   return (
     <MobileShell>

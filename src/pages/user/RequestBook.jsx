@@ -3,8 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import {
-  getBook, getUserById, createBorrowing, getActiveBorrowingForUser,
-  updateBook, createNotification,
+  getBook, getUserById, getActiveBorrowingForUser,
+  transferBookHolder, createNotification,
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
@@ -41,14 +41,19 @@ export default function RequestBook() {
 
     setSubmitting(true);
     try {
-      await createBorrowing({
-        bookId: book.id, bookName: book.name, borrowerId: user.id, ownerId: book.ownerId,
-        communityId: book.communityId, startDate: Date.now(),
-        returnDate: new Date(returnDate).getTime(), status: "active",
+      // Holder moves to the borrower; the owner stays whoever it already was.
+      const { ownerId } = await transferBookHolder({
+        bookId: book.id,
+        toUserId: user.id,
+        borrowing: {
+          bookName: book.name,
+          communityId: book.communityId,
+          startDate: Date.now(),
+          returnDate: new Date(returnDate).getTime(),
+        },
       });
-      await updateBook(book.id, { status: "unavailable", borrowerId: user.id, holderId: user.id });
       await createNotification({
-        recipientId: book.ownerId, title: "Запрос на книгу",
+        recipientId: ownerId, title: "Запрос на книгу",
         body: `${user.firstName} ${user.lastName} запросил вашу книгу «${book.name}» до ${returnDate}`,
         read: false, type: "borrow-request", bookId: book.id,
       });

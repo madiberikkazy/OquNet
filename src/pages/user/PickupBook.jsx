@@ -9,10 +9,9 @@ import {
   getPickupRequest,
   cancelPickupRequest,
   fulfillPickupRequest,
-  createBorrowing,
+  transferBookHolder,
   updateBorrowing,
   updatePickupRequest,
-  updateBook,
   createNotification,
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
@@ -159,27 +158,25 @@ export default function PickupBook() {
         if (active && active.bookId !== id) { setError("Сначала верните взятую вами книгу."); return; }
 
         const actualReturnTs = addDays(Date.now(), loanDays).getTime();
-        // Mark old borrowing as completed
-        await updateBorrowing(existingBorrowing.id, { status: "completed" });
-        // Create new borrowing for new reader — pickupCode will be generated fresh
-        // when the NEXT reader requests the book; no code needed yet
-        await createBorrowing({
+        // Taking the book off a live reader: their loan closes, ours opens, and
+        // the holder moves to us. The owner is untouched — `transferBookHolder`
+        // reads it off the stored book and hands it back for the notification.
+        const { ownerId } = await transferBookHolder({
           bookId: id,
-          bookName: book.name,
-          borrowerId: user.id,
-          ownerId: book.ownerId,
-          communityId: book.communityId,
-          startDate: Date.now(),
-          returnDate: actualReturnTs,
-          status: "active",
-          pickupCode: makeCode(), // stored silently, only revealed when next reader requests
+          toUserId: user.id,
+          previousBorrowingId: existingBorrowing.id,
+          borrowing: {
+            bookName: book.name,
+            communityId: book.communityId,
+            startDate: Date.now(),
+            returnDate: actualReturnTs,
+            pickupCode: makeCode(), // stored silently, revealed when the next reader asks
+          },
         });
-        // Update book: mark unavailable, set borrowerId (= current holder)
-        await updateBook(id, { status: "unavailable", borrowerId: user.id, holderId: user.id });
         // Notify owner — no code, just info
-        if (book.ownerId && book.ownerId !== user.id) {
+        if (ownerId && ownerId !== user.id) {
           await createNotification({
-            recipientId: book.ownerId,
+            recipientId: ownerId,
             title: "Кітап жаңа оқырманда",
             body: `«${book.name}» кітабы енді ${user.firstName} ${user.lastName} (@${user.nickname}) қолында.`,
             read: false,
@@ -212,23 +209,23 @@ export default function PickupBook() {
       }
 
       const actualReturnTs = addDays(Date.now(), loanDays).getTime();
-      await createBorrowing({
+      // Collecting a book that is free but still on its last holder's shelf.
+      // No loan to close — just open ours and move the holder.
+      const { ownerId } = await transferBookHolder({
         bookId: id,
-        bookName: book.name,
-        borrowerId: user.id,
-        ownerId: book.ownerId,
-        communityId: book.communityId,
-        startDate: Date.now(),
-        returnDate: actualReturnTs,
-        status: "active",
-        pickupCode: makeCode(), // stored silently, used only when next reader requests
+        toUserId: user.id,
+        borrowing: {
+          bookName: book.name,
+          communityId: book.communityId,
+          startDate: Date.now(),
+          returnDate: actualReturnTs,
+          pickupCode: makeCode(), // stored silently, used when the next reader asks
+        },
       });
-      // Update book: set holderId = new reader
-      await updateBook(id, { status: "unavailable", borrowerId: user.id, holderId: user.id });
       // Notify owner — just confirmation, no code
-      if (book.ownerId && book.ownerId !== user.id) {
+      if (ownerId && ownerId !== user.id) {
         await createNotification({
-          recipientId: book.ownerId,
+          recipientId: ownerId,
           title: "Кітап берілді",
           body: `${user.firstName} ${user.lastName} сіздің «${book.name}» кітабыңызды алды.`,
           read: false,
