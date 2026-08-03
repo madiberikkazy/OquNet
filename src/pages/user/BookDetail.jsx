@@ -10,7 +10,7 @@ import StarRating from "../../components/StarRating.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getBook, getUserById, listRatingsForBook, updateUser,
-  getPickupRequest, createPickupRequest,
+  getPickupRequest,
   getActiveBorrowingByBook, createNotification,
   releaseBookAfterReading, updateBorrowing, submitRating, getUserRatingForBook, hasUserCompletedBook,
 } from "../../firebase/firestore.js";
@@ -21,10 +21,6 @@ import { safeImageUrl } from "../../utils/validators.js";
 import { holderIdOf, readerHolderIdOf } from "../../utils/bookHolder.js";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { logger } from "../../utils/logger.js";
-
-function makeCode() {
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
 
 // Return the millisecond timestamp for a Firestore Timestamp / number / Date /
 // ISO-string. Firestore round-trips can serialize any of these shapes.
@@ -176,83 +172,22 @@ export default function BookDetail() {
   }
 
   /**
-   * User taps "Получить книгу" — only called when there is NO existing request.
-   *
-   * Unavailable: create pickup request → notify current holder with their code.
-   * Available:   generate a fresh code → store in pickup request → notify owner.
-   *
-   * Book is only marked "unavailable" AFTER the borrower enters the correct code
-   * in PickupBook.jsx.
+   * User taps "Получить книгу" — this only opens the two-step pickup flow.
+   * Nothing is written here: PickupBook's first step picks the loan length and
+   * shows the holder's contacts, and only its "send code" button opens the
+   * request. The book is marked "unavailable" later still, once the borrower
+   * enters the correct code on step two.
    */
-  const pickupMutation = useMutation({
-    mutationFn: async () => {
-      if (book.status === "unavailable") {
-        const borrowing = activeBorrowing ?? (await getActiveBorrowingByBook(id));
-        const req = await createPickupRequest({
-          bookId: id,
-          bookName: book.name,
-          requesterId: user.id,
-          requesterName: `${user.firstName} ${user.lastName}`,
-        });
-        if (borrowing?.borrowerId && borrowing.borrowerId !== user.id) {
-          await createNotification({
-            recipientId: borrowing.borrowerId,
-            title: "Хотят забрать вашу книгу",
-            body: `${user.firstName} ${user.lastName} хочет получить книгу «${book.name}», которую вы держите. Если он заберёт книгу — сообщите ему код для смены читателя.`,
-            read: false,
-            type: "pickup-request",
-            bookId: id,
-            pickupCode: borrowing.pickupCode,
-          });
-        }
-        return req;
-      }
-      const newCode = makeCode();
-      const req = await createPickupRequest({
-        bookId: id,
-        bookName: book.name,
-        requesterId: user.id,
-        requesterName: `${user.firstName} ${user.lastName}`,
-        pickupCode: newCode,
-      });
-      // The code goes to whoever physically has the book — usually the owner,
-      // but a previous reader keeps it until someone collects it from them.
-      if (holderId && holderId !== user.id) {
-        await createNotification({
-          recipientId: holderId,
-          title: "Запрос на книгу",
-          body: `${user.firstName} ${user.lastName} хочет взять книгу «${book.name}», которая сейчас у вас. Назовите ему код для передачи:`,
-          read: false,
-          type: "borrow-request",
-          bookId: id,
-          pickupCode: newCode,
-        });
-      }
-      return req;
-    },
-    onSuccess: (req) => {
-      queryClient.setQueryData(qk.pickupRequest.byBookAndUser(id, user.id), req);
-      navigate(`/books/${id}/pickup`);
-    },
-    onError: (err) => {
-      logger.error("bookDetail.requestPickup", err?.message, { code: err?.code, bookId: id });
-      setError(err?.message || t.error);
-    },
-  });
-
   function requestPickup() {
     if (!user || !book) return;
-    if (pickupMutation.isPending) return;
-    if (pickupRequest) {
-      navigate(`/books/${id}/pickup`);
-      return;
+    if (!pickupRequest) {
+      if (isCurrentHolder || holderId === user.id) return;
+      if (book.communityId && user.communityId !== book.communityId) {
+        setError(t.notCommunityMember);
+        return;
+      }
     }
-    if (isCurrentHolder || holderId === user.id) return;
-    if (book.communityId && user.communityId !== book.communityId) {
-      setError(t.notCommunityMember);
-      return;
-    }
-    pickupMutation.mutate();
+    navigate(`/books/${id}/pickup`);
   }
 
   function openReturnModal() {
@@ -684,21 +619,9 @@ export default function BookDetail() {
               {t.codeAlreadySent}
             </p>
           </div>
-        ) : book.status === "unavailable" ? (
-          <button
-            onClick={requestPickup}
-            disabled={pickupMutation.isPending}
-            className="btn-primary"
-          >
-            {pickupMutation.isPending ? "…" : t.getBook}
-          </button>
         ) : (
-          <button
-            onClick={requestPickup}
-            disabled={pickupMutation.isPending}
-            className="btn-primary"
-          >
-            {pickupMutation.isPending ? "…" : t.borrowBook}
+          <button onClick={requestPickup} className="btn-primary">
+            {book.status === "unavailable" ? t.getBook : t.borrowBook}
           </button>
         )}
       </div>

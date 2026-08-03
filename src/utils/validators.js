@@ -13,6 +13,7 @@ const SAFE_URL_PROTOCOLS = new Set(["http:", "https:"]);
 export const LIMITS = Object.freeze({
   NAME_MAX: 120,
   AUTHOR_MAX: 120,
+  ADDRESS_MAX: 160,
   DESCRIPTION_MAX: 2000,
   REVIEW_MAX: 2000,
   PASSWORD_MIN: 6,
@@ -46,6 +47,14 @@ export function isName(s) {
 
 export function isPhone(s) {
   return typeof s === "string" && PHONE_RE.test(s.trim());
+}
+
+/**
+ * A postal address is free-form across the countries we serve, so the only
+ * thing worth asserting is that someone typed something a courier could act on.
+ */
+export function isAddress(s) {
+  return typeof s === "string" && s.trim().length >= 5;
 }
 
 export function isYear(n) {

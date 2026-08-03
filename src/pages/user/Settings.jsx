@@ -20,6 +20,7 @@ import {
 } from "../../firebase/firestore.js";
 import { uploadImage } from "../../firebase/storage.js";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
+import { clampText, LIMITS } from "../../utils/validators.js";
 import { 
   NOTIFICATION_SOUNDS, 
   loadNotificationPreferences, 
@@ -42,6 +43,8 @@ export default function Settings() {
     firstName: user?.firstName || "",
     lastName:  user?.lastName  || "",
     nickname:  user?.nickname  || "",
+    phone:     user?.phone     || "",
+    address:   user?.address   || "",
   });
   const [photoFile, setPhotoFile]       = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -107,6 +110,8 @@ export default function Settings() {
         firstName: form.firstName.trim(),
         lastName:  form.lastName.trim(),
         nickname:  nick,
+        phone:     form.phone.trim().slice(0, 20),
+        address:   clampText(form.address, LIMITS.ADDRESS_MAX),
         photoURL,
       });
       setPhotoFile(null);
@@ -309,6 +314,31 @@ export default function Settings() {
                 className="input pl-8"
               />
             </div>
+          </label>
+
+          {/* Contacts — shown to whoever comes to collect a book from you,
+              and required before joining a community. */}
+          <label className="block mb-3">
+            <span className="text-[12px] text-ink-500 mb-1 block">{t.phone}</span>
+            <input
+              type="tel"
+              value={form.phone}
+              onChange={(e) => updateForm("phone", e.target.value.replace(/[^\d+\-() ]/g, ""))}
+              placeholder="+7 (777) 123-45-67"
+              autoComplete="tel"
+              className="input"
+            />
+          </label>
+
+          <label className="block mb-4">
+            <span className="text-[12px] text-ink-500 mb-1 block">{t.address}</span>
+            <input
+              value={form.address}
+              onChange={(e) => updateForm("address", e.target.value)}
+              placeholder={t.addressPlaceholder}
+              autoComplete="street-address"
+              className="input"
+            />
           </label>
 
           {/* Email — read only */}

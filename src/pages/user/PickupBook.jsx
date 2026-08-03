@@ -7,6 +7,7 @@ import {
   getActiveBorrowingByBook,
   getActiveBorrowingForUser,
   getPickupRequest,
+  createPickupRequest,
   cancelPickupRequest,
   fulfillPickupRequest,
   transferBookHolder,
@@ -17,6 +18,21 @@ import {
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { holderIdOf } from "../../utils/bookHolder.js";
+import { safeImageUrl } from "../../utils/validators.js";
+import { t, getCurrentLang } from "../../utils/i18n.js";
+import { logger } from "../../utils/logger.js";
+
+// A pickup that nobody acts on stops blocking the book after three days —
+// the same window the screen promises in its footer note.
+const PICKUP_EXPIRY_DAYS = 3;
+
+const DATE_LOCALES = { ru: "ru-RU", en: "en-GB" };
+// Chromium's kk-KZ data has no long month names — it renders "2026 M08 3" — so
+// Kazakh dates are spelled out here rather than handed to Intl.
+const KZ_MONTHS = [
+  "қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым",
+  "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан",
+];
 
 function makeCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
@@ -26,7 +42,30 @@ function addDays(date, days) {
   d.setDate(d.getDate() + days);
   return d;
 }
-function fmt(d) { return new Date(d).toISOString().slice(0, 10); }
+// Firestore round-trips serialize timestamps as Timestamp / number / string.
+function toMillis(value) {
+  if (value == null) return null;
+  if (typeof value === "number") return value;
+  if (typeof value?.toMillis === "function") return value.toMillis();
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function formatLongDate(ts) {
+  const d = new Date(ts);
+  const locale = DATE_LOCALES[getCurrentLang()];
+  if (!locale) return `${d.getDate()} ${KZ_MONTHS[d.getMonth()]}, ${d.getFullYear()}`;
+  try {
+    return d.toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric" });
+  } catch {
+    return d.toLocaleDateString();
+  }
+}
+function isExpired(request) {
+  const created = toMillis(request?.createdAt);
+  // A request whose createdAt hasn't resolved yet (serverTimestamp) is brand new.
+  if (created == null) return false;
+  return Date.now() - created > PICKUP_EXPIRY_DAYS * 86400000;
+}
 
 export default function PickupBook() {
   const { id } = useParams();
@@ -37,11 +76,14 @@ export default function PickupBook() {
   const [currentHolder, setCurrentHolder] = useState(null);
   const [existingBorrowing, setExistingBorrowing] = useState(null);
   const [pickupRequest, setPickupRequest] = useState(null);
-  // loanDays tracks how many days the user wants — always computed from NOW at submit
+  // Step 1 picks the terms and sends the code; step 2 enters it.
+  const [step, setStep]                   = useState(1);
+  // loanDays tracks how many days the user wants — the return date is always
+  // computed from NOW at submit, so a slow handoff doesn't eat into the loan.
   const [loanDays, setLoanDays]           = useState(7);
-  const [returnDate, setReturnDate]       = useState("");
   const [digits, setDigits]               = useState(["", "", "", ""]);
   const [error, setError]                 = useState("");
+  const [sending, setSending]             = useState(false);
   const [submitting, setSubmitting]       = useState(false);
   const [cancelling, setCancelling]       = useState(false);
   const [loading, setLoading]             = useState(true);
@@ -49,14 +91,14 @@ export default function PickupBook() {
   const [resent, setResent]               = useState(false);
   const [success, setSuccess]             = useState(false);
 
+  const maxDays = book?.maxDays || 14;
+
   useEffect(() => {
     (async () => {
       setLoading(true);
       const b = await getBook(id);
       setBook(b);
-      const defaultDays = Math.min(7, b?.maxDays || 14);
-      setLoanDays(defaultDays);
-      setReturnDate(fmt(addDays(Date.now(), defaultDays)));
+      const bookMaxDays = b?.maxDays || 14;
 
       let borrowing = null;
       if (b?.status === "unavailable") {
@@ -68,23 +110,113 @@ export default function PickupBook() {
       const holderId = holderIdOf(b, borrowing);
       if (holderId) setCurrentHolder(await getUserById(holderId));
 
+      let req = null;
       if (user?.id) {
-        const req = await getPickupRequest(id, user.id);
-        setPickupRequest(req);
+        req = await getPickupRequest(id, user.id);
+        // Reopening a stale request would hand out a code nobody remembers.
+        if (req && isExpired(req)) {
+          try { await cancelPickupRequest(req.id); } catch (err) {
+            logger.warn("pickup.expireRequest", err?.message, { bookId: id });
+          }
+          req = null;
+          setError(t.pickupRequestExpired);
+        }
       }
+      setPickupRequest(req);
+      setStep(req ? 2 : 1);
+      setLoanDays(Math.max(1, Math.min(req?.loanDays ?? 7, bookMaxDays)));
 
       setLoading(false);
     })();
   }, [id, user?.id]);
 
+  function backToBook() {
+    navigate(`/books/${id}`, { replace: true });
+  }
+
   async function handleCancel() {
     setCancelling(true);
     try {
       if (pickupRequest?.id) await cancelPickupRequest(pickupRequest.id);
-    } catch (e) { console.error(e); }
-    finally {
+    } catch (err) {
+      logger.error("pickup.cancel", err?.message, { bookId: id });
+    } finally {
       setCancelling(false);
-      navigate(`/books/${id}`, { replace: true });
+      backToBook();
+    }
+  }
+
+  /**
+   * Step 1 → 2. Opens the pickup request and tells whoever holds the book which
+   * code to read out. The book itself does not move until that code comes back
+   * on step 2 — this only announces the intent.
+   */
+  async function handleSendCode() {
+    if (sending || !user?.id || !book) return;
+    setError("");
+
+    // One active loan at a time; check before generating anything.
+    const active = await getActiveBorrowingForUser(user.id);
+    if (active && active.bookId !== id) { setError(t.pickupReturnOtherBook); return; }
+
+    setSending(true);
+    try {
+      const base = {
+        bookId: id,
+        bookName: book.name,
+        requesterId: user.id,
+        requesterName: `${user.firstName} ${user.lastName}`.trim(),
+        loanDays,
+      };
+
+      let req;
+      if (existingBorrowing) {
+        // The book is out on loan: the reader's own handoff code is the one
+        // they read out. Loans created before codes existed get one now.
+        let code = existingBorrowing.pickupCode;
+        if (!code) {
+          code = makeCode();
+          await updateBorrowing(existingBorrowing.id, { pickupCode: code });
+          setExistingBorrowing((prev) => ({ ...prev, pickupCode: code }));
+        }
+        req = await createPickupRequest(base);
+        if (existingBorrowing.borrowerId && existingBorrowing.borrowerId !== user.id) {
+          await createNotification({
+            recipientId: existingBorrowing.borrowerId,
+            title: "Хотят забрать вашу книгу",
+            body: `${base.requesterName} хочет получить книгу «${book.name}», которую вы держите. Если он заберёт книгу — назовите ему код для смены читателя.`,
+            read: false,
+            type: "pickup-request",
+            bookId: id,
+            pickupCode: code,
+          });
+        }
+      } else {
+        // The book is free but still on its last holder's shelf — the code is
+        // minted here and lives on the request.
+        const code = makeCode();
+        req = await createPickupRequest({ ...base, pickupCode: code });
+        const holderId = currentHolder?.id || book.ownerId;
+        if (holderId && holderId !== user.id) {
+          await createNotification({
+            recipientId: holderId,
+            title: "Запрос на книгу",
+            body: `${base.requesterName} хочет взять книгу «${book.name}», которая сейчас у вас. Назовите ему код для передачи:`,
+            read: false,
+            type: "borrow-request",
+            bookId: id,
+            pickupCode: code,
+          });
+        }
+      }
+
+      setPickupRequest(req);
+      setStep(2);
+    } catch (err) {
+      logger.error("pickup.sendCode", err?.message, { code: err?.code, bookId: id });
+      setError(err?.message || t.error);
+    } finally {
+      setSending(false);
     }
   }
 
@@ -122,8 +254,9 @@ export default function PickupBook() {
         });
       }
       setResent(true);
-    } catch (err) { console.error(err); }
-    finally { setResending(false); }
+    } catch (err) {
+      logger.error("pickup.resend", err?.message, { code: err?.code, bookId: id });
+    } finally { setResending(false); }
   }
 
   function handleDigit(index, value) {
@@ -144,90 +277,50 @@ export default function PickupBook() {
     if (submitting || !user?.id || !book) return; // double-tap + missing-prereq guard
     setError("");
     const enteredCode = digits.join("");
-    if (enteredCode.length < 4) { setError("Введите 4-значный код"); return; }
+    if (enteredCode.length < 4) { setError(t.pickupCodeMissing); return; }
 
-    if (existingBorrowing) {
-      // Case 1: book held by someone
-      if (enteredCode !== existingBorrowing.pickupCode) {
-        setError("Неверный код. Попросите текущего читателя назвать вам код или отправьте напоминание.");
-        return;
-      }
-      setSubmitting(true);
-      try {
-        const active = await getActiveBorrowingForUser(user.id);
-        if (active && active.bookId !== id) { setError("Сначала верните взятую вами книгу."); return; }
-
-        const actualReturnTs = addDays(Date.now(), loanDays).getTime();
-        // Taking the book off a live reader: their loan closes, ours opens, and
-        // the holder moves to us. The owner is untouched — `transferBookHolder`
-        // reads it off the stored book and hands it back for the notification.
-        const { ownerId } = await transferBookHolder({
-          bookId: id,
-          toUserId: user.id,
-          previousBorrowingId: existingBorrowing.id,
-          borrowing: {
-            bookName: book.name,
-            communityId: book.communityId,
-            startDate: Date.now(),
-            returnDate: actualReturnTs,
-            pickupCode: makeCode(), // stored silently, revealed when the next reader asks
-          },
-        });
-        // Notify owner — no code, just info
-        if (ownerId && ownerId !== user.id) {
-          await createNotification({
-            recipientId: ownerId,
-            title: "Кітап жаңа оқырманда",
-            body: `«${book.name}» кітабы енді ${user.firstName} ${user.lastName} (@${user.nickname}) қолында.`,
-            read: false,
-            type: "book-transferred",
-            bookId: id,
-          });
-        }
-        if (pickupRequest?.id) await fulfillPickupRequest(pickupRequest.id);
-        invalidateHolderCaches(id);
-        setSuccess(true);
-      } catch (err) {
-        setError(err?.message || "Ошибка");
-      } finally { setSubmitting(false); }
-      return;
-    }
-
-    // Case 2: free book
-    const expectedCode = pickupRequest?.pickupCode;
+    // The code lives on the active loan when the book is out, and on the
+    // request itself when it is merely sitting on someone's shelf.
+    const expectedCode = existingBorrowing
+      ? existingBorrowing.pickupCode
+      : pickupRequest?.pickupCode;
     if (!expectedCode || enteredCode !== expectedCode) {
-      setError("Неверный код. Проверьте код у владельца книги или отправьте напоминание.");
+      setError(t.pickupCodeWrong);
       return;
     }
+
     setSubmitting(true);
     try {
       const active = await getActiveBorrowingForUser(user.id);
-      if (active && active.bookId !== id) { setError("Сначала верните взятую вами книгу."); return; }
-      if (loanDays > (book.maxDays || 14)) {
-        setError(`Максимальный срок — ${book.maxDays || 14} дней.`);
-        return;
-      }
+      if (active && active.bookId !== id) { setError(t.pickupReturnOtherBook); return; }
 
-      const actualReturnTs = addDays(Date.now(), loanDays).getTime();
-      // Collecting a book that is free but still on its last holder's shelf.
-      // No loan to close — just open ours and move the holder.
+      const days = Math.max(1, Math.min(pickupRequest?.loanDays ?? loanDays, maxDays));
+      const actualReturnTs = addDays(Date.now(), days).getTime();
+
+      // Taking the book off a live reader closes their loan; collecting a free
+      // book has none to close. Either way the holder moves to us and the owner
+      // is untouched — `transferBookHolder` reads it off the stored book.
       const { ownerId } = await transferBookHolder({
         bookId: id,
         toUserId: user.id,
+        previousBorrowingId: existingBorrowing?.id || null,
         borrowing: {
           bookName: book.name,
           communityId: book.communityId,
           startDate: Date.now(),
           returnDate: actualReturnTs,
-          pickupCode: makeCode(), // stored silently, used when the next reader asks
+          pickupCode: makeCode(), // stored silently, revealed when the next reader asks
         },
       });
-      // Notify owner — just confirmation, no code
+
+      // The owner gets a heads-up, never the code.
       if (ownerId && ownerId !== user.id) {
         await createNotification({
           recipientId: ownerId,
-          title: "Кітап берілді",
-          body: `${user.firstName} ${user.lastName} сіздің «${book.name}» кітабыңызды алды.`,
+          title: existingBorrowing ? "Кітап жаңа оқырманда" : "Кітап берілді",
+          body: existingBorrowing
+            ? `«${book.name}» кітабы енді ${user.firstName} ${user.lastName} (@${user.nickname}) қолында.`
+            : `${user.firstName} ${user.lastName} сіздің «${book.name}» кітабыңызды алды.`,
           read: false,
           type: "book-transferred",
           bookId: id,
@@ -237,14 +330,15 @@ export default function PickupBook() {
       invalidateHolderCaches(id);
       setSuccess(true);
     } catch (err) {
-      setError(err?.message || "Ошибка");
+      logger.error("pickup.confirm", err?.message, { code: err?.code, bookId: id });
+      setError(err?.message || t.error);
     } finally { setSubmitting(false); }
   }
 
   if (loading || !book) {
     return (
       <MobileShell withNav={false}>
-        <p className="px-6 py-12 text-center text-ink-500">Загрузка...</p>
+        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
       </MobileShell>
     );
   }
@@ -254,7 +348,6 @@ export default function PickupBook() {
     return (
       <MobileShell withNav={false}>
         <div className="flex flex-col items-center px-6 pt-20 pb-10 gap-7 text-center">
-          {/* Big checkmark circle */}
           <div className="w-28 h-28 rounded-full bg-okSoft flex items-center justify-center">
             <svg width="52" height="52" viewBox="0 0 24 24" fill="none">
               <path d="M5 13l4 4L19 7" stroke="#22c55e" strokeWidth="2.5"
@@ -273,10 +366,7 @@ export default function PickupBook() {
             </p>
           </div>
 
-          <button
-            onClick={() => navigate(`/books/${id}`, { replace: true })}
-            className="btn-primary"
-          >
+          <button onClick={backToBook} className="btn-primary">
             Кітапқа өту →
           </button>
         </div>
@@ -284,57 +374,119 @@ export default function PickupBook() {
     );
   }
 
-  const isUnavailable = book.status === "unavailable";
-  const needsCode = isUnavailable || Boolean(pickupRequest?.pickupCode);
-  // Name the person who actually has the book; fall back to their role only
-  // when we could not load them.
-  const holderLabel = currentHolder
-    ? `@${currentHolder.nickname}`
-    : isUnavailable
-      ? "текущего читателя"
-      : "владельца книги";
+  const holderName = currentHolder
+    ? `${currentHolder.firstName || ""} ${currentHolder.lastName || ""}`.trim() ||
+      `@${currentHolder.nickname}`
+    : t.contactNotSet;
+  const holderLabel = currentHolder ? `@${currentHolder.nickname}` : t.holderLabel;
+  const pickupTs = Date.now();
+  const returnTs = addDays(pickupTs, loanDays).getTime();
+  const codeComplete = digits.every((d) => d);
 
   return (
     <MobileShell withNav={false}>
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 pt-2">
-        <button onClick={() => navigate(`/books/${id}`, { replace: true })} className="icon-btn">
+      {/* Header — centred title with the back arrow floating left */}
+      <div className="relative flex items-center justify-center px-4 pt-2 pb-1">
+        <button
+          onClick={backToBook}
+          className="absolute left-4 icon-btn"
+          aria-label={t.back}
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
             <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </button>
-        <h1 className="text-lg font-semibold truncate">Получить книгу</h1>
+        <h1 className="text-[19px] font-semibold">{t.pickupTitle}</h1>
       </div>
 
-      <div className="px-5 pt-5 space-y-5">
-        {/* Book card */}
-        <div className="card p-4 flex gap-3">
-          {book.coverUrl ? (
-            <img src={book.coverUrl} alt={book.name}
-              className="w-14 h-20 rounded-md object-cover bg-ink-100 shrink-0" />
-          ) : null}
-          <div className="min-w-0">
-            <p className="font-semibold text-[15px] truncate">{book.name}</p>
-            <p className="text-[13px] text-ink-500 truncate">{book.author}</p>
-          </div>
+      <div className="px-5 pt-4 pb-6 space-y-5">
+        {/* Book — cover above its title, both centred */}
+        <div className="flex flex-col items-center gap-2">
+          <img
+            src={safeImageUrl(book.coverUrl) || undefined}
+            alt={book.name || ""}
+            onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+            className="w-[112px] h-[160px] rounded-xl object-cover bg-ink-100 shadow-soft"
+          />
+          <p className="text-[15px] text-ink-700">{book.name}</p>
         </div>
 
-        {needsCode ? (
+        {step === 1 ? (
           <>
-            <div className="rounded-2xl bg-brand-50 border border-brand-200 px-4 py-4">
-              <p className="text-[14px] font-semibold text-brand-900 mb-1">
-                Когда получите книгу — введите код
+            {/* Loan length */}
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-[15px] font-medium">{t.loanDaysLabel}</span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setLoanDays((d) => Math.max(1, d - 1))}
+                  disabled={loanDays <= 1}
+                  className="w-9 h-9 rounded-full bg-ink-100 text-ink-700 flex items-center justify-center disabled:opacity-40 transition active:scale-95"
+                  aria-label="−"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M5 12h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <span className="w-8 text-center text-[20px] font-semibold tabular-nums">{loanDays}</span>
+                <button
+                  type="button"
+                  onClick={() => setLoanDays((d) => Math.min(maxDays, d + 1))}
+                  disabled={loanDays >= maxDays}
+                  className="w-9 h-9 rounded-full bg-brand-500 text-white flex items-center justify-center disabled:opacity-40 transition active:scale-95"
+                  aria-label="+"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Pickup + return dates */}
+            <div className="grid grid-cols-2 gap-3">
+              <DateCard label={t.pickupDateLabel} value={formatLongDate(pickupTs)} />
+              <DateCard label={t.pickupReturnLabel} value={formatLongDate(returnTs)} />
+            </div>
+
+            {/* Who has the book, and how to reach them */}
+            <div>
+              <h2 className="text-[16px] font-semibold mb-2">{t.whoHasBookNow}</h2>
+              <dl className="space-y-2.5">
+                <ContactRow label={t.holderLabel} value={holderName} />
+                <ContactRow label={t.address} value={currentHolder?.address || t.contactNotSet} />
+                <ContactRow label={t.phone} value={currentHolder?.phone || t.contactNotSet} />
+              </dl>
+            </div>
+
+            <InfoNote text={t.pickupHandoverNote} />
+
+            {error ? <p className="text-bad text-[13px]">{error}</p> : null}
+
+            <div className="space-y-2">
+              <button onClick={handleSendCode} disabled={sending} className="btn-primary">
+                {sending ? "…" : t.sendCode}
+              </button>
+              <button type="button" onClick={backToBook} className="btn-secondary">
+                {t.cancel}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-2xl bg-brand-50 border border-brand-200 px-4 py-3.5">
+              <p className="text-[13px] font-semibold text-brand-700 mb-0.5">
+                {t.enterCodeTitle}
               </p>
-              <p className="text-[13px] text-brand-700 leading-relaxed">
-                Попросите {holderLabel} назвать вам 4-значный код.
+              <p className="text-[12px] text-brand-600 leading-relaxed">
+                {t.enterCodeBody} {holderLabel}
               </p>
             </div>
 
             <form onSubmit={onSubmit} className="space-y-5">
-              {/* Code boxes */}
               <div>
                 <p className="section-title mb-3 text-center">
-                  Код от {holderLabel}
+                  {t.codeFrom} {holderLabel}
                 </p>
                 <div className="flex gap-3 justify-center">
                   {digits.map((d, i) => (
@@ -347,6 +499,7 @@ export default function PickupBook() {
                       value={d}
                       onChange={(e) => handleDigit(i, e.target.value)}
                       onKeyDown={(e) => handleKeyDown(i, e)}
+                      aria-label={`${t.codeFrom} ${i + 1}`}
                       className="w-14 h-16 text-center text-2xl font-bold rounded-2xl bg-ink-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-surface transition"
                     />
                   ))}
@@ -358,58 +511,88 @@ export default function PickupBook() {
                     disabled={resending}
                     className="text-[13px] text-brand-500 font-medium hover:underline underline-offset-2 disabled:opacity-50 transition"
                   >
-                    {resending ? "Отправляем..." : "Отправить код повторно"}
+                    {resending ? "…" : t.resendCode}
                   </button>
                   {resent ? (
                     <p className="text-[12px] text-ok text-center">
-                      ✓ Код повторно отправлен {holderLabel}.
+                      ✓ {t.codeResent} — {holderLabel}
                     </p>
                   ) : null}
                 </div>
               </div>
 
-              {/* Return date — loanDays is recalculated from NOW, so the
-                  actual return date is always relative to the real handoff date */}
-              <div>
-                <p className="section-title mb-1">Дата возврата</p>
-                <input
-                  type="date"
-                  value={returnDate}
-                  min={fmt(Date.now())}
-                  max={fmt(addDays(Date.now(), book.maxDays || 14))}
-                  onChange={(e) => {
-                    setReturnDate(e.target.value);
-                    const days = Math.round(
-                      (new Date(e.target.value).getTime() - Date.now()) / 86400000
-                    );
-                    setLoanDays(Math.max(1, Math.min(days, book.maxDays || 14)));
-                  }}
-                  className="input"
-                />
-                <p className="text-[12px] text-ink-500 mt-1">
-                  Максимум {book.maxDays || 14} дней
-                </p>
-              </div>
+              <InfoNote text={t.pickupHandoverNote} />
 
               {error ? <p className="text-bad text-[13px]">{error}</p> : null}
 
-              <button disabled={submitting} className="btn-primary">
-                {submitting ? "…" : "Подтвердить получение"}
-              </button>
-              <button type="button" onClick={handleCancel} disabled={cancelling} className="btn-secondary">
-                {cancelling ? "…" : "Отмена"}
-              </button>
+              <div className="space-y-2">
+                {/* Stays soft until all four digits are in — the design's cue
+                    that this button is waiting on the holder, not the user. */}
+                <button
+                  disabled={submitting || !codeComplete}
+                  className={
+                    "w-full font-semibold rounded-xl py-3.5 transition active:scale-[0.99] " +
+                    (codeComplete
+                      ? "bg-brand-500 hover:bg-brand-600 text-white"
+                      : "bg-brand-50 text-brand-500")
+                  }
+                >
+                  {submitting ? "…" : t.enterCode}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                  className="btn-secondary disabled:opacity-60"
+                >
+                  {cancelling ? "…" : t.cancel}
+                </button>
+              </div>
             </form>
           </>
-        ) : (
-          <div className="rounded-2xl bg-ink-100 px-4 py-5 text-center space-y-3">
-            <p className="text-[14px] text-ink-700">
-              Запрос на книгу не найден. Вернитесь назад и нажмите «Получить книгу» снова.
-            </p>
-            <button onClick={handleCancel} className="btn-secondary">Назад</button>
-          </div>
         )}
+
+        <InfoNote text={t.pickupExpiryNote} />
       </div>
     </MobileShell>
+  );
+}
+
+// ─── Small presentational helpers ────────────────────────────────────────────
+
+function DateCard({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-ink-100 px-4 py-3.5">
+      <div className="flex items-center gap-2 text-ink-900">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" className="shrink-0">
+          <rect x="3" y="5" width="18" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+        <span className="text-[15px] font-medium">{label}</span>
+      </div>
+      <p className="text-[14px] text-ink-700 mt-2.5">{value}</p>
+    </div>
+  );
+}
+
+function ContactRow({ label, value }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <dt className="text-[15px] text-ink-500 shrink-0">{label}</dt>
+      <dd className="text-[15px] font-medium text-right break-words">{value}</dd>
+    </div>
+  );
+}
+
+function InfoNote({ text }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="shrink-0 mt-0.5 text-ink-500">
+        <circle cx="12" cy="12" r="10" fill="currentColor" />
+        <path d="M12 10.5v6" stroke="var(--bg-surface)" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="12" cy="7.5" r="1.2" fill="var(--bg-surface)" />
+      </svg>
+      <p className="text-[13px] text-ink-500 leading-snug">{text}</p>
+    </div>
   );
 }

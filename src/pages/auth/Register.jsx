@@ -30,6 +30,7 @@ export default function Register() {
     firstName: "",
     lastName: "",
     phone: "",
+    address: "",
     notificationsEnabled: true,
     acceptedTerms: false,
   });
@@ -224,6 +225,7 @@ export default function Register() {
         firstName: form.firstName,
         lastName: form.lastName,
         phone: form.phone,
+        address: form.address,
         notificationsEnabled: form.notificationsEnabled,
         photoURL,
       });
@@ -464,6 +466,19 @@ export default function Register() {
                 onChange={(e) => update("phone", e.target.value.replace(/[^\d+\-() ]/g, ""))}
                 placeholder="+7 (777) 123-45-67"
                 autoComplete="tel"
+                className="input"
+              />
+            </label>
+
+            {/* Address — optional here, but required before joining a community,
+                since it is what the next reader navigates to. */}
+            <label className="block">
+              <span className="text-[13px] text-ink-500 mb-1 block">{t.address}</span>
+              <input
+                value={form.address}
+                onChange={(e) => update("address", e.target.value)}
+                placeholder={t.addressPlaceholder}
+                autoComplete="street-address"
                 className="input"
               />
             </label>

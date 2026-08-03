@@ -172,6 +172,38 @@ const kz = {
   ratingSaved: "Бағаңыз сақталды",
   reviewOptional: "Пікір (міндетті емес)",
 
+  // Pickup flow (2 steps)
+  pickupTitle: "Кітапты алу",
+  loanDaysLabel: "Алатын күн саны",
+  pickupDateLabel: "Алу",
+  pickupReturnLabel: "Қайтарылу",
+  whoHasBookNow: "Кітап қазір кімде?",
+  sendCode: "Код жіберу",
+  enterCode: "Код енгізу",
+  resendCode: "Кодты қайта жіберу",
+  codeResent: "Код қайта жіберілді",
+  codeFrom: "Кодты жіберуші",
+  enterCodeTitle: "Кітапты алғанда — кодты енгізіңіз",
+  enterCodeBody: "4 таңбалы кодты айтуын сұраңыз:",
+  pickupHandoverNote: "Кітапты ұстаушыдан алғаннан соң ғана кодты енгізіп, кітапты өз атыңызға жазыңыз",
+  pickupExpiryNote: "3 күн ішінде ешнәрсе орындалмаса, кітапты алу автоматты түрде тоқтатылады",
+  pickupCodeMissing: "4 таңбалы кодты енгізіңіз",
+  pickupCodeWrong: "Код қате. Кітапты ұстаушыдан кодты қайта сұраңыз.",
+  pickupRequestExpired: "Алдыңғы өтініш мерзімі бітті. Кодты қайта жіберіңіз.",
+  pickupReturnOtherBook: "Алдымен алған кітабыңызды қайтарыңыз.",
+  contactNotSet: "Көрсетілмеген",
+
+  // Contact details (required to join a community)
+  contactDetails: "Байланыс деректері",
+  address: "Мекенжай",
+  addressPlaceholder: "Астана, Сәтпаев 11",
+  contactsRequiredTitle: "Байланыс деректеріңізді толтырыңыз",
+  contactsRequiredNote:
+    "Қоғамдастыққа қосылу үшін телефон нөмірі мен мекенжайыңыз қажет — кітап алмасқанда басқа мүшелер сізді осылай табады.",
+  phoneRequiredError: "Телефон нөмірін жазыңыз",
+  phoneInvalidError: "Телефон нөмірі дұрыс емес",
+  addressRequiredError: "Мекенжайыңызды жазыңыз",
+
   // Profile
   ownedBooks: "Сізде қазір бар кітаптар",
   readingNow: "Қазір оқып жатқан кітап",
@@ -461,6 +493,39 @@ const ru = {
   ratingSaved: "Оценка сохранена",
   reviewOptional: "Отзыв (необязательно)",
 
+  // Pickup flow (2 steps)
+  pickupTitle: "Получить книгу",
+  loanDaysLabel: "Количество дней",
+  pickupDateLabel: "Получение",
+  pickupReturnLabel: "Возврат",
+  whoHasBookNow: "У кого сейчас книга?",
+  sendCode: "Отправить код",
+  enterCode: "Ввести код",
+  resendCode: "Отправить код повторно",
+  codeResent: "Код отправлен повторно",
+  codeFrom: "Код от",
+  enterCodeTitle: "Когда получите книгу — введите код",
+  enterCodeBody: "Попросите назвать вам 4-значный код:",
+  pickupHandoverNote:
+    "Вводите код только после того, как забрали книгу у держателя — так книга запишется на вас",
+  pickupExpiryNote: "Если в течение 3 дней ничего не произойдёт, получение книги отменится автоматически",
+  pickupCodeMissing: "Введите 4-значный код",
+  pickupCodeWrong: "Неверный код. Попросите держателя книги назвать код ещё раз.",
+  pickupRequestExpired: "Прошлый запрос истёк. Отправьте код заново.",
+  pickupReturnOtherBook: "Сначала верните взятую вами книгу.",
+  contactNotSet: "Не указан",
+
+  // Contact details (required to join a community)
+  contactDetails: "Контактные данные",
+  address: "Адрес",
+  addressPlaceholder: "Астана, Сатпаев 11",
+  contactsRequiredTitle: "Заполните контактные данные",
+  contactsRequiredNote:
+    "Чтобы вступить в сообщество, укажите телефон и адрес — по ним другие участники найдут вас при передаче книги.",
+  phoneRequiredError: "Укажите номер телефона",
+  phoneInvalidError: "Некорректный номер телефона",
+  addressRequiredError: "Укажите адрес",
+
   // Profile
   ownedBooks: "Книги, которые у вас сейчас",
   readingNow: "Сейчас читаете",
@@ -749,6 +814,39 @@ const en = {
   updateRating: "Update rating",
   ratingSaved: "Rating saved",
   reviewOptional: "Review (optional)",
+
+  // Pickup flow (2 steps)
+  pickupTitle: "Get the book",
+  loanDaysLabel: "Days to borrow",
+  pickupDateLabel: "Pickup",
+  pickupReturnLabel: "Return",
+  whoHasBookNow: "Who has the book now?",
+  sendCode: "Send code",
+  enterCode: "Enter code",
+  resendCode: "Send the code again",
+  codeResent: "Code sent again",
+  codeFrom: "Code from",
+  enterCodeTitle: "Once you have the book — enter the code",
+  enterCodeBody: "Ask them to tell you the 4-digit code:",
+  pickupHandoverNote:
+    "Only enter the code after you have taken the book from its holder — that is what puts the book in your name",
+  pickupExpiryNote: "If nothing happens within 3 days, the pickup is cancelled automatically",
+  pickupCodeMissing: "Enter the 4-digit code",
+  pickupCodeWrong: "Wrong code. Ask the holder to read it out again.",
+  pickupRequestExpired: "The previous request expired. Send the code again.",
+  pickupReturnOtherBook: "Return the book you already have first.",
+  contactNotSet: "Not provided",
+
+  // Contact details (required to join a community)
+  contactDetails: "Contact details",
+  address: "Address",
+  addressPlaceholder: "Astana, Satpayev 11",
+  contactsRequiredTitle: "Fill in your contact details",
+  contactsRequiredNote:
+    "To join a community you need a phone number and an address — that is how other members reach you when handing over a book.",
+  phoneRequiredError: "Enter your phone number",
+  phoneInvalidError: "That phone number looks wrong",
+  addressRequiredError: "Enter your address",
 
   // Profile
   ownedBooks: "Books you have now",
