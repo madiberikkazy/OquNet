@@ -10,13 +10,14 @@ import {
   createJoinRequest, createNotification, getActiveBorrowingForUser,
 } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
+import { clampText, isAddress, isPhone, LIMITS } from "../../utils/validators.js";
 
 const TABS = ["posts", "books", "members"];
 
 export default function CommunityProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
 
   const [community, setCommunity]   = useState(null);
   const [members, setMembers]       = useState([]);
@@ -29,6 +30,9 @@ export default function CommunityProfile() {
   // Join modal
   const [joinOpen, setJoinOpen]     = useState(false);
   const [bookForm, setBookForm]     = useState({ name: "", author: "", coverUrl: "" });
+  // Contacts are collected here rather than on the book screens: joining is the
+  // moment a user becomes reachable, and every handoff afterwards needs them.
+  const [contactForm, setContactForm] = useState({ phone: "", address: "" });
   const [joinError, setJoinError]   = useState("");
   const [joining, setJoining]       = useState(false);
   const [joinDone, setJoinDone]     = useState(false);
@@ -56,6 +60,12 @@ export default function CommunityProfile() {
     }).catch(() => setHeaderLoading(false));
   }, [id]);
 
+  // Seed the contact fields from whatever the profile already knows, so a user
+  // who filled them in at registration just confirms them.
+  useEffect(() => {
+    setContactForm({ phone: user?.phone || "", address: user?.address || "" });
+  }, [user?.phone, user?.address]);
+
   const isMember  = user?.communityId === id;
   const isOwner   = community?.ownerId === user?.id;
   const isPrivate = community?.isPrivate;
@@ -66,10 +76,24 @@ export default function CommunityProfile() {
     e.preventDefault();
     setJoinError("");
     if (!bookForm.name.trim()) { setJoinError("Кітап атауын жазыңыз"); return; }
+
+    // Contacts gate — a member with no phone or address cannot hand a book over.
+    const phone = contactForm.phone.trim();
+    const address = clampText(contactForm.address, LIMITS.ADDRESS_MAX);
+    if (!phone) { setJoinError(t.phoneRequiredError); return; }
+    if (!isPhone(phone)) { setJoinError(t.phoneInvalidError); return; }
+    if (!isAddress(address)) { setJoinError(t.addressRequiredError); return; }
+
     const active = await getActiveBorrowingForUser(user.id);
     if (active) { setJoinError("Алдымен алған кітабыңызды қайтарыңыз."); return; }
     setJoining(true);
     try {
+      // Save first: the admin approving this request is agreeing to a member
+      // other people can actually reach.
+      if (phone !== (user.phone || "") || address !== (user.address || "")) {
+        await updateProfile({ phone: phone.slice(0, 20), address });
+      }
+
       const req = await createJoinRequest({
         userId: user.id,
         userNickname: user.nickname,
@@ -389,6 +413,31 @@ export default function CommunityProfile() {
               placeholder="Мұқаба URL (міндетті емес)"
               className="input"
             />
+
+            <div className="pt-2">
+              <p className="text-[14px] font-semibold">{t.contactsRequiredTitle}</p>
+              <p className="text-[13px] text-ink-500 leading-relaxed mt-1">
+                {t.contactsRequiredNote}
+              </p>
+            </div>
+            <input
+              type="tel"
+              value={contactForm.phone}
+              onChange={(e) =>
+                setContactForm({ ...contactForm, phone: e.target.value.replace(/[^\d+\-() ]/g, "") })
+              }
+              placeholder={`${t.phone} *`}
+              autoComplete="tel"
+              className="input"
+            />
+            <input
+              value={contactForm.address}
+              onChange={(e) => setContactForm({ ...contactForm, address: e.target.value })}
+              placeholder={`${t.address} * — ${t.addressPlaceholder}`}
+              autoComplete="street-address"
+              className="input"
+            />
+
             {joinError && <p className="text-bad text-[13px]">{joinError}</p>}
             <div className="flex gap-3 pt-1">
               <button

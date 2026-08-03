@@ -190,7 +190,8 @@ export async function sendPasswordReset(email) {
  * (and verified) auth user. Requires `uid` returned from startEmailRegistration().
  */
 export async function finalizeRegistration({
-  uid, email, password, nickname, firstName, lastName, phone, notificationsEnabled, photoURL,
+  uid, email, password, nickname, firstName, lastName, phone, address,
+  notificationsEnabled, photoURL,
 }) {
   const cleanEmail = normalizeEmail(email);
   const cleanNick = normalizeNickname(nickname);
@@ -221,6 +222,9 @@ export async function finalizeRegistration({
     firstName: (firstName || "").toString().trim().slice(0, 60),
     lastName: (lastName || "").toString().trim().slice(0, 60),
     phone: (phone || "").toString().trim().slice(0, 20),
+    // Shown to whoever comes to collect a book from this user, so it travels
+    // with the profile rather than being asked for at every handoff.
+    address: (address || "").toString().trim().slice(0, LIMITS.ADDRESS_MAX),
     notificationsEnabled: Boolean(notificationsEnabled),
     photoURL: photoURL || "",
     role: "user",
