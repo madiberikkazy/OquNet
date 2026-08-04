@@ -3,15 +3,17 @@ import { Link } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import BookCard from "../../components/BookCard.jsx";
+import GenreBar from "../../components/GenreBar.jsx";
+import NewBooksRail from "../../components/NewBooksRail.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { listBooks, updateUser, getRatingSummaries } from "../../firebase/firestore.js";
-import { t, GENRES, genreLabel } from "../../utils/i18n.js";
+import { listBooks, listNewBooks, updateUser, getRatingSummaries } from "../../firebase/firestore.js";
+import { t } from "../../utils/i18n.js";
 import { useInfiniteScroll } from "../../utils/useIntersectionHooks.js";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { qk } from "../../lib/queryKeys.js";
 
 const STATUS_OPTIONS = [
@@ -47,9 +49,10 @@ export default function Books() {
   const [filterOpen, setFilterOpen] = useState(false);
 
   const [draftStatus, setDraftStatus] = useState(null);
-  const [draftGenres, setDraftGenres] = useState([]);
 
-  const isFilterActive = status !== null || genres.length > 0;
+  // Genres live in the bar under the search field now, so the dot on the filter
+  // icon only has to speak for what the modal still hides — the status.
+  const isFilterActive = status !== null;
   const debouncedSearch = useDebounced(search, 300);
 
   const filters = useMemo(
@@ -103,6 +106,19 @@ export default function Books() {
     [listQuery.data]
   );
 
+  // The rail is a browsing shortcut, not a filter result: while the user is
+  // searching or narrowing by genre it would only push their results off screen.
+  const showNewBooks = !debouncedSearch && genres.length === 0 && status === null;
+
+  const newBooksQuery = useQuery({
+    queryKey: qk.books.recent(community?.id),
+    enabled: !!community?.id && showNewBooks,
+    queryFn: () => listNewBooks({ communityId: community.id }),
+    staleTime: 5 * 60_000,
+  });
+
+  const hasNewBooks = showNewBooks && (newBooksQuery.data?.length || 0) > 0;
+
   const { sentinelRef } = useInfiniteScroll({
     onLoadMore: () => {
       if (listQuery.hasNextPage && !listQuery.isFetchingNextPage) {
@@ -141,30 +157,20 @@ export default function Books() {
     });
   }
 
-  function removeGenre(v) { setGenres((prev) => prev.filter((g) => g !== v)); }
   function removeStatus() { setStatus(null); }
 
   function openFilter() {
     setDraftStatus(status);
-    setDraftGenres([...genres]);
     setFilterOpen(true);
   }
 
   function applyFilter() {
     setStatus(draftStatus);
-    setGenres(draftGenres);
     setFilterOpen(false);
   }
 
   function resetDraft() {
     setDraftStatus(null);
-    setDraftGenres([]);
-  }
-
-  function toggleDraftGenre(value) {
-    setDraftGenres((prev) =>
-      prev.includes(value) ? prev.filter((g) => g !== value) : [...prev, value]
-    );
   }
 
   if (!community) {
@@ -188,31 +194,37 @@ export default function Books() {
         <SearchBar
           value={search}
           onChange={setSearch}
+          placeholder={t.searchPlaceholder}
           onFilterClick={openFilter}
           filterActive={isFilterActive}
         />
       </div>
 
-      {isFilterActive ? (
-        <div className="flex flex-wrap gap-2 px-4 pb-2">
-          {status ? (
-            <Chip
-              label={t[STATUS_OPTIONS.find((o) => o.v === status)?.labelKey] ?? status}
-              onRemove={removeStatus}
-            />
-          ) : null}
-          {genres.map((g) => (
-            <Chip key={g} label={genreLabel(g)} onRemove={() => removeGenre(g)} />
-          ))}
+      <GenreBar selected={genres} onChange={setGenres} />
+
+      {status ? (
+        <div className="flex flex-wrap gap-2 px-4 pt-1 pb-2">
+          <Chip
+            label={t[STATUS_OPTIONS.find((o) => o.v === status)?.labelKey] ?? status}
+            onRemove={removeStatus}
+          />
         </div>
       ) : null}
+
+      {hasNewBooks ? <NewBooksRail books={newBooksQuery.data} /> : null}
 
       {isInitialLoading ? (
         <EmptyState title="Загрузка..." subtitle="" />
       ) : books.length === 0 ? (
         <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
       ) : (
-        <ul className="mt-2">
+        <>
+        {/* The rail's books are in this list too, so it needs a name of its own
+            once the rail is up — otherwise the two read as one sequence. */}
+        {hasNewBooks ? (
+          <h2 className="px-4 pt-1 pb-2 text-[19px] font-bold text-ink-900">{t.defaultBooks}</h2>
+        ) : null}
+        <ul className="mt-1">
           {books.map((b) => (
             <li key={b.id}>
               <BookCard book={b} saved={effectiveSaved.has(b.id)} onSaveToggle={onSaveToggle} />
@@ -229,6 +241,7 @@ export default function Books() {
             </li>
           )}
         </ul>
+        </>
       )}
 
       <Modal open={filterOpen} onClose={() => setFilterOpen(false)} title={t.filterTitle} scrollable>
@@ -249,28 +262,6 @@ export default function Books() {
                 {t[opt.labelKey]}
               </button>
             ))}
-          </div>
-        </div>
-
-        <div className="mb-5">
-          <p className="text-[13px] text-ink-500 mb-2">{t.genre}</p>
-          <div className="flex flex-wrap gap-2">
-            {GENRES.map((g) => {
-              const lang = typeof window !== "undefined" ? localStorage.getItem("lang") || "kz" : "kz";
-              const selected = draftGenres.includes(g.value);
-              return (
-                <button
-                  key={g.value}
-                  onClick={() => toggleDraftGenre(g.value)}
-                  className={
-                    "px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors " +
-                    (selected ? "bg-brand-500 text-white" : "bg-ink-100 text-ink-700")
-                  }
-                >
-                  {g[lang] ?? g.kz}
-                </button>
-              );
-            })}
           </div>
         </div>
 
