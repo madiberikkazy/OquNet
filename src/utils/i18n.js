@@ -297,6 +297,9 @@ const kz = {
   filterApply: "Қолдану",
   allBooks: "Барлық кітаптар",
   statusSoon: "Жақында босайды",
+  genreAll: "Барлығы",
+  newBooks: "Жаңа кітаптар",
+  defaultBooks: "Әдепкі",
 
   // Add / edit book
   genre: "Жанр",
@@ -632,6 +635,9 @@ const ru = {
   filterApply: "Применить",
   allBooks: "Все книги",
   statusSoon: "Скоро освободятся",
+  genreAll: "Все",
+  newBooks: "Новые книги",
+  defaultBooks: "По умолчанию",
 
   // Add / edit book
   genre: "Жанр",
@@ -967,6 +973,9 @@ const en = {
   filterApply: "Apply",
   allBooks: "All books",
   statusSoon: "Available soon",
+  genreAll: "All",
+  newBooks: "New books",
+  defaultBooks: "Default",
 
   // Add / edit book
   genre: "Genre",

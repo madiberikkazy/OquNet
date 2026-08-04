@@ -4,7 +4,7 @@ import SaveButton from "./SaveButton.jsx";
 import { genreLabel } from "../utils/i18n.js";
 import { ratingSummary, formatRating } from "../utils/rating.js";
 
-const FALLBACK_COVER =
+export const FALLBACK_COVER =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(
     `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 90'><rect width='60' height='90' fill='#dde5ee'/><text x='50%' y='52%' text-anchor='middle' fill='#5b6573' font-family='Inter' font-size='9'>OquNet</text></svg>`

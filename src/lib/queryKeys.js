@@ -8,6 +8,8 @@ export const qk = {
     list: (communityId, filters) => ["books", "list", communityId, filters],
     detail: (id) => ["books", "detail", id],
     ratings: (ids) => ["books", "ratings", [...ids].sort().join(",")],
+    // Recently added books — the horizontal rail above the main list.
+    recent: (communityId) => ["books", "recent", communityId],
     // Books physically with a user right now — the "Сізде қазір бар кітаптар"
     // list. Sits under `books` so a handoff invalidates it along with
     // everything else that names a holder.

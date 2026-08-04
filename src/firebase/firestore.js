@@ -244,6 +244,44 @@ export async function createBook(payload) {
   }
   return createOne("books", { ...payload, holderId: payload.ownerId });
 }
+/** How long a freshly added book keeps showing up in the "new books" rail. */
+export const NEW_BOOK_WINDOW_DAYS = 10;
+
+/** `createdAt` as milliseconds — a Firestore Timestamp locally is a plain number. */
+export function bookCreatedAtMs(book) {
+  return book?.createdAt?.toMillis?.() ?? book?.createdAt ?? 0;
+}
+
+/** Was this book added within the last `NEW_BOOK_WINDOW_DAYS` days? */
+export function isNewBook(book, now = Date.now()) {
+  const ms = bookCreatedAtMs(book);
+  return ms > 0 && now - ms <= NEW_BOOK_WINDOW_DAYS * 86_400_000;
+}
+
+/**
+ * Recently added books of a community, newest first.
+ *
+ * No `orderBy` in the query, for the same two reasons as listPostsByCommunity:
+ * it would need a composite index, and Firestore silently drops documents whose
+ * `serverTimestamp()` hasn't resolved yet — which is exactly the just-added
+ * books this list is about. So we page a slice and sort it here instead.
+ *
+ * These books stay in the main list as well; this is an extra view of them,
+ * not a bucket they move into.
+ */
+export async function listNewBooks({ communityId, limit: max = 10, scanSize = 100 } = {}) {
+  if (!communityId) return [];
+  const rows = await getCollection("books", {
+    where: [["communityId", "==", communityId]],
+    pageSize: scanSize,
+  });
+  const now = Date.now();
+  return rows
+    .filter((b) => isNewBook(b, now))
+    .sort((a, b) => bookCreatedAtMs(b) - bookCreatedAtMs(a))
+    .slice(0, max);
+}
+
 export async function listBooks({ communityId, search, status, genres, pageSize = 30, cursor = null } = {}) {
   const wheres = [];
   if (communityId) wheres.push(["communityId", "==", communityId]);
