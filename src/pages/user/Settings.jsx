@@ -20,7 +20,8 @@ import {
 } from "../../firebase/firestore.js";
 import { uploadImage } from "../../firebase/storage.js";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
-import { clampText, LIMITS } from "../../utils/validators.js";
+import { clampText, isAddress, isPhone, LIMITS } from "../../utils/validators.js";
+import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.js";
 import { 
   NOTIFICATION_SOUNDS, 
   loadNotificationPreferences, 
@@ -89,6 +90,26 @@ export default function Settings() {
       setProfileMsg({ type: "err", text: t.fillAllFields });
       return;
     }
+
+    // Contacts gate — same rules the join flow enforces. A member is someone
+    // other people have to reach for a handover, so they can edit these but
+    // not empty them; everyone else may leave them blank, just not malformed.
+    const phone = form.phone.trim();
+    const address = clampText(form.address, LIMITS.ADDRESS_MAX);
+    const contactsRequired = Boolean(user?.communityId);
+    if (contactsRequired && !phone) {
+      setProfileMsg({ type: "err", text: t.phoneRequiredError });
+      return;
+    }
+    if (phone && !isPhone(phone)) {
+      setProfileMsg({ type: "err", text: t.phoneInvalidError });
+      return;
+    }
+    if ((contactsRequired || address) && !isAddress(address)) {
+      setProfileMsg({ type: "err", text: t.addressRequiredError });
+      return;
+    }
+
     setSaving(true);
     setProfileMsg(null);
     try {
@@ -110,8 +131,8 @@ export default function Settings() {
         firstName: form.firstName.trim(),
         lastName:  form.lastName.trim(),
         nickname:  nick,
-        phone:     form.phone.trim().slice(0, 20),
-        address:   clampText(form.address, LIMITS.ADDRESS_MAX),
+        phone:     phone.slice(0, 20),
+        address,
         photoURL,
       });
       setPhotoFile(null);
@@ -190,6 +211,7 @@ export default function Settings() {
   // ── Leave community ──────────────────────────────────────────────────────────
   const [leaveState, setLeaveState] = useState("idle"); // "idle" | "pending" | "done"
   const [leaveBusy, setLeaveBusy]   = useState(false);
+  const [leaveError, setLeaveError] = useState("");
 
   // On mount: check if user already has a pending leave request
   useState(() => {
@@ -204,7 +226,19 @@ export default function Settings() {
     if (leaveBusy || leaveState !== "idle") return;
     if (!community) return;
     setLeaveBusy(true);
+    setLeaveError("");
     try {
+      // Asking to leave is held to the same rules as leaving: a request that
+      // could never be honoured only puts the decision in the admin's lap.
+      const verdict = await checkCommunityExit({
+        userId: user.id,
+        communityId: community.id,
+      });
+      if (!verdict.canLeave) {
+        setLeaveError(exitBlockMessage(verdict.blockedBy));
+        return;
+      }
+
       const req = await createLeaveRequest({
         userId: user.id,
         userNickname: user.nickname,
@@ -326,6 +360,7 @@ export default function Settings() {
               onChange={(e) => updateForm("phone", e.target.value.replace(/[^\d+\-() ]/g, ""))}
               placeholder="+7 (777) 123-45-67"
               autoComplete="tel"
+              maxLength={20}
               className="input"
             />
           </label>
@@ -337,6 +372,7 @@ export default function Settings() {
               onChange={(e) => updateForm("address", e.target.value)}
               placeholder={t.addressPlaceholder}
               autoComplete="street-address"
+              maxLength={LIMITS.ADDRESS_MAX}
               className="input"
             />
           </label>
@@ -553,13 +589,26 @@ export default function Settings() {
                   {t.leavePending}
                 </div>
               ) : (
-                <button
-                  onClick={handleLeave}
-                  disabled={leaveBusy}
-                  className="w-full text-left rounded-xl bg-badSoft text-bad font-semibold py-3 px-4 disabled:opacity-60"
-                >
-                  {leaveBusy ? "…" : t.leaveCommunity}
-                </button>
+                <>
+                  <button
+                    onClick={handleLeave}
+                    disabled={leaveBusy}
+                    className="w-full text-left rounded-xl bg-badSoft text-bad font-semibold py-3 px-4 disabled:opacity-60"
+                  >
+                    {leaveBusy ? "…" : t.leaveCommunity}
+                  </button>
+                  {leaveError ? (
+                    <div className="mt-2 rounded-xl bg-badSoft px-4 py-2.5">
+                      <p className="text-[13px] text-bad leading-relaxed">{leaveError}</p>
+                      <button
+                        onClick={() => navigate("/profile/owned")}
+                        className="mt-1 text-[13px] font-semibold text-bad underline underline-offset-2"
+                      >
+                        {t.openHeldBooks}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
               )}
             </section>
             <Divider />

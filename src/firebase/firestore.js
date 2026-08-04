@@ -8,6 +8,7 @@ import {
 import { db, isFirebaseConfigured } from "./config.js";
 import { logger } from "../utils/logger.js";
 import { clampStars, aggregateFromRatings } from "../utils/rating.js";
+import { holderIdOf } from "../utils/bookHolder.js";
 
 // Wraps a Firestore operation. Re-throws so callers can decide what to do,
 // but always logs the failure first so it doesn't get swallowed silently.
@@ -232,9 +233,16 @@ export async function createBook(payload) {
     throw new Error("createBook: payload must be an object");
   }
   if (!payload.ownerId) throw new Error("createBook: missing ownerId");
-  // A book starts out with its owner, so `holderId` is a real stored value from
-  // day one rather than something the read path has to infer.
-  return createOne("books", { ...payload, holderId: payload.holderId || payload.ownerId });
+  // A book starts out with its owner — always, not merely by default. It has
+  // never been handed over, so there is nowhere else for it to be, and storing
+  // `holderId` here means the read path never has to infer it. A caller that
+  // asks for anything else is describing a handoff, which is `transferBookHolder`.
+  if (payload.holderId && payload.holderId !== payload.ownerId) {
+    logger.warn("firestore.createBook", "a new book starts with its owner; holderId overridden", {
+      ownerId: payload.ownerId, attempted: payload.holderId,
+    });
+  }
+  return createOne("books", { ...payload, holderId: payload.ownerId });
 }
 export async function listBooks({ communityId, search, status, genres, pageSize = 30, cursor = null } = {}) {
   const wheres = [];
@@ -412,6 +420,41 @@ export async function releaseBookAfterReading({ bookId, holderId }) {
   const patch = { status: "available", borrowerId: null, holderId };
   await updateBook(bookId, patch);
   return patch;
+}
+
+/**
+ * Send a book home — the one handoff that needs no code, because the owner is
+ * the one place a copy is always allowed to go. This is what clears the "books
+ * you hold" gate on the way out of a community.
+ *
+ * An active read is refused rather than quietly closed: finishing a book is the
+ * reader's own act (it is where the rating is collected), and the exit rules
+ * check for it first precisely so it cannot be skipped by returning the book.
+ *
+ * @returns the updated book
+ */
+export async function returnBookToOwner({ bookId, fromUserId }) {
+  if (!bookId) throw new Error("returnBookToOwner: missing bookId");
+  if (!fromUserId) throw new Error("returnBookToOwner: missing fromUserId");
+
+  const book = await getBook(bookId);
+  if (!book) throw new Error("returnBookToOwner: book not found");
+  if (!book.ownerId) throw new Error("returnBookToOwner: book has no owner");
+  if (holderIdOf(book) !== fromUserId) {
+    throw new Error("returnBookToOwner: not the current holder");
+  }
+  // Owner and holder are the same person for every book that has never been
+  // lent out. Nothing to move, and no error either — the caller's goal is met.
+  if (book.ownerId === fromUserId) return book;
+
+  const active = await getActiveBorrowingByBook(bookId);
+  if (active && active.borrowerId === fromUserId) {
+    throw new Error("returnBookToOwner: finish the active read first");
+  }
+
+  const patch = { status: "available", borrowerId: null, holderId: book.ownerId };
+  await updateBook(bookId, patch);
+  return { ...book, ...patch };
 }
 
 // ---------- Posts ----------

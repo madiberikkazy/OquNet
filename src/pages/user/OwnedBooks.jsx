@@ -1,19 +1,26 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { listBooks } from "../../firebase/firestore.js";
+import { listBooks, returnBookToOwner, createNotification } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
+import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { isHeldBy } from "../../utils/bookHolder.js";
+import { isReadingByUser } from "../../utils/communityExit.js";
 import { t } from "../../utils/i18n.js";
+import { logger } from "../../utils/logger.js";
 
 export default function OwnedBooks() {
   const { user } = useAuth();
   const { community } = useCommunity();
   const navigate = useNavigate();
+
+  const [error, setError] = useState("");
+  const [returning, setReturning] = useState(null); // book id currently in flight
 
   // This list and the counter on the profile answer the same question, so they
   // are fetched the same way — same cache family, same staleness rules. When
@@ -35,6 +42,50 @@ export default function OwnedBooks() {
     },
   });
 
+  // Handing a book back to its owner. This is the action that clears the
+  // "books you hold" condition on the way out of the community, so it lives
+  // next to the list of exactly those books.
+  const returnMutation = useMutation({
+    mutationFn: async (book) => {
+      await returnBookToOwner({ bookId: book.id, fromUserId: user.id });
+      if (book.ownerId && book.ownerId !== user.id) {
+        await createNotification({
+          recipientId: book.ownerId,
+          title: t.bookReturnedNotifTitle,
+          body: t.bookReturnedNotifBody(
+            `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
+            book.name
+          ),
+          read: false,
+          type: "book-returned-to-owner",
+          bookId: book.id,
+          bookName: book.name,
+        });
+      }
+      return book.id;
+    },
+    onSuccess: (bookId) => {
+      // The book has left this user's hands, so it leaves this list too — and
+      // every other screen that names a holder.
+      invalidateHolderCaches(bookId);
+      booksQuery.refetch();
+    },
+    onError: (err, book) => {
+      logger.error("ownedBooks.returnToOwner", err?.message, {
+        code: err?.code, bookId: book?.id,
+      });
+      setError(err?.message || t.error);
+    },
+    onSettled: () => setReturning(null),
+  });
+
+  function handleReturn(book) {
+    if (returnMutation.isPending) return;
+    setError("");
+    setReturning(book.id);
+    returnMutation.mutate(book);
+  }
+
   const books = booksQuery.data ?? [];
   const loading = booksQuery.isPending && !!user?.id && !!community?.id;
 
@@ -50,33 +101,67 @@ export default function OwnedBooks() {
         <h1 className="font-bold text-[18px]">{t.ownedBooks}</h1>
       </div>
 
+      {error ? (
+        <div className="mx-4 mb-3 rounded-xl bg-badSoft text-bad text-[13px] px-3 py-2">
+          {error}
+        </div>
+      ) : null}
+
       {loading ? (
         <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
       ) : books.length === 0 ? (
         <EmptyState title="Кітаптар жоқ" subtitle="Қазір сізде кітап жоқ." />
       ) : (
         <ul className="px-4 space-y-0 divide-y divide-ink-100">
-          {books.map((book) => (
-            <li
-              key={book.id}
-              onClick={() => navigate(`/books/${book.id}`)}
-              className="flex items-center gap-3 py-3 cursor-pointer active:bg-ink-100/40 transition rounded-xl px-1"
-            >
-              {book.coverUrl ? (
-                <img src={book.coverUrl} alt={book.name} className="w-10 h-14 rounded-lg object-cover bg-ink-100 shrink-0" />
-              ) : (
-                <div className="w-10 h-14 rounded-lg bg-ink-100 shrink-0" />
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-[15px] truncate">{book.name}</p>
-                <p className="text-[13px] text-ink-500 truncate">{book.author}</p>
-                <div className="mt-1"><BookStatusBadge status={book.status} /></div>
-              </div>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
-                <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </li>
-          ))}
+          {books.map((book) => {
+            const isOwn = book.ownerId === user?.id;
+            const isReading = isReadingByUser(book, user?.id);
+            const busy = returning === book.id;
+            return (
+              <li key={book.id} className="py-3">
+                <div
+                  onClick={() => navigate(`/books/${book.id}`)}
+                  className="flex items-center gap-3 cursor-pointer active:bg-ink-100/40 transition rounded-xl px-1"
+                >
+                  {book.coverUrl ? (
+                    <img src={book.coverUrl} alt={book.name} className="w-10 h-14 rounded-lg object-cover bg-ink-100 shrink-0" />
+                  ) : (
+                    <div className="w-10 h-14 rounded-lg bg-ink-100 shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-[15px] truncate">{book.name}</p>
+                    <p className="text-[13px] text-ink-500 truncate">{book.author}</p>
+                    <div className="mt-1"><BookStatusBadge status={book.status} /></div>
+                  </div>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
+                    <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </div>
+
+                {/* Only somebody else's copy can go home. An active read is not
+                    returnable here: finishing the book is its own step, and the
+                    exit rules check for it before they check for held books. */}
+                {isOwn ? (
+                  <p className="mt-2 px-1 text-[12px] text-ink-400">{t.yourBookHint}</p>
+                ) : isReading ? (
+                  <button
+                    onClick={() => navigate(`/books/${book.id}`)}
+                    className="mt-2 w-full py-2 rounded-xl bg-ink-100 text-ink-500 text-[13px] font-semibold"
+                  >
+                    {t.returnToOwnerFinishFirst}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleReturn(book)}
+                    disabled={busy || returnMutation.isPending}
+                    className="mt-2 w-full py-2 rounded-xl bg-brand-500 text-white text-[13px] font-semibold active:scale-[0.99] transition disabled:opacity-60"
+                  >
+                    {busy ? "…" : t.returnToOwner}
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </MobileShell>
