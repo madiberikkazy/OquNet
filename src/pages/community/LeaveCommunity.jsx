@@ -9,6 +9,7 @@ import {
   getCommunity,
   listBooks,
   getActiveBorrowingByBook,
+  getActiveBorrowingForUser,
   createNotification,
   updateUser,
   deleteBook,
@@ -17,6 +18,9 @@ import { qk } from "../../lib/queryKeys.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
 import { holderIdOf, isHeldBy } from "../../utils/bookHolder.js";
+import {
+  EXIT_BLOCK, evaluateExit, exitBlockMessage, checkCommunityExit,
+} from "../../utils/communityExit.js";
 
 function makeCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
@@ -48,11 +52,26 @@ export default function LeaveCommunity() {
     enabled: !!id,
   });
 
-  const myBooks = useMemo(() => {
+  // Rule 1 is about the loan, not the book: a member is "reading" exactly while
+  // they have an active borrowing. Read fresh — a cached "no active loan" from
+  // before they picked a book up would open the door that must stay shut.
+  const activeBorrowingQuery = useQuery({
+    queryKey: qk.borrowings.forUser(user?.id, "active"),
+    queryFn: () => getActiveBorrowingForUser(user.id),
+    enabled: !!user?.id,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
+  const allBooks = useMemo(() => {
     const raw = booksQuery.data;
-    const items = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
-    return items.filter((b) => b.ownerId === user?.id);
-  }, [booksQuery.data, user?.id]);
+    return Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
+  }, [booksQuery.data]);
+
+  const myBooks = useMemo(
+    () => allBooks.filter((b) => b.ownerId === user?.id),
+    [allBooks, user?.id]
+  );
 
   // Selection scopes which books get a "please return" nudge. The leave itself
   // is gated on *every* owned book being with the user — anything else would
@@ -84,12 +103,21 @@ export default function LeaveCommunity() {
     [selectedBooks, user?.id, requestSent]
   );
 
-  // Cannot leave while ANY owned book is still with someone else. This is
-  // stricter than "the ones you ticked" — otherwise unchecking an out-book
-  // would let you leave while it's still on loan, then we'd delete it out
-  // from under the current reader.
-  const allWithUser = myBooks.every((b) => isBookWithUser(b, user?.id));
-  const canLeaveNow = myBooks.length === 0 || allWithUser;
+  // The gate. Every condition and their order live in `evaluateExit`; this
+  // screen only renders the verdict. Note it is computed over *every* book in
+  // the community, not just the ticked ones — unticking a book that is still
+  // out cannot buy a way past the rules.
+  const exit = useMemo(
+    () =>
+      evaluateExit({
+        activeBorrowing: activeBorrowingQuery.data ?? null,
+        books: allBooks,
+        userId: user?.id,
+      }),
+    [activeBorrowingQuery.data, allBooks, user?.id]
+  );
+  const gateReady = !booksQuery.isPending && !activeBorrowingQuery.isPending;
+  const canLeaveNow = gateReady && exit.canLeave;
 
   const sendReturnRequests = useMutation({
     mutationFn: async (books) => {
@@ -141,6 +169,15 @@ export default function LeaveCommunity() {
   // "must-be-a-member" security rules that might exist.
   const leaveMutation = useMutation({
     mutationFn: async () => {
+      // Re-check against the server immediately before the writes. The verdict
+      // above is drawn from queries that may be a few seconds old, and the
+      // whole point of the rules is that they hold at the moment of the exit.
+      const verdict = await checkCommunityExit({ userId: user.id, communityId: id });
+      if (!verdict.canLeave) {
+        const err = new Error(exitBlockMessage(verdict.blockedBy));
+        err.blockedBy = verdict.blockedBy;
+        throw err;
+      }
       await Promise.all(myBooks.map((b) => deleteBook(b.id).catch((err) => {
         logger.error("leave.deleteBook", err?.message, { bookId: b.id });
       })));
@@ -163,9 +200,23 @@ export default function LeaveCommunity() {
     onError: (err) => setError(err?.message || t.error),
   });
 
+  // The exit button, in the order the rules are written: an active read blocks
+  // first, then held books, then the owner's own copies that are still out.
+  // Only the last of the three has an action attached — the other two are
+  // cleared elsewhere, by the member themselves.
   function handlePrimary() {
     setError("");
-    if (canLeaveNow) {
+    if (!gateReady) return;
+
+    if (exit.blockedBy === EXIT_BLOCK.READING) {
+      setError(exitBlockMessage(EXIT_BLOCK.READING));
+      return;
+    }
+    if (exit.blockedBy === EXIT_BLOCK.HELD) {
+      setError(exitBlockMessage(EXIT_BLOCK.HELD));
+      return;
+    }
+    if (exit.canLeave) {
       leaveMutation.mutate();
       return;
     }
@@ -176,6 +227,9 @@ export default function LeaveCommunity() {
 
   const community = communityQuery.data;
   const someOutOnLoan = myBooks.some((b) => !isBookWithUser(b, user?.id));
+  const blockedByReading = exit.blockedBy === EXIT_BLOCK.READING;
+  const blockedByHeld = exit.blockedBy === EXIT_BLOCK.HELD;
+  const mandatoryBlocked = blockedByReading || blockedByHeld;
 
   return (
     <MobileShell>
@@ -195,6 +249,39 @@ export default function LeaveCommunity() {
           {t.leaveIntro}
         </p>
       </div>
+
+      {/* The two blocking rules, each with the one place it is cleared. They
+          are mutually exclusive by construction: reading is checked first. */}
+      {blockedByReading && (
+        <div className="mx-4 mt-4 rounded-2xl bg-badSoft px-4 py-3">
+          <p className="text-[13px] text-bad leading-relaxed">
+            {t.exitBlockedReading}
+          </p>
+          <button
+            onClick={() => navigate("/profile/reading")}
+            className="mt-2 text-[13px] font-semibold text-bad underline underline-offset-2"
+          >
+            {t.goToReadingBook}
+          </button>
+        </div>
+      )}
+
+      {blockedByHeld && (
+        <div className="mx-4 mt-4 rounded-2xl bg-badSoft px-4 py-3">
+          <p className="text-[13px] text-bad leading-relaxed">
+            {t.exitBlockedHeld}
+          </p>
+          <p className="text-[12px] text-bad/80 mt-1">
+            {t.exitHeldCount(exit.heldFromOthers.length)}
+          </p>
+          <button
+            onClick={() => navigate("/profile/owned")}
+            className="mt-2 text-[13px] font-semibold text-bad underline underline-offset-2"
+          >
+            {t.openHeldBooks}
+          </button>
+        </div>
+      )}
 
       {booksQuery.isLoading ? (
         <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
@@ -242,8 +329,9 @@ export default function LeaveCommunity() {
         </ul>
       )}
 
-      {/* Status band: still waiting for at least one book */}
-      {someOutOnLoan && outstanding.length === 0 && (
+      {/* Status band: still waiting for at least one book. Suppressed while a
+          mandatory rule is blocking — that banner is the actionable one. */}
+      {!mandatoryBlocked && someOutOnLoan && outstanding.length === 0 && (
         <div className="mx-4 mt-5 rounded-2xl bg-warnSoft px-4 py-3">
           <p className="font-semibold text-[14px] text-warn">{t.waitingReturnsTitle}</p>
           <p className="text-[13px] text-ink-700 mt-1 leading-relaxed">
@@ -258,11 +346,14 @@ export default function LeaveCommunity() {
         </div>
       ) : null}
 
-      {/* Primary action */}
+      {/* Primary action. While a mandatory rule blocks the exit the button is
+          simply unavailable — there is no second path and nothing to confirm. */}
       <div className="px-4 mt-6 mb-6">
         <button
           onClick={handlePrimary}
           disabled={
+            !gateReady ||
+            mandatoryBlocked ||
             sendReturnRequests.isPending ||
             leaveMutation.isPending ||
             (!canLeaveNow && outstanding.length === 0)
@@ -273,16 +364,20 @@ export default function LeaveCommunity() {
             ? "…"
             : canLeaveNow
               ? t.leaveNow
-              : outstanding.length > 0
-                ? t.sendReturnRequest
-                : t.waitingReturnsTitle}
+              : mandatoryBlocked
+                ? t.leaveNow
+                : outstanding.length > 0
+                  ? t.sendReturnRequest
+                  : t.waitingReturnsTitle}
         </button>
         <p className="text-[12px] text-ink-500 mt-2 text-center">
-          {canLeaveNow
-            ? t.confirmLeave
-            : outstanding.length > 0
-              ? `${outstanding.length} · ${t.sendReturnRequest}`
-              : t.waitingReturnsBody}
+          {mandatoryBlocked
+            ? exitBlockMessage(exit.blockedBy)
+            : canLeaveNow
+              ? t.confirmLeave
+              : outstanding.length > 0
+                ? `${outstanding.length} · ${t.sendReturnRequest}`
+                : t.waitingReturnsBody}
         </p>
       </div>
     </MobileShell>

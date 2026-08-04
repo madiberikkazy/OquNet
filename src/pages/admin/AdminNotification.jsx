@@ -15,6 +15,7 @@ import {
   updateJoinRequest, updateLeaveRequest, updateUser,
 } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
+import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.js";
 
 export default function AdminNotification() {
   const { user } = useAuth();
@@ -28,6 +29,7 @@ export default function AdminNotification() {
   const [members, setMembers]           = useState([]);
   const [form, setForm]                 = useState({ recipientId: "", title: "", body: "" });
   const [busy, setBusy]                 = useState(null); // requestId being processed
+  const [leaveBlocked, setLeaveBlocked] = useState(null); // { id, message } — refused approval
 
   useEffect(() => {
     loadNotifications();
@@ -90,7 +92,29 @@ export default function AdminNotification() {
   // ── Leave: approve ──────────────────────────────────────────────────────────
   async function approveLeave(req) {
     setBusy(req.id);
+    setLeaveBlocked(null);
     try {
+      // The final gate, and the one that matters most: a request can sit here
+      // for days, and in the meantime the member may have picked up a book.
+      // Approval is what actually drops their membership, so the rules are
+      // re-checked against live data right before that write.
+      const verdict = await checkCommunityExit({
+        userId: req.userId,
+        communityId: req.communityId || community?.id,
+      });
+      if (!verdict.canLeave) {
+        setLeaveBlocked({ id: req.id, message: exitBlockMessage(verdict.blockedBy) });
+        await createNotification({
+          recipientId: req.userId,
+          title: t.leaveTitle,
+          body: exitBlockMessage(verdict.blockedBy),
+          read: false,
+          type: "leave-blocked",
+          communityId: community?.id,
+        });
+        return;
+      }
+
       await updateLeaveRequest(req.id, { status: "approved" });
       await updateUser(req.userId, { communityId: null });
       await createNotification({
@@ -187,6 +211,14 @@ export default function AdminNotification() {
                       {date ? <span className="text-[11px] text-ink-500 shrink-0 mt-0.5">{date}</span> : null}
                     </div>
                     <p className="text-[13px] text-ink-500 mb-3 leading-relaxed">{n.body}</p>
+                    {/* Approval was refused: the member still has books out.
+                        The request stays pending — nothing to decide until
+                        they settle up. */}
+                    {leaveBlocked?.id === actionReq.id ? (
+                      <div className="mb-3 rounded-xl bg-badSoft text-bad text-[13px] px-3 py-2 leading-relaxed">
+                        {leaveBlocked.message}
+                      </div>
+                    ) : null}
                     <div className="flex gap-2">
                       <button
                         disabled={isBusy}
