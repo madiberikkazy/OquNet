@@ -6,9 +6,10 @@ import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  listAllPosts, listCommunities,
-  searchCommunities, searchUsers,
+  listPostsByCommunity, getCommunity,
+  searchCommunities, searchUsers, toMillis,
 } from "../../firebase/firestore.js";
+import { logger } from "../../utils/logger.js";
 
 export default function Home() {
   const { user }      = useAuth();
@@ -20,54 +21,44 @@ export default function Home() {
   const [foundUsers, setFoundUsers] = useState([]);
   const [foundComs, setFoundComs]   = useState([]);
 
-  // Build global feed
+  // The feed is the user's own community, and only theirs.
+  //
+  // It used to pull every post in the database and drop the private ones in the
+  // browser, which is not a filter so much as a delivery mechanism: the posts
+  // arrived either way. Posts are now readable only to members of the community
+  // that owns them, so the query has to name a community it is allowed to read
+  // — and the one community a user can read is their own.
   useEffect(() => {
+    const communityId = user?.communityId ?? null;
+    if (!communityId) {
+      setFeed([]);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const [allPosts, allCommunities] = await Promise.all([
-          listAllPosts(150),
-          listCommunities(),
+        const [posts, meta] = await Promise.all([
+          listPostsByCommunity(communityId, 150),
+          // `community` from context is usually already loaded; fetching it here
+          // as well keeps the feed from rendering headerless on a cold start.
+          community?.id === communityId ? Promise.resolve(community) : getCommunity(communityId),
         ]);
-
-        // Build a quick lookup map: communityId → community doc
-        const comMap = {};
-        allCommunities.forEach((c) => { comMap[c.id] = c; });
-
-        // Filter posts:
-        // - From public communities → always visible
-        // - From private communities → only if user is a member
-        const visible = allPosts.filter((p) => {
-          const c = comMap[p.communityId];
-          if (!c) return false;                      // orphaned post
-          if (!c.isPrivate) return true;             // public → everyone sees
-          return user?.communityId === c.id;         // private → only members
-        });
-
-        // Enrich each post with community metadata
-        const enriched = visible.map((p) => ({
-          ...p,
-          communityMeta: comMap[p.communityId] ?? null,
-        }));
-
-        // Sort: user's community first, then by date (newest first)
-        enriched.sort((a, b) => {
-          const aIsHome = a.communityId === community?.id ? 0 : 1;
-          const bIsHome = b.communityId === community?.id ? 0 : 1;
-          if (aIsHome !== bIsHome) return aIsHome - bIsHome;
-          const at = a.createdAt?.toMillis?.() ?? a.createdAt ?? 0;
-          const bt = b.createdAt?.toMillis?.() ?? b.createdAt ?? 0;
-          return bt - at;
-        });
-
-        setFeed(enriched);
+        if (cancelled) return;
+        setFeed(posts.map((p) => ({ ...p, communityMeta: meta ?? null })));
       } catch (err) {
-        console.error(err);
+        if (!cancelled) {
+          logger.error("home.feed", err?.message, { code: err?.code, communityId });
+          setFeed([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [community?.id, user?.communityId]);
+    return () => { cancelled = true; };
+  }, [community, user?.communityId]);
 
   // Search
   useEffect(() => {
@@ -133,7 +124,7 @@ export default function Home() {
           )}
         </div>
       ) : (
-        /* ── Global feed (visible to all users, with or without a community) ── */
+        /* ── Community feed ── */
         <div className="px-4 mt-2">
           {loading ? (
             <div className="space-y-3 mt-2">
@@ -157,7 +148,7 @@ export default function Home() {
                 </svg>
               </div>
               <p className="font-medium text-ink-600">Жазба жоқ</p>
-              <p className="text-[13px] text-ink-400 mt-1">Ашық қоғамдастықтардан жазбалар осында пайда болады</p>
+              <p className="text-[13px] text-ink-400 mt-1">Қоғамдастығыңыздың жазбалары осында пайда болады</p>
             </div>
           ) : (
             <ul className="space-y-3 pb-4">
@@ -212,9 +203,7 @@ export default function Home() {
                       ) : null}
                       <p className="text-[11px] text-ink-400 mt-2">
                         {p.createdAt
-                          ? new Date(
-                              p.createdAt?.toMillis?.() ?? p.createdAt
-                            ).toLocaleDateString("ru-RU", {
+                          ? new Date(toMillis(p.createdAt)).toLocaleDateString("ru-RU", {
                               day: "2-digit", month: "short", year: "numeric",
                               hour: "2-digit", minute: "2-digit",
                             })

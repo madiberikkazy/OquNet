@@ -22,7 +22,8 @@
 
 import {
   getActiveBorrowingForUser,
-  listBooks,
+  listBooksHeldBy,
+  listBooksOwnedBy,
 } from "../firebase/firestore.js";
 import { holderIdOf, readerHolderIdOf } from "./bookHolder.js";
 import { t } from "./i18n.js";
@@ -72,8 +73,15 @@ export function ownedBooksAwayFromUser(books, userId) {
  * community, so letting them go while a copy is still out would delete it from
  * under whoever is reading it.
  *
+ * The two filters below run in JavaScript, and stay there deliberately: they
+ * partition a set already scoped by query to this one user (see
+ * `loadExitBooks`), so they run over the handful of books someone holds or
+ * owns, not over a community's shelf. Splitting them into two more queries
+ * would need an inequality on `ownerId`, which cannot be combined with the
+ * equality on `holderId` in one index.
+ *
  * @param activeBorrowing  the user's active loan, or null
- * @param books            every book in the community
+ * @param books            the books this user holds or owns — see `loadExitBooks`
  * @returns {{ canLeave: boolean, blockedBy: string|null, heldFromOthers: Array, ownedAway: Array }}
  */
 export function evaluateExit({ activeBorrowing, books, userId }) {
@@ -90,6 +98,25 @@ export function evaluateExit({ activeBorrowing, books, userId }) {
 }
 
 /**
+ * Every book this decision could turn on: the ones with the user, and the ones
+ * belonging to them. Two indexed queries against a fixed pair of ids, rather
+ * than the first two hundred books in the community — which was both far more
+ * reading than the answer needed and wrong past the two hundredth book, because
+ * a copy outside that slice was a copy the exit rules could not see.
+ *
+ * The two sets overlap (a book someone owns and holds is in both) and are
+ * de-duplicated by id, since `evaluateExit` counts books, not rows.
+ */
+export async function loadExitBooks({ userId, communityId }) {
+  if (!userId || !communityId) return [];
+  const [held, owned] = await Promise.all([
+    listBooksHeldBy({ communityId, userId }),
+    listBooksOwnedBy({ communityId, userId }),
+  ]);
+  return [...new Map([...held, ...owned].map((b) => [b.id, b])).values()];
+}
+
+/**
  * The same verdict, read fresh from the server. Used at the points where the
  * decision is final — sending a leave request, and an admin approving one —
  * because cached lists can be minutes old and the answer has to be true *now*.
@@ -97,7 +124,7 @@ export function evaluateExit({ activeBorrowing, books, userId }) {
 export async function checkCommunityExit({ userId, communityId }) {
   const [activeBorrowing, books] = await Promise.all([
     getActiveBorrowingForUser(userId),
-    communityId ? listBooks({ communityId, pageSize: 200 }) : Promise.resolve([]),
+    loadExitBooks({ userId, communityId }),
   ]);
   return evaluateExit({ activeBorrowing, books, userId });
 }

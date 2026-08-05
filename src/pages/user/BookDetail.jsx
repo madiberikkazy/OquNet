@@ -13,6 +13,7 @@ import {
   getPickupRequest,
   getActiveBorrowingByBook, createNotification,
   releaseBookAfterReading, updateBorrowing, submitRating, getUserRatingForBook, hasUserCompletedBook,
+  toMillis,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { t, genreLabel } from "../../utils/i18n.js";
@@ -21,16 +22,6 @@ import { safeImageUrl } from "../../utils/validators.js";
 import { holderIdOf, readerHolderIdOf } from "../../utils/bookHolder.js";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { logger } from "../../utils/logger.js";
-
-// Return the millisecond timestamp for a Firestore Timestamp / number / Date /
-// ISO-string. Firestore round-trips can serialize any of these shapes.
-function toMillis(value) {
-  if (value == null) return null;
-  if (typeof value === "number") return value;
-  if (typeof value?.toMillis === "function") return value.toMillis();
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 export default function BookDetail() {
   const { id } = useParams();
@@ -92,8 +83,8 @@ export default function BookDetail() {
   });
   const activeBorrowing = activeBorrowingQuery.data ?? null;
   // The book document names its own holder, so the card paints as soon as the
-  // book loads; the borrowing is only consulted for older documents.
-  const holderId = holderIdOf(book, activeBorrowing);
+  // book loads — no waiting on the borrowing query.
+  const holderId = holderIdOf(book);
 
   const holderQuery = useQuery({
     queryKey: qk.users.byId(holderId),
@@ -118,9 +109,9 @@ export default function BookDetail() {
   // (Firestore) and to the query cache — no page-level state needed.
   const { daysLeft, borrowingMaxDays } = useMemo(() => {
     if (!activeBorrowing?.returnDate) return { daysLeft: null, borrowingMaxDays: null };
-    const retTs = toMillis(activeBorrowing.returnDate);
+    const retTs = toMillis(activeBorrowing.returnDate, null);
     if (retTs == null) return { daysLeft: null, borrowingMaxDays: null };
-    const startTs = toMillis(activeBorrowing.startDate) ?? Date.now();
+    const startTs = toMillis(activeBorrowing.startDate, null) ?? Date.now();
     return {
       daysLeft: Math.ceil((retTs - Date.now()) / 86400000),
       borrowingMaxDays: Math.ceil((retTs - startTs) / 86400000),
@@ -129,18 +120,19 @@ export default function BookDetail() {
 
   useEffect(() => {
     if (!activeBorrowing || daysLeft == null || daysLeft > 0) return;
+    // Only the reader closes their own lapsed loan. This used to fire from
+    // whoever happened to open the page, which meant a stranger's browser wrote
+    // somebody else's holder — and the security rules refuse that now, so the
+    // write would fail and log on every view of an overdue book. The reader
+    // reaches this screen soon enough, and nothing depends on the exact moment.
+    const reader = activeBorrowing.borrowerId;
+    if (!user?.id || reader !== user.id) return;
     (async () => {
       try {
         // The loan lapses, but the book doesn't teleport home: the reader still
         // has it, so they stay the holder until someone collects it from them.
-        // `holderId` is the fallback for loans old enough to predate
-        // `borrowerId` — the book itself still knows who it is with, and losing
-        // that would strand the copy with nobody holding it.
         const [patch] = await Promise.all([
-          releaseBookAfterReading({
-            bookId: id,
-            holderId: activeBorrowing.borrowerId || holderId,
-          }),
+          releaseBookAfterReading({ bookId: id, holderId: reader }),
           updateBorrowing(activeBorrowing.id, { status: "completed" }),
         ]);
         queryClient.setQueryData(qk.books.detail(id), (b) => (b ? { ...b, ...patch } : b));
@@ -150,7 +142,7 @@ export default function BookDetail() {
         logger.error("bookDetail.autoReturn", err?.message, { code: err?.code, bookId: id });
       }
     })();
-  }, [activeBorrowing, daysLeft, holderId, id, queryClient]);
+  }, [activeBorrowing, daysLeft, id, queryClient, user?.id]);
 
   const saved = (user?.savedBookIds || []).includes(id);
 
@@ -334,7 +326,7 @@ export default function BookDetail() {
   const isAdminView = viewRole === "admin";
   const isOwner     = book.ownerId === user?.id;
   const isCurrentHolder =
-    !!user?.id && readerHolderIdOf(book, activeBorrowing) === user.id;
+    !!user?.id && readerHolderIdOf(book) === user.id;
   // Has the book but isn't reading it: they finished (or the loan lapsed) and
   // the next reader hasn't collected it yet.
   const isBookHolder = !isOwner && !isCurrentHolder && !!user?.id && holderId === user.id;
@@ -490,7 +482,7 @@ export default function BookDetail() {
                       {r.authorName || "—"}
                       {r.userId === user?.id ? <span className="text-[12px] text-ink-500 ml-1">{t.youMark}</span> : null}
                     </p>
-                    <StarRating value={r.value ?? r.stars ?? 0} size={12} />
+                    <StarRating value={r.value} size={12} />
                   </div>
                   <p className="text-[13px] text-ink-700 mt-1 whitespace-pre-wrap break-words">{r.review}</p>
                 </div>
@@ -554,11 +546,8 @@ export default function BookDetail() {
           <div className="card px-4 py-3 flex items-center justify-between">
             <span className="text-[14px] text-ink-700">{t.returnDateNote}</span>
             <span className="font-semibold text-[14px]">
-              {new Date(
-                typeof activeBorrowing.returnDate === "number"
-                  ? activeBorrowing.returnDate
-                  : activeBorrowing.returnDate?.toMillis?.() ?? activeBorrowing.returnDate
-              ).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })}
+              {new Date(toMillis(activeBorrowing.returnDate))
+                .toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })}
             </span>
           </div>
         </section>

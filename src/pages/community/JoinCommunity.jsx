@@ -5,7 +5,7 @@ import SearchBar from "../../components/SearchBar.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import {
   listCommunities, searchCommunities,
-  listUsersByCommunity, listBooks,
+  listUsersByCommunity,
 } from "../../firebase/firestore.js";
 
 export default function JoinCommunity() {
@@ -17,15 +17,15 @@ export default function JoinCommunity() {
   useEffect(() => {
     setLoading(true);
     (search ? searchCommunities(search) : listCommunities()).then(async (rows) => {
-      // Fetch member + book counts in parallel for all communities
+      // Member counts only. A book count would mean reading the shelves of
+      // every community on this screen — which is exactly what somebody
+      // browsing from the outside is not entitled to do, and the security
+      // rules now say so. Profiles stay public enough to be counted; books
+      // belong to their community.
       const enriched = await Promise.all(
         rows.map(async (c) => {
-          const [members, booksResult] = await Promise.all([
-            listUsersByCommunity(c.id),
-            listBooks({ communityId: c.id }),
-          ]);
-          const books = booksResult?.items || booksResult || [];
-          return { ...c, memberCount: members.length, bookCount: books.length };
+          const members = await listUsersByCommunity(c.id).catch(() => []);
+          return { ...c, memberCount: members.length };
         })
       );
       setCommunities(enriched);
@@ -81,13 +81,6 @@ export default function JoinCommunity() {
                           <path d="M16 3.1a3 3 0 0 1 0 5.8M21 21c0-2.7-1.7-5-4-5.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                         </svg>
                         {c.memberCount} мүше
-                      </span>
-                      <span className="flex items-center gap-1 text-[12px] text-ink-400">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" stroke="currentColor" strokeWidth="1.8" />
-                        </svg>
-                        {c.bookCount} кітап
                       </span>
                     </div>
                   </div>

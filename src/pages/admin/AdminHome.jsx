@@ -7,7 +7,7 @@ import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  createPost, listPostsByCommunity, searchUsers, createNotification,
+  createPost, listPostsByCommunity, searchUsers, createNotification, toMillis,
 } from "../../firebase/firestore.js";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -30,10 +30,12 @@ export default function AdminHome() {
   async function submitPost(e) {
     e.preventDefault();
     if (!postForm.title.trim()) return;
+    // No `createdAt`: the data layer stamps it server-side, which is why the
+    // post prepended below carries no date until the next load.
     const p = await createPost({
       communityId: community.id, authorId: user.id,
       authorName: `${user.firstName} ${user.lastName}`,
-      ...postForm, createdAt: Date.now(),
+      ...postForm,
     });
     setPosts([p, ...posts]);
     setPostForm({ title: "", body: "" });
@@ -96,7 +98,11 @@ export default function AdminHome() {
                 <li key={p.id} className="card p-4">
                   <h4 className="font-semibold">{p.title}</h4>
                   <p className="text-[14px] text-ink-700 mt-1 whitespace-pre-wrap">{p.body}</p>
-                  <p className="text-[12px] text-ink-500 mt-2">{new Date(p.createdAt).toLocaleString("ru-RU")}</p>
+                  {p.createdAt ? (
+                    <p className="text-[12px] text-ink-500 mt-2">
+                      {new Date(toMillis(p.createdAt)).toLocaleString("ru-RU")}
+                    </p>
+                  ) : null}
                 </li>
               ))}
             </ul>

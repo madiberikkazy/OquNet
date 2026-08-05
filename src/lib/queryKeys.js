@@ -5,15 +5,23 @@
 export const qk = {
   books: {
     all: ["books"],
+    /** The paged shelf. Owned by an *infinite* query — see `forExit` below. */
     list: (communityId, filters) => ["books", "list", communityId, filters],
     detail: (id) => ["books", "detail", id],
-    ratings: (ids) => ["books", "ratings", [...ids].sort().join(",")],
     // Recently added books — the horizontal rail above the main list.
     recent: (communityId) => ["books", "recent", communityId],
     // Books physically with a user right now — the "Сізде қазір бар кітаптар"
     // list. Sits under `books` so a handoff invalidates it along with
     // everything else that names a holder.
     heldBy: (userId, communityId) => ["books", "heldBy", userId, communityId],
+    // Everything the community-exit rules can turn on: the books a user holds
+    // plus the books they own (utils/communityExit.js `loadExitBooks`).
+    //
+    // It gets a key of its own rather than borrowing `list`'s. The Books screen
+    // reads `list` with useInfiniteQuery, whose cache entry is
+    // `{ pages, pageParams }`; a plain useQuery on the same key stores a bare
+    // array there, and whichever screen mounts second reads the other's shape.
+    forExit: (userId, communityId) => ["books", "forExit", userId, communityId],
   },
   users: {
     byId: (id) => ["users", id],

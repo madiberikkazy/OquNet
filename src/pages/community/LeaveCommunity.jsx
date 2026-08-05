@@ -7,8 +7,6 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
   getCommunity,
-  listBooks,
-  getActiveBorrowingByBook,
   getActiveBorrowingForUser,
   createNotification,
   updateUser,
@@ -18,18 +16,19 @@ import { qk } from "../../lib/queryKeys.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
 import { holderIdOf, isHeldBy } from "../../utils/bookHolder.js";
+import { newPickupCode } from "../../firebase/schema.js";
 import {
-  EXIT_BLOCK, evaluateExit, exitBlockMessage, checkCommunityExit,
+  EXIT_BLOCK, evaluateExit, exitBlockMessage, checkCommunityExit, loadExitBooks,
 } from "../../utils/communityExit.js";
-
-function makeCode() {
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
 
 // A book is "with the leaving user" when they are its holder. Being free to
 // borrow is not enough: a book someone finished reading is still on *their*
 // shelf until the next reader collects it.
 const isBookWithUser = (book, userId) => isHeldBy(book, userId);
+
+// A stable identity, so `allBooks` does not change on every render while the
+// query is still loading and retrigger the memos below it.
+const EMPTY_BOOKS = [];
 
 export default function LeaveCommunity() {
   const { id } = useParams();
@@ -44,12 +43,14 @@ export default function LeaveCommunity() {
     enabled: !!id,
   });
 
-  // Reuse the exact key + fetcher shape the Books list already uses so the
-  // cache is shared across screens.
+  // Only the books this decision can turn on — the ones this user holds and the
+  // ones they own — rather than the community's first two hundred. Two indexed
+  // queries instead of a shelf scan, and the gate stops depending on whether a
+  // stranded copy happened to fall inside that slice.
   const booksQuery = useQuery({
-    queryKey: qk.books.list(id, { search: "", status: null, genres: [] }),
-    queryFn: () => listBooks({ communityId: id, pageSize: 200 }),
-    enabled: !!id,
+    queryKey: qk.books.forExit(user?.id, id),
+    queryFn: () => loadExitBooks({ userId: user.id, communityId: id }),
+    enabled: !!id && !!user?.id,
   });
 
   // Rule 1 is about the loan, not the book: a member is "reading" exactly while
@@ -63,11 +64,10 @@ export default function LeaveCommunity() {
     refetchOnMount: "always",
   });
 
-  const allBooks = useMemo(() => {
-    const raw = booksQuery.data;
-    return Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
-  }, [booksQuery.data]);
+  const allBooks = booksQuery.data ?? EMPTY_BOOKS;
 
+  // A filter over a set already scoped to this user by query — a handful of
+  // rows, not a shelf.
   const myBooks = useMemo(
     () => allBooks.filter((b) => b.ownerId === user?.id),
     [allBooks, user?.id]
@@ -104,9 +104,9 @@ export default function LeaveCommunity() {
   );
 
   // The gate. Every condition and their order live in `evaluateExit`; this
-  // screen only renders the verdict. Note it is computed over *every* book in
-  // the community, not just the ticked ones — unticking a book that is still
-  // out cannot buy a way past the rules.
+  // screen only renders the verdict. Note it is computed over *every* book this
+  // user holds or owns, not just the ticked ones — unticking a book that is
+  // still out cannot buy a way past the rules.
   const exit = useMemo(
     () =>
       evaluateExit({
@@ -124,13 +124,12 @@ export default function LeaveCommunity() {
       const sent = [];
       for (const book of books) {
         try {
-          const borrowing = await getActiveBorrowingByBook(book.id);
-          const holderId = holderIdOf(book, borrowing);
+          const holderId = holderIdOf(book);
           if (!holderId || holderId === user.id) {
             sent.push(book.id);
             continue;
           }
-          const code = makeCode();
+          const code = newPickupCode();
           await createNotification({
             recipientId: holderId,
             title: t.returnRequestNotifTitle,

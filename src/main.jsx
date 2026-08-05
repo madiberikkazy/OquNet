@@ -9,7 +9,7 @@ import { ThemeProvider } from "./contexts/ThemeContext.jsx";
 import { LanguageProvider } from "./contexts/LanguageContext.jsx";
 import { NotificationProvider } from "./contexts/NotificationContext.jsx";
 import { queryClient } from "./lib/queryClient.js";
-import { queryPersister } from "./lib/queryPersister.js";
+import { queryPersister, shouldPersistQuery } from "./lib/queryPersister.js";
 import "./index.css";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { installGlobalErrorHandlers } from "./utils/logger.js";
@@ -18,7 +18,9 @@ installGlobalErrorHandlers();
 
 // Buster tied to app version so a deploy discards persisted cache with
 // incompatible shape. Bump when Firestore doc shapes change.
-const CACHE_BUSTER = "oqunet-v1";
+// Bumped for the indexed-query migration: books gained `searchPrefixes`, and
+// the paged list functions changed the shape of what they return.
+const CACHE_BUSTER = "oqunet-v2";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -29,6 +31,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           persister: queryPersister,
           maxAge: 24 * 60 * 60 * 1000,
           buster: CACHE_BUSTER,
+          dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
         }}
       >
         <BrowserRouter>

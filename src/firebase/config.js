@@ -5,7 +5,9 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+// NOTE: firebase/storage is deliberately NOT imported here. Only three screens
+// ever upload an image, so ./storage.js pulls the Storage SDK in on demand
+// rather than letting it ride along in the initial bundle.
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -18,12 +20,11 @@ const firebaseConfig = {
 
 export const isFirebaseConfigured = Boolean(firebaseConfig.apiKey);
 
-let app, auth, db, storage;
+let app, auth, db;
 if (isFirebaseConfigured) {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
-  storage = getStorage(app);
 } else {
   // eslint-disable-next-line no-console
   console.warn(
@@ -32,4 +33,4 @@ if (isFirebaseConfigured) {
   );
 }
 
-export { app, auth, db, storage };
+export { app, auth, db };

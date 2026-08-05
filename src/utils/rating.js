@@ -8,6 +8,7 @@
 // summary lets the UI say so out loud.
 
 import { getCurrentLang } from "./i18n.js";
+import { toMillis } from "./time.js";
 
 export const DEFAULT_RATING = 5;
 export const RATING_MIN = 1;
@@ -20,14 +21,10 @@ export function clampStars(value) {
   return Math.min(n, RATING_MAX);
 }
 
-/**
- * Fold raw rating documents into { count, sum, average }.
- * `value` is the canonical field; `stars` is read as a fallback for documents
- * written before the two were unified.
- */
+/** Fold raw rating documents into { count, sum, average }. */
 export function aggregateFromRatings(ratings = []) {
   const stars = ratings
-    .map((r) => clampStars(r?.value ?? r?.stars))
+    .map((r) => clampStars(r?.value))
     .filter(Boolean);
   const count = stars.length;
   const sum = stars.reduce((a, b) => a + b, 0);
@@ -53,10 +50,9 @@ export function ratingSummary(source) {
  * A review is not a separate record — it is the optional note on a rating.
  */
 export function reviewsFromRatings(ratings = []) {
-  const millis = (r) => r?.createdAt?.toMillis?.() ?? r?.createdAt ?? 0;
   return ratings
     .filter((r) => String(r?.review || "").trim())
-    .sort((a, b) => millis(b) - millis(a));
+    .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
 }
 
 /** "4.4" in English, "4,4" in Kazakh/Russian — matches the rest of the UI. */

@@ -49,13 +49,15 @@ export default function AdminBooks() {
         return;
       }
 
-      const result = await listBooks({
+      // `search` is a query constraint now, not a filter over the page that
+      // came back, so this really is the first 100 matches rather than the
+      // matches among the first 100 books.
+      const { items } = await listBooks({
         communityId: community.id,
         search,
         pageSize: 100, // Load more for admin view
       });
 
-      const items = result.items || result;
       // Cache the results
       cacheService.set(cacheKey, items, CACHE_TTL);
       setBooks(items);

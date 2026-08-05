@@ -1,12 +1,19 @@
 // OquNet Service Worker
 // Handles caching, offline support, and PWA features
 
-const CACHE_NAME = 'oqunet-v1';
-const ASSET_CACHE = 'oqunet-assets-v1';
-const API_CACHE = 'oqunet-api-v1';
-const IMAGE_CACHE = 'oqunet-images-v1';
+// Bumped to v2: the navigation strategy changed from cache-first to
+// network-first (see cacheHtmlNetworkFirst below). Renaming the caches makes
+// the activate handler drop every entry written under the old strategy,
+// including any stale index.html still pointing at deleted chunk hashes.
+const CACHE_NAME = 'oqunet-v2';
+const ASSET_CACHE = 'oqunet-assets-v2';
+const API_CACHE = 'oqunet-api-v2';
+const IMAGE_CACHE = 'oqunet-images-v2';
 
-// Assets to cache on install (app shell)
+// Assets to cache on install (app shell).
+// Deliberately no JS/CSS here: their filenames are content-hashed and change
+// every build, so any hardcoded list would rot. They're cached on first use
+// instead — safe, because a hashed filename's contents never change.
 const ASSET_URLS = [
   '/',
   '/index.html',
@@ -89,8 +96,9 @@ self.addEventListener('fetch', (event) => {
   } else if (isAssetRequest(request)) {
     event.respondWith(cacheAssets(request));
   } else {
-    // For HTML navigation, use network first with fallback
-    event.respondWith(cacheFirstWithNetwork(request));
+    // HTML navigation: always try the network first so the document that names
+    // the current chunk hashes is never stale. See cacheHtmlNetworkFirst.
+    event.respondWith(cacheHtmlNetworkFirst(request));
   }
 });
 
@@ -179,7 +187,9 @@ async function cacheApiResponse(request) {
   }
 }
 
-// Cache assets: Cache first, fallback to network
+// Hashed JS/CSS: cache first. Safe by construction — the content hash is in the
+// filename, so a given URL's bytes never change. This is what makes the lazy
+// route chunks cheap on repeat visits.
 async function cacheAssets(request) {
   const cache = await caches.open(ASSET_CACHE);
   const cached = await cache.match(request);
@@ -188,35 +198,29 @@ async function cacheAssets(request) {
     return cached;
   }
 
-  try {
-    const response = await fetch(request);
-    if (response && response.status === 200) {
-      cache.put(request, response.clone());
-    }
-    return response;
-  } catch {
-    return new Response('Asset not available', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain' },
-    });
+  // Let a failure propagate as a real network error rather than resolving with
+  // a synthetic text/plain body. A lazy chunk that can't load must reject its
+  // dynamic import so src/utils/lazyRoute.js can recover; handing back a
+  // well-formed non-JS response instead produces a much muddier failure.
+  const response = await fetch(request);
+  if (response && response.status === 200) {
+    cache.put(request, response.clone());
   }
+  return response;
 }
 
-// Cache first with network update strategy
-async function cacheFirstWithNetwork(request) {
+// HTML navigation: network first, cache only as an offline fallback.
+//
+// This MUST NOT be cache-first. index.html is the only file that names the
+// content-hashed JS chunks, and every deploy replaces those names. A stale
+// cached index.html asks for chunk hashes the server no longer has — and now
+// that routes are code-split, most of those chunks were never visited and so
+// were never cached either. The result is a 404 mid-navigation, a rejected
+// dynamic import, and a blank screen that survives refresh. Going to the
+// network first costs one conditional request (304s are cheap) and keeps the
+// document and its chunks in lockstep.
+async function cacheHtmlNetworkFirst(request) {
   const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(request);
-
-  if (cached) {
-    // Update cache in background
-    fetch(request).then((response) => {
-      if (response && response.status === 200) {
-        cache.put(request, response.clone());
-      }
-    }).catch(() => {});
-
-    return cached;
-  }
 
   try {
     const response = await fetch(request);
@@ -225,9 +229,9 @@ async function cacheFirstWithNetwork(request) {
     }
     return response;
   } catch {
-    // Return offline page or cached response
-    const offlineResponse = await cache.match('/');
-    return offlineResponse || new Response(
+    // Offline: fall back to the last good document, then to '/'.
+    const cached = (await cache.match(request)) || (await cache.match('/'));
+    return cached || new Response(
       '<!DOCTYPE html><html><body><h1>Offline</h1><p>You are offline.</p></body></html>',
       { headers: { 'Content-Type': 'text/html' } }
     );

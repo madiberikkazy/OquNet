@@ -15,10 +15,11 @@ import { useTheme } from "../../contexts/ThemeContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
 import { auth, isFirebaseConfigured } from "../../firebase/config.js";
 import {
-  getActiveBorrowingForUser, getUserByNickname, updateUser,
+  getActiveBorrowingForUser, claimUsername, releaseUsername, updateUser,
   createLeaveRequest, getPendingLeaveRequest, createNotification,
 } from "../../firebase/firestore.js";
 import { uploadImage } from "../../firebase/storage.js";
+import { logger } from "../../utils/logger.js";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
 import { clampText, isAddress, isPhone, LIMITS } from "../../utils/validators.js";
 import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.js";
@@ -113,10 +114,17 @@ export default function Settings() {
     setSaving(true);
     setProfileMsg(null);
     try {
-      // Nickname uniqueness check (skip if unchanged)
-      if (nick !== user.nickname) {
-        const taken = await getUserByNickname(nick);
-        if (taken && taken.id !== user.id) {
+      // A rename has to move the public nickname index too, and the index is
+      // what makes the name unique in the first place — claiming it is the
+      // check. Claim before the profile write: if the name is gone, nothing has
+      // changed yet. Release the old one only once the profile actually names
+      // the new one, so a failure in between leaves a spare claim we still own
+      // rather than a nickname anybody could take.
+      const renaming = nick !== user.nickname;
+      if (renaming) {
+        try {
+          await claimUsername(nick, { uid: user.id, email: user.email });
+        } catch {
           setProfileMsg({ type: "err", text: t.nicknameTaken });
           return;
         }
@@ -135,6 +143,11 @@ export default function Settings() {
         address,
         photoURL,
       });
+      if (renaming && user.nickname) {
+        await releaseUsername(user.nickname).catch((err) => {
+          logger.warn("settings.releaseUsername", err?.message, { nickname: user.nickname });
+        });
+      }
       setPhotoFile(null);
       setProfileMsg({ type: "ok", text: t.profileSaved });
       setTimeout(() => setProfileMsg(null), 3000);

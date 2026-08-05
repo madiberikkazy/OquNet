@@ -1,25 +1,21 @@
 /**
  * Who physically has a book right now.
  *
- * Ownership never moves — `ownerId` is whoever added the book and stays put.
- * The *holder* is whoever the copy is with today, and it only changes at a
+ * Ownership never moves — `ownerId` is whoever the book belongs to and stays
+ * put. The *holder* is whoever the copy is with today, and it only changes at a
  * handoff: finishing a read does not send the book back to its owner, it stays
  * with the reader until the next reader comes to collect it. So a user can hold
  * many books at once while reading only one.
+ *
+ * `holderId` is on every book, always. The schema derives it at creation (a new
+ * book is with its owner) and the security rules refuse a create without it and
+ * refuse a handoff that does not write it. There is nothing left to infer, so
+ * these are field reads rather than a search.
  */
 
-/**
- * The person the book is with. `holderId` is written at every handoff and
- * outlives the loan; `borrowerId` is the older field, kept as a fallback for
- * books last handed over before `holderId` existed, and `activeBorrowing` is
- * the last resort for documents that predate both. A book that has never left
- * the shelf is with its owner.
- */
-export function holderIdOf(book, activeBorrowing = null) {
-  if (!book) return null;
-  return (
-    book.holderId || readerHolderIdOf(book, activeBorrowing) || book.ownerId || null
-  );
+/** The person the book is with. */
+export function holderIdOf(book) {
+  return book?.holderId ?? null;
 }
 
 /**
@@ -27,13 +23,12 @@ export function holderIdOf(book, activeBorrowing = null) {
  * Narrower than the holder: someone who has finished a book still holds it, but
  * is no longer its reader — the book can be requested from them.
  */
-export function readerHolderIdOf(book, activeBorrowing = null) {
-  if (!book || book.status !== "unavailable") return null;
-  return book.holderId || book.borrowerId || activeBorrowing?.borrowerId || null;
+export function readerHolderIdOf(book) {
+  return book?.status === "unavailable" ? holderIdOf(book) : null;
 }
 
 /** True when `userId` is the person the book is currently with. */
-export function isHeldBy(book, userId, activeBorrowing = null) {
+export function isHeldBy(book, userId) {
   if (!userId) return false;
-  return holderIdOf(book, activeBorrowing) === userId;
+  return holderIdOf(book) === userId;
 }

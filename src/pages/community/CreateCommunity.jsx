@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Stepper from "../../components/Stepper.jsx";
-import { createCommunity, updateUser, getUserByNickname, getCommunityByNickname } from "../../firebase/firestore.js";
+import { createCommunity, updateUser, getUsernameEntry, getCommunityByNickname } from "../../firebase/firestore.js";
+import { normalizeUserMembership } from "../../firebase/schema.js";
 import { uploadImage } from "../../firebase/storage.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
@@ -45,7 +46,7 @@ export default function CreateCommunity() {
         return;
       }
       const [userMatch, communityMatch] = await Promise.all([
-        getUserByNickname(form.nickname),
+        getUsernameEntry(form.nickname),
         getCommunityByNickname(form.nickname),
       ]);
       if (userMatch || communityMatch) {
@@ -73,11 +74,10 @@ export default function CreateCommunity() {
         photoURL,
         ownerId: user.id,
         memberIds: [user.id],
-        createdAt: Date.now(),
       });
 
       setSubmitStatus("Сохранение…");
-      await updateUser(user.id, { communityId: c.id, role: "admin" });
+      await updateUser(user.id, normalizeUserMembership({ communityId: c.id, role: "admin" }));
 
       setCommunity(c);
       await refresh();

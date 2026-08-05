@@ -14,9 +14,11 @@ import {
   updateBorrowing,
   updatePickupRequest,
   createNotification,
+  toMillis,
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
+import { newPickupCode } from "../../firebase/schema.js";
 import { holderIdOf } from "../../utils/bookHolder.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { t, getCurrentLang } from "../../utils/i18n.js";
@@ -34,21 +36,10 @@ const KZ_MONTHS = [
   "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан",
 ];
 
-function makeCode() {
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
 function addDays(date, days) {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
   return d;
-}
-// Firestore round-trips serialize timestamps as Timestamp / number / string.
-function toMillis(value) {
-  if (value == null) return null;
-  if (typeof value === "number") return value;
-  if (typeof value?.toMillis === "function") return value.toMillis();
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : null;
 }
 function formatLongDate(ts) {
   const d = new Date(ts);
@@ -61,7 +52,7 @@ function formatLongDate(ts) {
   }
 }
 function isExpired(request) {
-  const created = toMillis(request?.createdAt);
+  const created = toMillis(request?.createdAt, null);
   // A request whose createdAt hasn't resolved yet (serverTimestamp) is brand new.
   if (created == null) return false;
   return Date.now() - created > PICKUP_EXPIRY_DAYS * 86400000;
@@ -107,7 +98,7 @@ export default function PickupBook() {
       }
       // Whoever has the book is who hands it over and names the code — that is
       // a previous reader when the book is free but still on their shelf.
-      const holderId = holderIdOf(b, borrowing);
+      const holderId = holderIdOf(b);
       if (holderId) setCurrentHolder(await getUserById(holderId));
 
       let req = null;
@@ -172,13 +163,8 @@ export default function PickupBook() {
       let req;
       if (existingBorrowing) {
         // The book is out on loan: the reader's own handoff code is the one
-        // they read out. Loans created before codes existed get one now.
-        let code = existingBorrowing.pickupCode;
-        if (!code) {
-          code = makeCode();
-          await updateBorrowing(existingBorrowing.id, { pickupCode: code });
-          setExistingBorrowing((prev) => ({ ...prev, pickupCode: code }));
-        }
+        // they read out. Every loan is born with one — see borrowingSchema.
+        const code = existingBorrowing.pickupCode;
         req = await createPickupRequest(base);
         if (existingBorrowing.borrowerId && existingBorrowing.borrowerId !== user.id) {
           await createNotification({
@@ -194,7 +180,7 @@ export default function PickupBook() {
       } else {
         // The book is free but still on its last holder's shelf — the code is
         // minted here and lives on the request.
-        const code = makeCode();
+        const code = newPickupCode();
         req = await createPickupRequest({ ...base, pickupCode: code });
         const holderId = currentHolder?.id || book.ownerId;
         if (holderId && holderId !== user.id) {
@@ -224,7 +210,7 @@ export default function PickupBook() {
     setResending(true);
     setResent(false);
     try {
-      const newCode = makeCode();
+      const newCode = newPickupCode();
 
       if (existingBorrowing) {
         // Refresh the code on the active borrowing so the holder sees a new one
@@ -304,12 +290,14 @@ export default function PickupBook() {
         bookId: id,
         toUserId: user.id,
         previousBorrowingId: existingBorrowing?.id || null,
+        // No `pickupCode` here: borrowingSchema mints one on every loan, so the
+        // code the *next* reader will be given exists from the moment this one
+        // starts — it is simply not shown until somebody asks for the book.
         borrowing: {
           bookName: book.name,
           communityId: book.communityId,
           startDate: Date.now(),
           returnDate: actualReturnTs,
-          pickupCode: makeCode(), // stored silently, revealed when the next reader asks
         },
       });
 
