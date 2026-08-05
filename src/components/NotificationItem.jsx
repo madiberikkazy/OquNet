@@ -1,12 +1,9 @@
 import { Link } from "react-router-dom";
+import { toMillis } from "../utils/time.js";
 
 export default function NotificationItem({ notification, selectable = false, selected = false, onToggle }) {
   const date = notification.createdAt
-    ? new Date(
-        typeof notification.createdAt.toMillis === "function"
-          ? notification.createdAt.toMillis()
-          : notification.createdAt
-      ).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
+    ? new Date(toMillis(notification.createdAt)).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
     : "";
 
   const inner = (

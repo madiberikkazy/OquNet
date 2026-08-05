@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { listBorrowingsForUser } from "../../firebase/firestore.js";
+import { listBorrowingsForUser, toMillis } from "../../firebase/firestore.js";
 import { cacheService } from "../../utils/cacheService.js";
 import { t } from "../../utils/i18n.js";
 
@@ -54,7 +54,8 @@ export default function CompletedBooks() {
         }
 
         const rows = await listBorrowingsForUser(user.id, "completed");
-        rows.sort((a, b) => (b.returnDate ?? b.createdAt ?? 0) - (a.returnDate ?? a.createdAt ?? 0));
+        const finishedAt = (r) => toMillis(r.returnDate) || toMillis(r.createdAt);
+        rows.sort((a, b) => finishedAt(b) - finishedAt(a));
 
         // Cache the results
         cacheService.set(cacheKey, rows, CACHE_TTL);

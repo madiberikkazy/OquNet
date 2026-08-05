@@ -5,3 +5,7 @@ dist
 .DS_Store
 *.log
 .vite
+
+# Firebase Admin service-account key used by scripts/seed.mjs — never commit.
+serviceAccount.json
+*-firebase-adminsdk-*.json

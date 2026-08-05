@@ -15,9 +15,12 @@ import {
 import { auth, isFirebaseConfigured } from "./config.js";
 import {
   createUserDoc,
+  claimUsername,
+  getUsernameEntry,
   getUserByEmail,
   getUserByNickname,
   getUserById,
+  isNicknameTaken,
 } from "./firestore.js";
 import { isEmail, isNickname, normalizeEmail, normalizeNickname, LIMITS } from "../utils/validators.js";
 import { safeGet, safeSet, safeRemove } from "../utils/safeStorage.js";
@@ -49,6 +52,12 @@ function writeMock(value) {
  * been written for that uid yet. A completed profile means the email is
  * genuinely taken.
  *
+ * Note there is no pre-flight "is this email registered?" lookup: `users` is
+ * readable only to signed-in callers, and this runs before anyone is signed in.
+ * Firebase Auth answers the same question itself via `email-already-in-use`,
+ * which the resume path below already handles — and unlike a Firestore query it
+ * is rate-limited, so it is not an account-enumeration oracle.
+ *
  * Returns `{ uid, verified, mock }`.
  *   mock=true when running without Firebase — verification is skipped.
  */
@@ -61,11 +70,10 @@ export async function startEmailRegistration({ email, password }) {
     throw new Error(t.passwordWeak);
   }
 
-  // If a fully-registered profile already exists, block immediately.
-  const existing = await getUserByEmail(cleanEmail);
-  if (existing) throw new Error(t.emailAlreadyInUse);
-
   if (!isFirebaseConfigured) {
+    // Mock mode only: without Firebase Auth there is nothing that knows the
+    // email is taken, so the local store has to be asked.
+    if (await getUserByEmail(cleanEmail)) throw new Error(t.emailAlreadyInUse);
     // Mock mode: pretend we sent a verification email; auto-pass.
     return { uid: "mock-" + cleanEmail, verified: true, mock: true };
   }
@@ -212,8 +220,7 @@ export async function finalizeRegistration({
   }
 
   // Nickname uniqueness — checked at finalize time too, not just at the picker.
-  const nickTaken = await getUserByNickname(cleanNick);
-  if (nickTaken) throw new Error(t.nicknameTaken);
+  if (await isNicknameTaken(cleanNick, uid)) throw new Error(t.nicknameTaken);
 
   const profile = {
     id: uid,
@@ -229,29 +236,18 @@ export async function finalizeRegistration({
     photoURL: photoURL || "",
     role: "user",
     communityId: null,
-    createdAt: Date.now(),
+    // No `createdAt`: createUserDoc stamps it server-side.
   };
   if (!isFirebaseConfigured) {
     // Mock-only: keep the password for nickname-login support.
     profile.password = password;
   }
   await createUserDoc(profile);
+  // The public index is what makes signing in with a nickname possible at all,
+  // so it is written as part of creating the profile rather than lazily.
+  await claimUsername(cleanNick, { uid, email: cleanEmail });
   writeMock({ uid });
   return profile;
-}
-
-/**
- * Back-compat wrapper — runs both phases sequentially. Kept so any callers
- * outside the new Register flow keep working. New code should use
- * startEmailRegistration() + finalizeRegistration().
- */
-export async function registerWithEmail(payload) {
-  const start = await startEmailRegistration({ email: payload.email, password: payload.password });
-  if (isFirebaseConfigured && !start.verified) {
-    // Cannot finalize without verification.
-    throw new Error(t.emailNotVerified);
-  }
-  return finalizeRegistration({ ...payload, uid: start.uid });
 }
 
 /**
@@ -269,7 +265,13 @@ export async function cancelPendingRegistration() {
 
 /**
  * Sign in with either an email or a nickname, plus password.
- * When using Firebase, nickname is resolved to its email before calling signInWithEmailAndPassword.
+ *
+ * An email goes straight to Firebase Auth — there is nothing to look up, and
+ * asking Firestore first would only be a signed-out read of `users` that the
+ * security rules (rightly) refuse. A nickname is resolved through the public
+ * `usernames` index, which exists precisely because this one lookup has to
+ * happen before there is anybody to authorise. The profile is then read back
+ * *after* sign-in, when the caller is allowed to read it.
  */
 export async function signInWithIdentifier({ identifier, password }) {
   const idRaw = (identifier || "").toString().trim();
@@ -278,18 +280,32 @@ export async function signInWithIdentifier({ identifier, password }) {
     throw new Error(t.loginErrorGeneric);
   }
   const looksLikeEmail = idRaw.includes("@");
-  const user = looksLikeEmail
-    ? await getUserByEmail(normalizeEmail(idRaw))
-    : await getUserByNickname(normalizeNickname(idRaw));
-  if (!user) throw new Error(t.loginErrorUserNotFound);
 
-  if (isFirebaseConfigured) {
-    await signInWithEmailAndPassword(auth, user.email, password);
-  } else {
+  if (!isFirebaseConfigured) {
+    // Mock mode has no auth service, so the local store is still the oracle.
+    const user = looksLikeEmail
+      ? await getUserByEmail(normalizeEmail(idRaw))
+      : await getUserByNickname(normalizeNickname(idRaw));
+    if (!user) throw new Error(t.loginErrorUserNotFound);
     if (user.password !== password) throw new Error(t.loginErrorWrongPassword);
+    writeMock({ uid: user.id });
+    return user;
   }
-  writeMock({ uid: user.id });
-  return user;
+
+  let email;
+  if (looksLikeEmail) {
+    email = normalizeEmail(idRaw);
+  } else {
+    const entry = await getUsernameEntry(normalizeNickname(idRaw));
+    if (!entry?.email) throw new Error(t.loginErrorUserNotFound);
+    email = entry.email;
+  }
+
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  const profile = await getUserById(cred.user.uid);
+  if (!profile) throw new Error(t.loginErrorUserNotFound);
+  writeMock({ uid: profile.id });
+  return profile;
 }
 
 export async function signOut() {
@@ -334,7 +350,7 @@ export async function signInWithGoogle() {
       .replace(/[^a-z0-9_]/g, "");
     let nickname = base || "user";
     let suffix = 1;
-    while (await getUserByNickname(nickname)) {
+    while (await isNicknameTaken(nickname, fbUser.uid)) {
       nickname = base + suffix++;
     }
 
@@ -348,9 +364,10 @@ export async function signInWithGoogle() {
       notificationsEnabled: true,
       role: "user",
       communityId: null,
-      createdAt: Date.now(),
+      // No `createdAt`: createUserDoc stamps it server-side.
     };
     await createUserDoc(profile);
+    await claimUsername(nickname, { uid: fbUser.uid, email: profile.email });
   }
 
   writeMock({ uid: fbUser.uid });

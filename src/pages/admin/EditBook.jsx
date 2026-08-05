@@ -57,6 +57,9 @@ export default function EditBook() {
 
   async function handleSave() {
     if (saving) return;
+    // Friendly, field-specific messages first — but they are a courtesy, not
+    // the contract. `updateBook` runs the same payload through the book schema
+    // and refuses anything malformed, so it has the last word.
     if (!form.name.trim() || !form.author.trim()) {
       setError("Атауы мен авторын жазыңыз");
       return;
@@ -73,8 +76,11 @@ export default function EditBook() {
       // actually picked someone else. Note that neither call touches
       // `holderId` — correcting who a book belongs to, or flipping its status
       // by hand, does not move the physical copy.
+      //
+      // `genre` is not passed either: it is derived from `genres` by the
+      // schema, which is the only way the two can be relied on to agree.
       const { ownerId, ...fields } = form;
-      await updateBook(id, { ...fields, genre: form.genres[0] });
+      await updateBook(id, fields);
       if (ownerId && ownerId !== originalOwnerId) {
         await reassignBookOwner(id, ownerId);
         setOriginalOwnerId(ownerId);
@@ -82,7 +88,7 @@ export default function EditBook() {
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
-      setError(err?.message || "Сақтау қатесі");
+      setError(t[err?.errorKey] || err?.message || "Сақтау қатесі");
     } finally {
       setSaving(false);
     }

@@ -3,11 +3,10 @@ import { useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Stepper from "../../components/Stepper.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
-import { listUsersByCommunity, createBook, createNotification } from "../../firebase/firestore.js";
+import { listUsersByCommunity, createBook, notifyCommunityMembers } from "../../firebase/firestore.js";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { t, GENRES } from "../../utils/i18n.js";
-import { validateBookPayload, safeImageUrl } from "../../utils/validators.js";
 import { logger } from "../../utils/logger.js";
 
 export default function AddBook() {
@@ -57,60 +56,53 @@ export default function AddBook() {
     if (step === 2 && !form.ownerId) { setError(t.addBookErrOwner); return; }
     if (step < 3) { setStep(step + 1); return; }
 
-    // Step 3 — final submit. Re-validate everything so a step-skipping bypass
-    // (or a stale form) can't get past the per-step checks.
-    const validation = validateBookPayload(form);
-    if (!validation.ok) { setError(t[validation.errorKey] || t.error); return; }
+    // Step 3 — final submit. The per-step checks above exist to put a friendly
+    // localized message next to the field that is wrong; they are not the
+    // contract. `createBook` normalizes and re-checks the whole payload and
+    // throws if anything is missing, so a step-skipping bypass or a stale form
+    // cannot reach the database — the two checks below only spare the user a
+    // round trip for the cases the form itself already knows about.
     if (!form.ownerId) { setError(t.addBookErrOwner); return; }
     if (!community?.id) { setError(t.loadFailed); return; }
 
     setSubmitting(true);
     try {
-      const safe = validation.value;
-      const book = await createBook({
-        name: safe.name,
-        author: safe.author,
-        description: safe.description,
-        coverUrl: safeImageUrl(safe.coverUrl),
-        year: safe.year,
-        maxDays: safe.maxDays,
-        genres: safe.genres,
-        ownerId: form.ownerId,
-        genre: safe.genres[0],
-        communityId: community.id,
-        status: "available",
-        createdAt: Date.now(),
-      });
+      // Deliberately the raw form: the data layer owns what a book document
+      // looks like, including `genre`, `holderId`, `status` and `createdAt`.
+      const book = await createBook({ ...form, communityId: community.id });
 
-      // Notify every community member that a new book has been added.
-      // Re-fetch the member list so we don't rely on the initial useEffect having
-      // resolved before the admin reaches step 3.
-      try {
-        const fresh = await listUsersByCommunity(community.id);
-        const recipients = (fresh || []).filter(
-          (m) => m.id && m.id !== user?.id
-        );
-        await Promise.all(
-          recipients.map((m) =>
-            createNotification({
-              recipientId: m.id,
-              title: "Жаңа кітап қосылды",
-              body: `«${book.name}» — ${book.author}. Қазір қолжетімді.`,
-              read: false,
-              type: "new-book",
-              bookId: book.id,
-            })
-          )
-        );
-        console.log(`[OquNet] Sent new-book notification to ${recipients.length} member(s)`);
-      } catch (notifyErr) {
-        console.error("Failed to notify members about new book:", notifyErr);
-      }
+      // Announce the book to the community — deliberately *not* awaited.
+      //
+      // The book exists the moment `createBook` resolves; whether every member
+      // has been told is a separate concern with a separate failure mode, and
+      // making the admin wait for it coupled the length of this screen's spinner
+      // to the size of the community. A try/catch alone did not fix that: it
+      // isolated the error but not the latency, because the fan-out was awaited
+      // before `navigate`.
+      //
+      // So: fire it, attach a rejection handler so a failure is logged rather
+      // than surfacing as an unhandled rejection, and move on. Firestore's SDK
+      // keeps the writes in flight across the route change — this is a SPA, the
+      // document is never unloaded.
+      notifyCommunityMembers({
+        communityId: community.id,
+        excludeUserId: user?.id,
+        notification: {
+          title: "Жаңа кітап қосылды",
+          body: `«${book.name}» — ${book.author}. Қазір қолжетімді.`,
+          type: "new-book",
+          bookId: book.id,
+        },
+      }).catch((notifyErr) => {
+        logger.error("addBook.notify", notifyErr?.message, { bookId: book.id });
+      });
 
       navigate(`/books/${book.id}`, { replace: true });
     } catch (err) {
       logger.error("addBook.create", err?.message, { code: err?.code });
-      setError(err?.message || t.addBookError);
+      // A SchemaError names the i18n key for whatever it refused, so a payload
+      // the form let through still reads as a field error rather than a stack.
+      setError(t[err?.errorKey] || err?.message || t.addBookError);
     } finally { setSubmitting(false); }
   }
 

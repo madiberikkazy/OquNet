@@ -5,10 +5,9 @@ import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  listBorrowingsForUser, listBooks,
+  listBorrowingsForUser, listBooksHeldBy,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
-import { isHeldBy } from "../../utils/bookHolder.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 
@@ -35,9 +34,11 @@ export default function Profile() {
       const results = await Promise.allSettled([
         listBorrowingsForUser(user.id, "active"),
         listBorrowingsForUser(user.id, "completed"),
-        community?.id
-          ? listBooks({ communityId: community.id, pageSize: 200 })
-          : Promise.resolve({ items: [] }),
+        // Books currently in this user's hands: their own shelf, plus anything
+        // handed to them that nobody has taken on yet. An indexed query on
+        // `holderId` returns exactly those, so the counter no longer depends on
+        // them falling inside the community's first two hundred books.
+        listBooksHeldBy({ communityId: community?.id, userId: user.id }),
       ]);
       results.forEach((r, i) => {
         if (r.status === "rejected") {
@@ -47,17 +48,13 @@ export default function Profile() {
           });
         }
       });
-      const [readingList, completed, allBooksResult] = results.map((r) =>
+      const [readingList, completed, held] = results.map((r) =>
         r.status === "fulfilled" ? r.value : null
       );
-      const allBooks = allBooksResult?.items || allBooksResult || [];
-      // Books currently in this user's hands — see holderIdOf: their own shelf,
-      // plus anything handed to them that nobody has taken on yet.
-      const owned = allBooks.filter((b) => isHeldBy(b, user.id));
       const savedIds = user.savedBookIds || [];
       return {
         stats: {
-          owned: owned.length,
+          owned: held?.length ?? 0,
           reading: readingList?.length ?? 0,
           completed: completed?.length ?? 0,
           saved: savedIds.length,

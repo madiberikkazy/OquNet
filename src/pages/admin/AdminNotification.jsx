@@ -13,6 +13,7 @@ import {
   listJoinRequests, listLeaveRequests,
   listUsersByCommunity,
   updateJoinRequest, updateLeaveRequest, updateUser,
+  toMillis,
 } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
 import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.js";
@@ -57,6 +58,10 @@ export default function AdminNotification() {
         body: `Администратор сообщества «${community.name}» одобрил вашу заявку. Хотите вступить?`,
         read: false,
         type: "join-approved",
+        // The member's own "yes" is what actually writes their membership, and
+        // the security rules will only accept that write if it names the
+        // request that authorised it — so the id has to travel with the offer.
+        requestId: req.id,
         communityId: community.id,
         communityName: community.name,
         bookName: req.bookName || "",
@@ -150,7 +155,9 @@ export default function AdminNotification() {
 
   async function send(e) {
     e.preventDefault();
-    if (!form.recipientId) return;
+    // The data layer refuses a titleless notification, so stop here rather than
+    // throwing out of an unguarded submit.
+    if (!form.recipientId || !form.title.trim()) return;
     await createNotification({
       recipientId: form.recipientId,
       title: form.title,
@@ -200,7 +207,7 @@ export default function AdminNotification() {
                 const isBusy = busy === actionReq.id;
                 const isLeave = Boolean(leaveReq);
                 const date = n.createdAt
-                  ? new Date(n.createdAt?.toMillis?.() ?? n.createdAt)
+                  ? new Date(toMillis(n.createdAt))
                       .toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
                   : "";
 

@@ -7,6 +7,7 @@ import {
   updateUser,
   getCommunity,
   cancelJoinRequest,
+  toMillis,
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
@@ -40,7 +41,15 @@ export default function NotificationDetail() {
     setBusy(true);
     setError("");
     try {
-      await updateUser(user.id, { communityId: notification.communityId });
+      // `joinRequestId` is not decoration: joining is a write to your own user
+      // document, and the only thing that distinguishes an accepted invitation
+      // from helping yourself to a community is the approved request behind it.
+      // The rules re-read that request server-side, so the id has to be part of
+      // the write rather than merely checked here.
+      await updateUser(user.id, {
+        communityId: notification.communityId,
+        joinRequestId: notification.requestId,
+      });
       await updateNotification(id, { confirmed: "accepted", read: true });
       setNotification((prev) => ({ ...prev, confirmed: "accepted", read: true }));
       await refresh();
@@ -106,11 +115,7 @@ export default function NotificationDetail() {
   }
 
   const date = notification.createdAt
-    ? new Date(
-        typeof notification.createdAt.toMillis === "function"
-          ? notification.createdAt.toMillis()
-          : notification.createdAt
-      ).toLocaleString("ru-RU", {
+    ? new Date(toMillis(notification.createdAt)).toLocaleString("ru-RU", {
         day: "2-digit", month: "2-digit", year: "numeric",
         hour: "2-digit", minute: "2-digit",
       })

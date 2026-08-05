@@ -1,19 +1,447 @@
 rules_version = '2';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// OquNet — Firestore authorization.
+//
+// Deny by default. There is no catch-all allow; a collection that is not
+// matched below is unreachable from any client.
+//
+// The model, in one paragraph. A user document (id == the Firebase Auth uid)
+// carries `role` ("user" | "admin") and `communityId` — a single string, since
+// a person belongs to exactly one community at a time. `role: "admin"` is a
+// global field whose *effective scope* is that same `communityId`: an admin has
+// power over their own community and nowhere else. The `memberIds` array on a
+// community document is written once at creation and never maintained, so it is
+// NOT a membership source of truth and is deliberately not consulted here.
+//
+// ── SCALABILITY: get() is a billed read ──────────────────────────────────────
+// Resolving the caller's role means reading their user document, and every
+// get()/exists() in a rule is a document read *billed to the request*. A single
+// rule evaluation is also hard-capped at 10 such calls. Identical paths are
+// cached within one evaluation, so `me()` costs exactly one read per request no
+// matter how many helpers below call it — but it is still one extra read on top
+// of every single write, and on most reads.
+//
+// The scalable fix is Firebase Auth **custom claims**: mint `role` and
+// `communityId` into the user's ID token and read them here as
+// `request.auth.token.role` / `request.auth.token.communityId`, which is free
+// and uncapped. That requires an Admin SDK backend (a Cloud Function or a
+// server) to call setCustomUserClaims() whenever a role or a membership
+// changes, plus a token refresh on the client — which this project does not
+// have yet. Roles are therefore read from Firestore for now. Before adding any
+// new get() call site, check it against the 10-call budget.
+//
+// ── Known limits, stated rather than papered over ────────────────────────────
+//  1. `borrowings` and `ratings` are readable by any signed-in user. Rules can
+//     only allow or deny a query, never filter it, and the app queries both by
+//     bookId alone (getActiveBorrowingByBook, listRatingsForBook) with no
+//     community filter — so a community-scoped read rule would reject those
+//     queries outright. Scoping them needs a `communityId` field on both
+//     document types plus matching query changes.
+//  2. A borrowing carries `pickupCode`. That code is *already* read into the
+//     requesting user's browser and compared client-side (PickupBook.jsx), so
+//     it is a handshake, not a secret. Making it one needs a server.
+//  3. `users` is globally readable to signed-in callers: Home search,
+//     UserProfile and the admin invite picker all look up people outside the
+//     caller's community.
+// ─────────────────────────────────────────────────────────────────────────────
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
+    // ═══ Identity ═══
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function isSelf(userId) { return signedIn() && uid() == userId; }
+
+    // The caller's own profile. One billed read per request — see the note above.
+    function me() {
+      return get(/databases/$(database)/documents/users/$(uid())).data;
+    }
+    function myCommunity() { return me().communityId; }
+
+    function isMemberOf(cid) {
+      return signedIn() && cid != null && myCommunity() == cid;
+    }
+    function isAdminOf(cid) {
+      return signedIn() && cid != null
+        && me().role == 'admin' && me().communityId == cid;
+    }
+
+    // ═══ Diff helpers (update rules only — `resource` is null on create) ═══
+
+    function changed() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+    function frozen(fields) { return !changed().hasAny(fields); }
+    function touchesOnly(fields) { return changed().hasOnly(fields); }
+
+    // ═══ users ═══
     //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
+    // A profile is created by its owner at registration, and from then on only
+    // its owner may write it — with two carve-outs the app genuinely needs:
+    // founding a community (self-promotion to admin, tightly constrained) and a
+    // community admin ejecting a member.
+
+    match /users/{userId} {
+      allow get, list: if signedIn();
+
+      allow create: if isSelf(userId)
+        && request.resource.data.keys().hasAll(
+             ['email', 'nickname', 'role', 'communityId', 'createdAt'])
+        && request.resource.data.email is string
+        && request.resource.data.nickname is string
+        // Nobody registers as an admin, and nobody registers into a community.
+        && request.resource.data.role == 'user'
+        && request.resource.data.communityId == null
+        && request.resource.data.createdAt == request.time
+        // Mock-mode-only field; it must never reach a real database.
+        && !('password' in request.resource.data);
+
+      allow update: if selfUpdate(userId) || adminEjectsMember(userId);
+      allow delete: if false;
+    }
+
+    function selfUpdate(userId) {
+      return isSelf(userId)
+        && frozen(['email', 'createdAt', 'id'].toSet())
+        && !('password' in request.resource.data)
+        && roleChangeAllowed()
+        && membershipChangeAllowed();
+    }
+
+    // Self-promotion is allowed for exactly one reason: you just founded a
+    // community. The same write must move you into a community whose ownerId is
+    // you — and a `communities` create already required that to be the caller.
+    // Standing back down to "user" is always allowed.
+    function roleChangeAllowed() {
+      return frozen(['role'].toSet())
+        || request.resource.data.role == 'user'
+        || (request.resource.data.role == 'admin'
+            && ownsCommunity(request.resource.data.communityId));
+    }
+
+    // Membership moves in exactly three ways: you leave (→ null), you found a
+    // community you own, or an admin approved your join request. The last one
+    // is verifiable only because the write carries `joinRequestId` — without
+    // it, a rule has no way to name the request it should be checking.
+    function membershipChangeAllowed() {
+      return frozen(['communityId'].toSet())
+        || request.resource.data.communityId == null
+        || ownsCommunity(request.resource.data.communityId)
+        || joinWasApproved(request.resource.data.communityId);
+    }
+
+    function ownsCommunity(cid) {
+      return cid != null
+        && exists(/databases/$(database)/documents/communities/$(cid))
+        && get(/databases/$(database)/documents/communities/$(cid)).data.ownerId == uid();
+    }
+
+    function joinWasApproved(cid) {
+      return 'joinRequestId' in request.resource.data
+        && exists(/databases/$(database)/documents/requests/$(request.resource.data.joinRequestId))
+        && joinRequestOf(request.resource.data.joinRequestId).userId == uid()
+        && joinRequestOf(request.resource.data.joinRequestId).communityId == cid
+        && joinRequestOf(request.resource.data.joinRequestId).type == 'join'
+        && joinRequestOf(request.resource.data.joinRequestId).status == 'approved';
+    }
+    function joinRequestOf(requestId) {
+      return get(/databases/$(database)/documents/requests/$(requestId)).data;
+    }
+
+    // Removing someone from your community — and nothing else about them.
+    function adminEjectsMember(userId) {
+      return !isSelf(userId)
+        && isAdminOf(resource.data.communityId)
+        && touchesOnly(['communityId'].toSet())
+        && request.resource.data.communityId == null;
+    }
+
+    // ═══ usernames ═══
+    //
+    // A public nickname → account index, holding ONLY { uid, email }. It is
+    // readable while signed out on purpose: login-by-nickname has to resolve an
+    // email *before* it can authenticate, and registration has to check
+    // availability. Keeping that lookup here rather than on `users` is what
+    // lets the profile itself — phone, address, saved books — stay behind auth.
+    //
+    // `list` is denied so the index cannot be dumped; only a direct lookup of a
+    // nickname you already know works. A rename is a delete plus a create.
+
+    match /usernames/{nickname} {
+      allow get: if true;
+      allow list: if false;
+
+      allow create: if signedIn()
+        && request.resource.data.uid == uid()
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'createdAt'])
+        && request.resource.data.email is string;
+
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.uid == uid();
+    }
+
+    // ═══ communities ═══
+    //
+    // Globally readable: browsing a community you are not yet in is the whole
+    // point of the discovery screen.
+
+    match /communities/{communityId} {
+      allow get, list: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.ownerId == uid()
+        && request.resource.data.memberIds == [uid()]
+        && request.resource.data.nickname is string
+        && request.resource.data.name is string
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if signedIn()
+        && resource.data.ownerId == uid()
+        && frozen(['ownerId', 'createdAt'].toSet());
+
+      allow delete: if false;
+    }
+
+    // ═══ books ═══
+    //
+    // Two people are attached to a book and they are not the same thing:
+    // `ownerId` is who it belongs to, `holderId` is who physically has it now.
+    // `communityId` is frozen for everyone including admins — a book cannot
+    // migrate between communities. `ownerId` moves only by a community admin's
+    // deliberate correction (reassignBookOwner), never as a side effect of a
+    // handoff: the two lanes that handle handoffs cannot write it at all.
+
+    match /books/{bookId} {
+      allow get, list: if signedIn()
+        && resource.data.communityId == myCommunity();
+
+      allow create: if isAdminOf(request.resource.data.communityId)
+        && request.resource.data.keys().hasAll(
+             ['name', 'author', 'communityId', 'ownerId',
+              'holderId', 'status', 'genre', 'createdAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.author is string
+        && request.resource.data.author.size() > 0
+        && request.resource.data.ownerId is string
+        && request.resource.data.genre is string
+        // A new book has never been handed over, so it starts with its owner.
+        && request.resource.data.holderId == request.resource.data.ownerId
+        && request.resource.data.status == 'available'
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if bookAdminEdit() || bookRatingRollup() || bookHandoff();
+
+      // The owner deletes their own copies on the way out of the community
+      // (LeaveCommunity); the admin curates the shelf (AdminBooks).
+      allow delete: if isAdminOf(resource.data.communityId)
+        || (isMemberOf(resource.data.communityId) && resource.data.ownerId == uid());
+    }
+
+    function bookAdminEdit() {
+      return isAdminOf(resource.data.communityId)
+        && frozen(['communityId', 'createdAt'].toSet());
+    }
+
+    // recalcBookRating: whoever just rated the book refreshes its denormalised
+    // aggregate. Nothing else on the document may move in the same write.
+    function bookRatingRollup() {
+      return isMemberOf(resource.data.communityId)
+        && touchesOnly(['rating', 'ratingSum', 'ratingCount'].toSet())
+        && request.resource.data.rating is number
+        && request.resource.data.ratingSum is number
+        && request.resource.data.ratingCount is int
+        && request.resource.data.ratingCount >= 0;
+    }
+
+    // The only three transitions the app makes. Note what is missing from the
+    // key set: `ownerId` cannot ride along on a handoff even by accident.
+    function bookHandoff() {
+      return isMemberOf(resource.data.communityId)
+        && touchesOnly(['status', 'borrowerId', 'holderId'].toSet())
+        && (takesBook() || releasesBook() || sendsBookHome());
+    }
+
+    // Mirrors utils/bookHolder.js — a book with no holderId is with its owner.
+    function currentHolder() {
+      return resource.data.get('holderId', resource.data.ownerId);
+    }
+
+    // transferBookHolder — the caller collects the copy and becomes its reader.
+    function takesBook() {
+      return request.resource.data.status == 'unavailable'
+        && request.resource.data.holderId == uid()
+        && request.resource.data.borrowerId == uid();
+    }
+
+    // releaseBookAfterReading — finished, but the copy stays on the caller's
+    // own shelf until somebody comes to collect it.
+    function releasesBook() {
+      return currentHolder() == uid()
+        && request.resource.data.status == 'available'
+        && request.resource.data.borrowerId == null
+        && request.resource.data.holderId == uid();
+    }
+
+    // returnBookToOwner — the holder sends the copy home. The owner is the one
+    // destination that never needs a code.
+    function sendsBookHome() {
+      return currentHolder() == uid()
+        && request.resource.data.status == 'available'
+        && request.resource.data.borrowerId == null
+        && request.resource.data.holderId == resource.data.ownerId;
+    }
+
+    // ═══ borrowings ═══
+    //
+    // Read access is sign-in only; see limit (1) at the top of this file.
+
+    match /borrowings/{borrowingId} {
+      allow get, list: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.borrowerId == uid()
+        && request.resource.data.status == 'active'
+        && request.resource.data.bookId is string;
+
+      // The borrower drives their own loan. The other two lanes exist because
+      // the *incoming* reader is the one who closes the previous loan
+      // (transferBookHolder) and who stamps a fresh handoff code (PickupBook).
+      allow update: if signedIn()
+        && frozen(['bookId', 'borrowerId', 'ownerId', 'createdAt'].toSet())
+        && (
+             resource.data.borrowerId == uid()
+          || (touchesOnly(['status', 'returnDate'].toSet())
+              && request.resource.data.status == 'completed')
+          || touchesOnly(['pickupCode'].toSet())
+        );
+
+      allow delete: if false;
+    }
+
+    // ═══ ratings ═══
+    //
+    // One document per (book, user), and the document id says so — which is
+    // what makes "has this person already rated?" a point read and a second
+    // rating an overwrite rather than a second vote. Read access is sign-in
+    // only; see limit (1) at the top of this file.
+
+    match /ratings/{ratingId} {
+      allow get, list: if signedIn();
+
+      allow create, update: if signedIn()
+        && ratingId == request.resource.data.bookId + '__' + uid()
+        && request.resource.data.userId == uid()
+        && request.resource.data.bookId is string
+        && request.resource.data.value is int
+        && request.resource.data.value >= 1
+        && request.resource.data.value <= 5
+        && request.resource.data.review is string
+        && request.resource.data.review.size() <= 2000;
+
+      // Ratings written before the deterministic-id scheme live under random
+      // ids; submitRating collapses them so a person is counted exactly once.
+      allow delete: if signedIn() && resource.data.userId == uid();
+    }
+
+    // ═══ requests ═══
+    //
+    // Join, leave and pickup requests share one collection, discriminated by
+    // `type`. Join and leave name their subject in `userId`; pickup names it in
+    // `requesterId` and carries no communityId at all.
+
+    match /requests/{requestId} {
+      allow get: if signedIn() && (
+           resource.data.get('userId', '') == uid()
+        || resource.data.get('requesterId', '') == uid()
+        || isAdminOf(resource.data.get('communityId', ''))
+      );
+
+      // Written as bare field comparisons rather than helper calls: a `list`
+      // rule is checked against the *query*, so each disjunct has to be
+      // something a where-clause can satisfy.
+      allow list: if signedIn() && (
+           resource.data.communityId == myCommunity()
+        || resource.data.userId == uid()
+        || resource.data.requesterId == uid()
+      );
+
+      allow create: if signedIn()
+        && request.resource.data.status == 'pending'
+        && (
+             (request.resource.data.type == 'pickup'
+              && request.resource.data.requesterId == uid()
+              && request.resource.data.bookId is string)
+          || ((request.resource.data.type == 'join'
+               || request.resource.data.type == 'leave')
+              && request.resource.data.userId == uid()
+              && request.resource.data.communityId is string)
+        );
+
+      // The subject cancels or refreshes their own request; the community admin
+      // approves or rejects it. Neither may re-point it at someone else.
+      allow update: if signedIn()
+        && frozen(['type', 'userId', 'requesterId', 'communityId', 'bookId'].toSet())
+        && (
+             resource.data.get('userId', '') == uid()
+          || resource.data.get('requesterId', '') == uid()
+          || isAdminOf(resource.data.get('communityId', ''))
+        );
+
+      allow delete: if false;
+    }
+
+    // ═══ posts ═══
+    //
+    // Community-scoped both ways: only that community's admin writes them, only
+    // its members read them.
+
+    match /posts/{postId} {
+      allow get, list: if signedIn()
+        && resource.data.communityId == myCommunity();
+
+      allow create: if isAdminOf(request.resource.data.communityId)
+        && request.resource.data.authorId == uid()
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0;
+
+      allow update, delete: if false;
+    }
+
+    // ═══ notifications ═══
+    //
+    // The one collection that is strictly recipient-only: these documents carry
+    // pickupCode and returnCode, and a notification list is the closest thing
+    // this app has to a private inbox.
+    //
+    // Creation, by contrast, is open to any signed-in user — and has to be. A
+    // member notifies the admin to ask to join or leave; a would-be reader
+    // notifies whoever is holding a book. Neither is an admin action.
+
+    match /notifications/{notificationId} {
+      allow get, list: if signedIn() && resource.data.recipientId == uid();
+
+      allow create: if signedIn()
+        && request.resource.data.recipientId is string
+        && request.resource.data.title is string
+        && request.resource.data.read == false
+        && (!('senderId' in request.resource.data)
+            || request.resource.data.senderId == uid());
+
+      allow update: if signedIn()
+        && resource.data.recipientId == uid()
+        && frozen(['recipientId', 'senderId', 'createdAt'].toSet());
+
+      allow delete: if signedIn() && resource.data.recipientId == uid();
+    }
+
+    // Everything not matched above is already denied — this only says so out
+    // loud. It grants nothing: `allow` is additive, and this one never fires.
     match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 6, 13);
+      allow read, write: if false;
     }
   }
 }

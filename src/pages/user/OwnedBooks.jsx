@@ -6,10 +6,9 @@ import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { listBooks, returnBookToOwner, createNotification } from "../../firebase/firestore.js";
+import { listBooksHeldBy, returnBookToOwner, createNotification } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
-import { isHeldBy } from "../../utils/bookHolder.js";
 import { isReadingByUser } from "../../utils/communityExit.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
@@ -34,11 +33,11 @@ export default function OwnedBooks() {
     staleTime: 0,
     refetchOnMount: "always",
     queryFn: async () => {
-      const result = await listBooks({ communityId: community.id, pageSize: 200 });
-      const allBooks = result?.items || result || [];
       // Books currently in this user's hands: their own shelf, plus anything
-      // handed to them that nobody has collected yet — finished or not.
-      return allBooks.filter((b) => isHeldBy(b, user.id));
+      // handed to them that nobody has collected yet — finished or not. One
+      // indexed query on `holderId`, so this reads what it shows rather than
+      // the community's first two hundred books.
+      return listBooksHeldBy({ communityId: community.id, userId: user.id });
     },
   });
 

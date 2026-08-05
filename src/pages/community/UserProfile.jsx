@@ -4,13 +4,16 @@ import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import BookCard from "../../components/BookCard.jsx";
-import { getUserById, listBooks, getCommunity } from "../../firebase/firestore.js";
-import { isHeldBy } from "../../utils/bookHolder.js";
+import { useAuth } from "../../contexts/AuthContext.jsx";
+import {
+  getUserById, getCommunity, listBooksHeldBy, listBooksOwnedBy,
+} from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
 
 export default function UserProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user: viewer } = useAuth();
   const [u, setU] = useState(null);
   const [community, setCommunity] = useState(null);
   // Two different questions about the same member, and the answers overlap only
@@ -22,15 +25,25 @@ export default function UserProfile() {
   useEffect(() => {
     (async () => {
       const user = await getUserById(id); setU(user);
-      if (user?.communityId) {
-        setCommunity(await getCommunity(user.communityId));
-        const allResult = await listBooks({ communityId: user.communityId });
-        const all = allResult?.items || allResult || [];
-        setOwnedBooks(all.filter((b) => b.ownerId === user.id));
-        setHeldBooks(all.filter((b) => isHeldBy(b, user.id)));
-      }
+      setOwnedBooks([]);
+      setHeldBooks([]);
+      if (!user?.communityId) return;
+      setCommunity(await getCommunity(user.communityId));
+
+      // Who somebody is is public; what is on their shelf is their community's
+      // business. Asking anyway would just be a denied query, so don't ask.
+      if (viewer?.communityId !== user.communityId) return;
+      // One indexed query per question. This used to ask for a single page of
+      // the community's books and sift it here, so a member whose books all sat
+      // past the first thirty appeared to own nothing at all.
+      const [owned, held] = await Promise.all([
+        listBooksOwnedBy({ communityId: user.communityId, userId: user.id }),
+        listBooksHeldBy({ communityId: user.communityId, userId: user.id }),
+      ]);
+      setOwnedBooks(owned);
+      setHeldBooks(held);
     })();
-  }, [id]);
+  }, [id, viewer?.communityId]);
 
   if (!u) return <MobileShell><p className="px-6 py-12 text-center text-ink-500">Загрузка...</p></MobileShell>;
 

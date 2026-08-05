@@ -12,7 +12,7 @@ import {
 } from "../../firebase/auth.js";
 import { logger } from "../../utils/logger.js";
 import { uploadImage } from "../../firebase/storage.js";
-import { getUserByNickname } from "../../firebase/firestore.js";
+import { getUsernameEntry } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
@@ -62,7 +62,7 @@ export default function Register() {
     clearTimeout(nickTimer.current);
     nickTimer.current = setTimeout(async () => {
       try {
-        const existing = await getUserByNickname(nick);
+        const existing = await getUsernameEntry(nick);
         setNickStatus(existing ? "taken" : "available");
       } catch {
         setNickStatus(null);

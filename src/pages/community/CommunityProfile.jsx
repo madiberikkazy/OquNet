@@ -46,19 +46,25 @@ export default function CommunityProfile() {
       setCommunity(c);
       setHeaderLoading(false);
 
-      // Step 2 — load the rest in the background; errors are swallowed gracefully
+      // Step 2 — load the rest in the background; errors are swallowed gracefully.
+      //
+      // The shelf and the noticeboard belong to the community and are readable
+      // only from inside it, so a visitor gets the header and the member list
+      // and nothing else. Skipping the two queries rather than letting them be
+      // refused keeps a perfectly ordinary page view out of the error log.
+      const isMember = user?.communityId === id;
       Promise.allSettled([
         listUsersByCommunity(id),
-        listBooks({ communityId: id }),
-        listPostsByCommunity(id),
+        isMember ? listBooks({ communityId: id }) : Promise.resolve({ items: [] }),
+        isMember ? listPostsByCommunity(id) : Promise.resolve([]),
       ]).then(([m, b, p]) => {
         if (m.status === "fulfilled") setMembers(m.value);
-        if (b.status === "fulfilled") setBooks(b.value?.items || b.value || []);
+        if (b.status === "fulfilled") setBooks(b.value.items);
         if (p.status === "fulfilled") setPosts(p.value);
         setContentLoading(false);
       });
     }).catch(() => setHeaderLoading(false));
-  }, [id]);
+  }, [id, user?.communityId]);
 
   // Seed the contact fields from whatever the profile already knows, so a user
   // who filled them in at registration just confirms them.

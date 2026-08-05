@@ -6,9 +6,13 @@
 //     30-second timeout.  If it fails for ANY reason (CORS not configured,
 //     Storage rules blocking, network error, timeout) we silently fall back
 //     to the data-URL so the rest of the flow always completes.
+//  3. The Storage SDK is imported dynamically, inside the upload path. Register,
+//     Settings and CreateCommunity are the only screens that can reach it, and
+//     none of them upload until the user actually picks a file — so it stays out
+//     of the initial bundle. A failed chunk load lands in the same catch as any
+//     other upload failure and degrades to the data-URL.
 
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage, isFirebaseConfigured } from "./config.js";
+import { app, isFirebaseConfigured } from "./config.js";
 
 /** Convert a File to a base-64 data-URL synchronously in the browser. */
 function fileToDataUrl(file) {
@@ -34,7 +38,9 @@ export async function uploadImage(file, path) {
   // Step 3: attempt Firebase Storage upload with a 30-second hard timeout.
   try {
     const uploadPromise = (async () => {
-      const storageRef = ref(storage, path);
+      const { getStorage, ref, uploadBytes, getDownloadURL } = await import("firebase/storage");
+      // getStorage memoises per app instance, so repeated uploads reuse one.
+      const storageRef = ref(getStorage(app), path);
       await uploadBytes(storageRef, file);
       return getDownloadURL(storageRef);
     })();
