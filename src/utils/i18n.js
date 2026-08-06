@@ -284,6 +284,43 @@ const kz = {
   userNote: "Әкімші болу үшін жаңа қауымдастық құру керек.",
   returnBookFirst: "Алдымен алған кітабыңызды қайтарыңыз.",
 
+  // Settings hub — topic rows
+  personalData: "Жеке деректер",
+  security: "Қауіпсіздік",
+  interfaceLanguage: "Интерфейс тілі",
+  information: "Ақпарат",
+  contactSupport: "Қолдау қызметіне жазу",
+  logOutAccount: "Аккаунттан шығу",
+  logOutConfirm: "Аккаунттан шығасыз ба?",
+  roleAndCommunity: "Рөл және қоғамдастық",
+  notInCommunity: "Сіз әлі қоғамдастықта емессіз",
+  findCommunity: "Қоғамдастық табу",
+
+  // Settings — delete account
+  deleteAccount: "Аккаунтты жою",
+  deleteAccountWarning:
+    "Аккаунтты жойсаңыз, профиліңіз бен никнейміңіз біржола өшеді. Бұл әрекетті қайтару мүмкін емес.",
+  deleteAccountPasswordLabel: "Растау үшін құпия сөзіңізді енгізіңіз",
+  deleteAccountConfirm: "Аккаунтты біржола жою",
+  deleteAccountDone: "Аккаунтыңыз жойылды.",
+  deleteAccountAdminBlocked:
+    "Қоғамдастық әкімшісі аккаунтын жоя алмайды. Алдымен қоғамдастықты жабыңыз немесе басқа әкімшіге беріңіз.",
+  deleteAccountNeedPassword: "Құпия сөзді енгізіңіз",
+
+  // Settings — support
+  supportIntro: "Сұрағыңыз бар ма? Бізге жазыңыз — жауап береміз.",
+  supportEmailLabel: "Қолдау поштасы",
+  writeUs: "Хат жазу",
+  copyEmail: "Көшіру",
+  copied: "Көшірілді",
+
+  // Settings — information
+  aboutApp: "Қосымша туралы",
+  appVersion: "Нұсқа",
+  termsOfUse: "Пайдалану шарттары",
+  aboutDescription:
+    "OquNet — оқырмандар бір-бірімен кітап алмасатын қоғамдастық қосымшасы.",
+
   // Notifications
   noNotifications: "Хабарламалар жоқ.",
   noNotificationsHint: "Кейін қараңыз — маңызды нәрсе пайда болған кезде хабарлаймыз!",
@@ -622,6 +659,43 @@ const ru = {
   userNote: "Чтобы стать администратором, нужно создать новое сообщество.",
   returnBookFirst: "Сначала верните взятую книгу.",
 
+  // Settings hub — topic rows
+  personalData: "Личные данные",
+  security: "Безопасность",
+  interfaceLanguage: "Язык интерфейса",
+  information: "Информация",
+  contactSupport: "Написать в поддержку",
+  logOutAccount: "Выйти из аккаунта",
+  logOutConfirm: "Выйти из аккаунта?",
+  roleAndCommunity: "Роль и сообщество",
+  notInCommunity: "Вы пока не состоите в сообществе",
+  findCommunity: "Найти сообщество",
+
+  // Settings — delete account
+  deleteAccount: "Удалить аккаунт",
+  deleteAccountWarning:
+    "Аккаунт и никнейм будут удалены безвозвратно. Отменить это действие нельзя.",
+  deleteAccountPasswordLabel: "Введите пароль для подтверждения",
+  deleteAccountConfirm: "Удалить аккаунт навсегда",
+  deleteAccountDone: "Аккаунт удалён.",
+  deleteAccountAdminBlocked:
+    "Администратор сообщества не может удалить аккаунт. Сначала закройте сообщество или передайте его другому админу.",
+  deleteAccountNeedPassword: "Введите пароль",
+
+  // Settings — support
+  supportIntro: "Есть вопрос? Напишите нам — мы ответим.",
+  supportEmailLabel: "Почта поддержки",
+  writeUs: "Написать письмо",
+  copyEmail: "Скопировать",
+  copied: "Скопировано",
+
+  // Settings — information
+  aboutApp: "О приложении",
+  appVersion: "Версия",
+  termsOfUse: "Условия использования",
+  aboutDescription:
+    "OquNet — приложение сообщества, в котором читатели обмениваются книгами друг с другом.",
+
   // Notifications
   noNotifications: "Пока что нет уведомлений.",
   noNotificationsHint: "Загляни позже — как только появится что-то важное, мы дадим знать!",
@@ -959,6 +1033,43 @@ const en = {
   adminNote: "Switching mode does not delete your community.",
   userNote: "To become an admin, you need to create a new community.",
   returnBookFirst: "Return your borrowed book first.",
+
+  // Settings hub — topic rows
+  personalData: "Personal details",
+  security: "Security",
+  interfaceLanguage: "Interface language",
+  information: "Information",
+  contactSupport: "Contact support",
+  logOutAccount: "Log out",
+  logOutConfirm: "Log out of your account?",
+  roleAndCommunity: "Role & community",
+  notInCommunity: "You are not in a community yet",
+  findCommunity: "Find a community",
+
+  // Settings — delete account
+  deleteAccount: "Delete account",
+  deleteAccountWarning:
+    "Your account and nickname will be deleted permanently. This cannot be undone.",
+  deleteAccountPasswordLabel: "Enter your password to confirm",
+  deleteAccountConfirm: "Delete account permanently",
+  deleteAccountDone: "Your account has been deleted.",
+  deleteAccountAdminBlocked:
+    "A community admin cannot delete their account. Close the community or hand it over to another admin first.",
+  deleteAccountNeedPassword: "Enter your password",
+
+  // Settings — support
+  supportIntro: "Got a question? Write to us — we'll get back to you.",
+  supportEmailLabel: "Support email",
+  writeUs: "Write an email",
+  copyEmail: "Copy",
+  copied: "Copied",
+
+  // Settings — information
+  aboutApp: "About the app",
+  appVersion: "Version",
+  termsOfUse: "Terms of Use",
+  aboutDescription:
+    "OquNet is a community app where readers share books with each other.",
 
   // Notifications
   noNotifications: "No notifications yet.",

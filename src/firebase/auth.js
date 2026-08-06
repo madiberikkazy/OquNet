@@ -11,16 +11,22 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
   deleteUser,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  EmailAuthProvider,
 } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "./config.js";
 import {
   createUserDoc,
   claimUsername,
+  releaseUsername,
   getUsernameEntry,
   getUserByEmail,
   getUserByNickname,
   getUserById,
   isNicknameTaken,
+  updateUser,
+  deleteUserDoc,
 } from "./firestore.js";
 import { isEmail, isNickname, normalizeEmail, normalizeNickname, LIMITS } from "../utils/validators.js";
 import { safeGet, safeSet, safeRemove } from "../utils/safeStorage.js";
@@ -306,6 +312,103 @@ export async function signInWithIdentifier({ identifier, password }) {
   if (!profile) throw new Error(t.loginErrorUserNotFound);
   writeMock({ uid: profile.id });
   return profile;
+}
+
+/**
+ * Delete the signed-in account, permanently.
+ *
+ * Three things have to happen, in this order, and the order is the whole point:
+ *
+ *  1. Re-authenticate. Firebase refuses `deleteUser` on a stale session, and
+ *     re-auth is also what stops someone deleting an account from a phone that
+ *     was left unlocked. Password accounts re-auth with the password; a Google
+ *     account has no password to ask for, so it re-auths through the popup.
+ *  2. Scrub the profile and give the nickname back. The `users` document is NOT
+ *     deleted — the rules deny that, and rightly so: books, borrowings and
+ *     notifications belonging to other people still reference this id, and a
+ *     missing document would leave those screens with a dangling pointer. What
+ *     goes is everything personal, plus the public nickname index entry, which
+ *     is what actually frees the name for someone else.
+ *  3. Delete the auth user. This is the irreversible step and it goes last,
+ *     because after it the caller can no longer write to Firestore at all.
+ *
+ * Throws with a translated message on a wrong password.
+ */
+export async function deleteAccount({ password } = {}) {
+  if (!isFirebaseConfigured) {
+    // Mock mode: no rules, no auth service — just drop the row.
+    const session = readMock();
+    const uid = session?.uid;
+    if (!uid) throw new Error(t.sessionExpired);
+    const profile = await getUserById(uid);
+    // The screen asks for the password in mock mode too, so honour it — an
+    // ignored confirmation field trains people to ignore the real one.
+    if (profile?.password && password !== profile.password) {
+      throw new Error(t.wrongPassword);
+    }
+    if (profile?.nickname) {
+      await releaseUsername(profile.nickname).catch(() => {});
+    }
+    await deleteUserDoc(uid);
+    writeMock(null);
+    return;
+  }
+
+  const fbUser = auth?.currentUser;
+  if (!fbUser) throw new Error(t.sessionExpired);
+
+  const usesPassword = fbUser.providerData.some((p) => p.providerId === "password");
+  try {
+    if (usesPassword) {
+      if (!password) throw new Error(t.deleteAccountNeedPassword);
+      const credential = EmailAuthProvider.credential(fbUser.email, password);
+      await reauthenticateWithCredential(fbUser, credential);
+    } else {
+      await reauthenticateWithPopup(fbUser, new GoogleAuthProvider());
+    }
+  } catch (err) {
+    const code = err?.code || "";
+    if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
+      throw new Error(t.wrongPassword);
+    }
+    if (code === "auth/too-many-requests") throw new Error(t.loginErrorTooMany);
+    throw err;
+  }
+
+  const uid = fbUser.uid;
+  const profile = await getUserById(uid).catch(() => null);
+
+  if (profile?.nickname) {
+    await releaseUsername(profile.nickname).catch((err) => {
+      logger.warn("auth.deleteAccount.releaseUsername", err?.message, { code: err?.code });
+    });
+  }
+
+  await updateUser(uid, {
+    firstName: "",
+    lastName: "",
+    // The nickname column still has to hold a string, and it has to be unique
+    // enough that a later reader can tell this was a deleted account rather
+    // than an empty profile. The index entry is already gone, so the name
+    // itself is free again.
+    nickname: `deleted_${uid.slice(0, 8)}`,
+    phone: "",
+    address: "",
+    photoURL: "",
+    savedBookIds: [],
+    // Leaving the community is part of leaving entirely — the rules allow a
+    // member to null their own membership, and `role: "user"` is always allowed.
+    communityId: null,
+    role: "user",
+    deleted: true,
+    deletedAt: Date.now(),
+  }).catch((err) => {
+    logger.error("auth.deleteAccount.scrub", err?.message, { code: err?.code });
+    throw err;
+  });
+
+  await deleteUser(fbUser);
+  writeMock(null);
 }
 
 export async function signOut() {

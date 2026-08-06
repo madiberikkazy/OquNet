@@ -1,689 +1,169 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  reauthenticateWithCredential,
-  EmailAuthProvider,
-  updatePassword as fbUpdatePassword,
-} from "firebase/auth";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
-import SearchBar from "../../components/SearchBar.jsx";
-import PWASettings from "../../components/PWASettings.jsx";
+import AppIcon from "../../components/AppIcon.jsx";
+import Modal from "../../components/Modal.jsx";
+import { SettingsGroup, GroupDivider, SettingsRow } from "../../components/SettingsList.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
-import { auth, isFirebaseConfigured } from "../../firebase/config.js";
-import {
-  getActiveBorrowingForUser, claimUsername, releaseUsername, updateUser,
-  createLeaveRequest, getPendingLeaveRequest, createNotification,
-} from "../../firebase/firestore.js";
 import { uploadImage } from "../../firebase/storage.js";
 import { logger } from "../../utils/logger.js";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
-import { clampText, isAddress, isPhone, LIMITS } from "../../utils/validators.js";
-import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.js";
-import { 
-  NOTIFICATION_SOUNDS, 
-  loadNotificationPreferences, 
-  saveNotificationPreferences,
-  requestNotificationPermission,
-  getNotificationPermissionStatus,
-  areNotificationsSupported 
-} from "../../utils/notificationService.js";
 
+/**
+ * Settings hub.
+ *
+ * Everything that used to be one long scroll now lives on its own screen; this
+ * page is just the index of them. The only thing it still *does* itself is the
+ * avatar — swapping a photo is one tap and a save, and burying it behind a
+ * sub-screen would make the header picture look decorative.
+ */
 export default function Settings() {
-  const navigate     = useNavigate();
-  const fileRef      = useRef(null);
-  const { user, updateProfile, signOut, switchView } = useAuth();
-  const { community } = useCommunity();
-  const { theme, setTheme } = useTheme();
-  const { lang, setLang } = useLang();
+  const navigate = useNavigate();
+  const fileRef = useRef(null);
+  const { user, updateProfile, signOut } = useAuth();
+  const { theme } = useTheme();
+  const { lang } = useLang();
 
-  // ── Profile form ────────────────────────────────────────────────────────────
-  const [form, setForm]           = useState({
-    firstName: user?.firstName || "",
-    lastName:  user?.lastName  || "",
-    nickname:  user?.nickname  || "",
-    phone:     user?.phone     || "",
-    address:   user?.address   || "",
-  });
-  const [photoFile, setPhotoFile]       = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-  const [saving, setSaving]             = useState(false);
-  const [profileMsg, setProfileMsg]     = useState(null); // { type: "ok"|"err", text }
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
-  // ── Notification preferences ───────────────────────────────────────────────
-  const [notifPrefs, setNotifPrefs] = useState(() => loadNotificationPreferences());
-  const notificationPermission = getNotificationPermissionStatus();
-  const notificationsSupported = areNotificationsSupported();
-
-  function updateNotifPref(key, value) {
-    const updated = { ...notifPrefs, [key]: value };
-    setNotifPrefs(updated);
-    saveNotificationPreferences(updated);
-  }
-
-  async function enableBrowserNotifications() {
-    if (!notificationsSupported) {
-      alert(t.notificationsNotSupported);
-      return;
-    }
-    const granted = await requestNotificationPermission();
-    if (granted) {
-      updateNotifPref('browserNotificationsEnabled', true);
-    }
-  }
-
-  function updateForm(k, v) { setForm((f) => ({ ...f, [k]: v })); }
-
-  function onPickPhoto(e) {
+  async function onPickPhoto(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
-    setPhotoFile(file);
+    // Reset the input so re-picking the same file still fires a change event.
+    e.target.value = "";
+    if (!file || photoBusy) return;
+
+    setPhotoError("");
     setPhotoPreview(URL.createObjectURL(file));
-  }
-
-  async function saveProfile() {
-    if (saving) return;
-    const nick = form.nickname.trim();
-    if (!form.firstName.trim() || !form.lastName.trim() || !nick) {
-      setProfileMsg({ type: "err", text: t.fillAllFields });
-      return;
-    }
-
-    // Contacts gate — same rules the join flow enforces. A member is someone
-    // other people have to reach for a handover, so they can edit these but
-    // not empty them; everyone else may leave them blank, just not malformed.
-    const phone = form.phone.trim();
-    const address = clampText(form.address, LIMITS.ADDRESS_MAX);
-    const contactsRequired = Boolean(user?.communityId);
-    if (contactsRequired && !phone) {
-      setProfileMsg({ type: "err", text: t.phoneRequiredError });
-      return;
-    }
-    if (phone && !isPhone(phone)) {
-      setProfileMsg({ type: "err", text: t.phoneInvalidError });
-      return;
-    }
-    if ((contactsRequired || address) && !isAddress(address)) {
-      setProfileMsg({ type: "err", text: t.addressRequiredError });
-      return;
-    }
-
-    setSaving(true);
-    setProfileMsg(null);
+    setPhotoBusy(true);
     try {
-      // A rename has to move the public nickname index too, and the index is
-      // what makes the name unique in the first place — claiming it is the
-      // check. Claim before the profile write: if the name is gone, nothing has
-      // changed yet. Release the old one only once the profile actually names
-      // the new one, so a failure in between leaves a spare claim we still own
-      // rather than a nickname anybody could take.
-      const renaming = nick !== user.nickname;
-      if (renaming) {
-        try {
-          await claimUsername(nick, { uid: user.id, email: user.email });
-        } catch {
-          setProfileMsg({ type: "err", text: t.nicknameTaken });
-          return;
-        }
-      }
-
-      let photoURL = user.photoURL || "";
-      if (photoFile) {
-        photoURL = await uploadImage(photoFile, `avatars/${user.id}_${Date.now()}`);
-      }
-
-      await updateProfile({
-        firstName: form.firstName.trim(),
-        lastName:  form.lastName.trim(),
-        nickname:  nick,
-        phone:     phone.slice(0, 20),
-        address,
-        photoURL,
-      });
-      if (renaming && user.nickname) {
-        await releaseUsername(user.nickname).catch((err) => {
-          logger.warn("settings.releaseUsername", err?.message, { nickname: user.nickname });
-        });
-      }
-      setPhotoFile(null);
-      setProfileMsg({ type: "ok", text: t.profileSaved });
-      setTimeout(() => setProfileMsg(null), 3000);
+      const photoURL = await uploadImage(file, `avatars/${user.id}_${Date.now()}`);
+      await updateProfile({ photoURL });
+      setPhotoPreview(null); // the stored URL takes over from here
     } catch (err) {
-      setProfileMsg({ type: "err", text: err?.message || t.error });
+      logger.error("settings.avatar", err?.message);
+      setPhotoPreview(null);
+      setPhotoError(t.saveFailed);
     } finally {
-      setSaving(false);
+      setPhotoBusy(false);
     }
   }
 
-  // ── Password form ────────────────────────────────────────────────────────────
-  const [pw, setPw]       = useState({ current: "", next: "", confirm: "" });
-  const [pwSaving, setPwSaving] = useState(false);
-  const [pwMsg, setPwMsg]       = useState(null);
-
-  function updatePw(k, v) { setPw((p) => ({ ...p, [k]: v })); }
-
-  async function savePassword() {
-    if (pwSaving) return;
-    if (!pw.current) { setPwMsg({ type: "err", text: `${t.currentPassword} — ${t.required}` }); return; }
-    if (pw.next.length < 6) { setPwMsg({ type: "err", text: t.passwordMinError }); return; }
-    if (pw.next !== pw.confirm) { setPwMsg({ type: "err", text: t.passwordsDoNotMatch }); return; }
-
-    setPwSaving(true);
-    setPwMsg(null);
-    try {
-      if (isFirebaseConfigured) {
-        const credential = EmailAuthProvider.credential(user.email, pw.current);
-        await reauthenticateWithCredential(auth.currentUser, credential);
-        await fbUpdatePassword(auth.currentUser, pw.next);
-      } else {
-        // Mock mode: password is stored in the user doc
-        const stored = user.password;
-        if (stored && stored !== pw.current) throw new Error(t.wrongPassword);
-        await updateUser(user.id, { password: pw.next });
-      }
-      setPw({ current: "", next: "", confirm: "" });
-      setPwMsg({ type: "ok", text: t.passwordChanged });
-      setTimeout(() => setPwMsg(null), 3000);
-    } catch (err) {
-      const code = err?.code || "";
-      if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
-        setPwMsg({ type: "err", text: t.wrongPassword });
-      } else {
-        setPwMsg({ type: "err", text: err?.message || t.error });
-      }
-    } finally {
-      setPwSaving(false);
-    }
-  }
-
-  // ── Role switch ──────────────────────────────────────────────────────────────
-  const [roleSwitching, setRoleSwitching] = useState(false);
-  async function trySwitchRole() {
-    if (roleSwitching || !user) return;
-    setRoleSwitching(true);
-    try {
-      if (user.role === "admin") {
-        const active = await getActiveBorrowingForUser(user.id).catch(() => null);
-        if (active) { alert(t.returnBookFirst); return; }
-        switchView();
-        navigate("/", { replace: true });
-      } else {
-        navigate("/community/create");
-      }
-    } catch (err) {
-      console.error("Role switch failed:", err);
-      alert(err?.message || t.error);
-    } finally {
-      setRoleSwitching(false);
-    }
-  }
-
-  // ── Leave community ──────────────────────────────────────────────────────────
-  const [leaveState, setLeaveState] = useState("idle"); // "idle" | "pending" | "done"
-  const [leaveBusy, setLeaveBusy]   = useState(false);
-  const [leaveError, setLeaveError] = useState("");
-
-  // On mount: check if user already has a pending leave request
-  useState(() => {
-    if (user?.communityId) {
-      getPendingLeaveRequest(user.id).then((r) => {
-        if (r) setLeaveState("pending");
-      });
-    }
-  });
-
-  async function handleLeave() {
-    if (leaveBusy || leaveState !== "idle") return;
-    if (!community) return;
-    setLeaveBusy(true);
-    setLeaveError("");
-    try {
-      // Asking to leave is held to the same rules as leaving: a request that
-      // could never be honoured only puts the decision in the admin's lap.
-      const verdict = await checkCommunityExit({
-        userId: user.id,
-        communityId: community.id,
-      });
-      if (!verdict.canLeave) {
-        setLeaveError(exitBlockMessage(verdict.blockedBy));
-        return;
-      }
-
-      const req = await createLeaveRequest({
-        userId: user.id,
-        userNickname: user.nickname,
-        userName: `${user.firstName} ${user.lastName}`,
-        communityId: community.id,
-      });
-
-      // Notify the user themselves
-      await createNotification({
-        recipientId: user.id,
-        title: "Өтінішіңіз жіберілді",
-        body: `«${community.name}» қоғамдастығынан шығу өтінішіңіз администраторға жіберілді. Жауап күтіңіз.`,
-        read: false,
-        type: "leave-request-sent",
-        requestId: req.id,
-        communityId: community.id,
-        communityName: community.name,
-      });
-
-      // Notify the admin
-      await createNotification({
-        recipientId: community.ownerId,
-        title: "Қоғамдастықтан шығу өтінімі",
-        body: `@${user.nickname} қоғамдастықтан шығуға өтініш берді.`,
-        read: false,
-        type: "leave-request",
-        requestId: req.id,
-        communityId: community.id,
-        userId: user.id,
-        userNickname: user.nickname,
-        userName: `${user.firstName} ${user.lastName}`,
-      });
-
-      setLeaveState("pending");
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLeaveBusy(false);
-    }
+  async function handleLogout() {
+    setConfirmLogout(false);
+    await signOut();
+    navigate("/auth/login", { replace: true });
   }
 
   const avatarSrc = photoPreview || user?.photoURL || null;
-  const avatarName = `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
+  const fullName = `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
+  const themeLabel = theme === "dark" ? t.themeDark : t.themeLight;
+  const langLabel = SUPPORTED_LANGS.find((l) => l.code === lang)?.label || lang;
 
   return (
     <MobileShell withNav={false}>
-      <SearchBar value="" onChange={() => {}} onBack={() => navigate(-1)} showFilter={false} />
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <header className="flex items-center gap-3 px-5 pb-2">
+        <button
+          type="button"
+          aria-label={t.back}
+          onClick={() => navigate(-1)}
+          className="-ml-1 p-1 text-ink-900"
+        >
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <h1 className="text-[20px] font-semibold">{t.settings}</h1>
+      </header>
 
-      <div className="px-5 pt-3 pb-10 space-y-7">
-
-        {/* ══ PROFILE ════════════════════════════════════════════════════════════ */}
-        <section>
-          <h2 className="text-[17px] font-bold mb-4">{t.editProfile}</h2>
-
-          {/* Avatar picker */}
-          <div className="flex justify-center mb-5">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="relative focus:outline-none group"
-              aria-label="Change photo"
-            >
-              <Avatar src={avatarSrc} name={avatarName} size={88} />
-              {/* Camera overlay */}
-              <span className="absolute inset-0 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
-                    stroke="white" strokeWidth="1.6" strokeLinejoin="round" />
-                  <circle cx="12" cy="13" r="4" stroke="white" strokeWidth="1.6" />
-                </svg>
-              </span>
-              {/* "Change" badge */}
-              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-brand-500 text-white text-[10px] font-semibold whitespace-nowrap">
-                {t.uploadPhotoShort}
-              </span>
-            </button>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
-          </div>
-
-          {/* Name fields */}
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <label className="block">
-              <span className="text-[12px] text-ink-500 mb-1 block">{t.firstName}</span>
-              <input
-                value={form.firstName}
-                onChange={(e) => updateForm("firstName", e.target.value)}
-                className="input"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[12px] text-ink-500 mb-1 block">{t.lastName}</span>
-              <input
-                value={form.lastName}
-                onChange={(e) => updateForm("lastName", e.target.value)}
-                className="input"
-              />
-            </label>
-          </div>
-
-          <label className="block mb-4">
-            <span className="text-[12px] text-ink-500 mb-1 block">{t.nickname}</span>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-400 text-[15px] select-none">@</span>
-              <input
-                value={form.nickname}
-                onChange={(e) => updateForm("nickname", e.target.value.replace(/\s/g, "").toLowerCase())}
-                className="input pl-8"
-              />
-            </div>
-          </label>
-
-          {/* Contacts — shown to whoever comes to collect a book from you,
-              and required before joining a community. */}
-          <label className="block mb-3">
-            <span className="text-[12px] text-ink-500 mb-1 block">{t.phone}</span>
-            <input
-              type="tel"
-              value={form.phone}
-              onChange={(e) => updateForm("phone", e.target.value.replace(/[^\d+\-() ]/g, ""))}
-              placeholder="+7 (777) 123-45-67"
-              autoComplete="tel"
-              maxLength={20}
-              className="input"
-            />
-          </label>
-
-          <label className="block mb-4">
-            <span className="text-[12px] text-ink-500 mb-1 block">{t.address}</span>
-            <input
-              value={form.address}
-              onChange={(e) => updateForm("address", e.target.value)}
-              placeholder={t.addressPlaceholder}
-              autoComplete="street-address"
-              maxLength={LIMITS.ADDRESS_MAX}
-              className="input"
-            />
-          </label>
-
-          {/* Email — read only */}
-          <div className="flex items-center justify-between py-3 border-b border-ink-100 mb-4">
-            <span className="text-[14px] text-ink-500">Email</span>
-            <span className="text-[14px] text-ink-500">{user?.email || "—"}</span>
-          </div>
-
-          {profileMsg ? (
-            <p className={"text-[13px] mb-2 " + (profileMsg.type === "ok" ? "text-ok" : "text-bad")}>
-              {profileMsg.text}
-            </p>
+      {/* ── Identity ───────────────────────────────────────────────────────── */}
+      <div className="flex flex-col items-center pt-4 pb-6">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={photoBusy}
+          className="relative rounded-full focus:outline-none focus:ring-2 focus:ring-brand-200"
+          aria-label={t.uploadPhoto}
+        >
+          <Avatar src={avatarSrc} name={fullName} size={120} />
+          <span className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-ink-100 border-2 border-base flex items-center justify-center">
+            <AppIcon name="camera" size={18} />
+          </span>
+          {photoBusy ? (
+            <span className="absolute inset-0 rounded-full bg-ink-900/30 flex items-center justify-center text-white text-[13px]">
+              …
+            </span>
           ) : null}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
 
-          <button onClick={saveProfile} disabled={saving} className="btn-primary">
-            {saving ? "…" : t.save}
+        <h2 className="text-[24px] font-semibold mt-4 text-center px-6">{fullName || "—"}</h2>
+        <p className="text-ink-300 text-[16px] mt-0.5">@{user?.nickname}</p>
+        {photoError ? <p className="text-[13px] text-bad mt-2">{photoError}</p> : null}
+      </div>
+
+      {/* ── Profile & security ─────────────────────────────────────────────── */}
+      <SettingsGroup>
+        <SettingsRow icon="profile"  label={t.personalData} to="/settings/profile" />
+        <SettingsRow icon="security" label={t.security}     to="/settings/security" />
+      </SettingsGroup>
+
+      <GroupDivider />
+
+      {/* ── App preferences ────────────────────────────────────────────────── */}
+      <SettingsGroup>
+        <SettingsRow icon="notifications" label={t.notifications} to="/settings/notifications" />
+        <SettingsRow icon="theme"    label={t.theme}             to="/settings/theme"    value={themeLabel} chevron={false} />
+        <SettingsRow icon="language" label={t.interfaceLanguage} to="/settings/language" value={langLabel}  chevron={false} />
+        <SettingsRow icon="info"     label={t.information}       to="/settings/about" />
+        <SettingsRow icon="support"  label={t.contactSupport}    to="/settings/support" />
+      </SettingsGroup>
+
+      <GroupDivider />
+
+      {/* ── Role & community ───────────────────────────────────────────────── */}
+      <SettingsGroup>
+        <SettingsRow icon="community" label={t.roleAndCommunity} to="/settings/community" />
+      </SettingsGroup>
+
+      <GroupDivider />
+
+      {/* ── Account ────────────────────────────────────────────────────────── */}
+      <SettingsGroup className="pb-6">
+        <SettingsRow
+          icon="logout"
+          label={t.logOutAccount}
+          onClick={() => setConfirmLogout(true)}
+          chevron={false}
+        />
+        <SettingsRow
+          icon="delete"
+          label={t.deleteAccount}
+          to="/settings/delete"
+          chevron={false}
+          danger
+        />
+      </SettingsGroup>
+
+      <Modal open={confirmLogout} onClose={() => setConfirmLogout(false)} title={t.logOutConfirm}>
+        <div className="flex gap-3">
+          <button onClick={() => setConfirmLogout(false)} className="btn-secondary">
+            {t.cancel}
           </button>
-        </section>
-
-        <Divider />
-
-        {/* ══ PASSWORD ═══════════════════════════════════════════════════════════ */}
-        <section>
-          <h2 className="text-[17px] font-bold mb-4">{t.changePassword}</h2>
-
-          <div className="space-y-3">
-            <label className="block">
-              <span className="text-[12px] text-ink-500 mb-1 block">{t.currentPassword}</span>
-              <input
-                type="password"
-                value={pw.current}
-                onChange={(e) => updatePw("current", e.target.value)}
-                autoComplete="current-password"
-                className="input"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[12px] text-ink-500 mb-1 block">{t.newPassword}</span>
-              <input
-                type="password"
-                value={pw.next}
-                onChange={(e) => updatePw("next", e.target.value)}
-                autoComplete="new-password"
-                className="input"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[12px] text-ink-500 mb-1 block">{t.confirmPassword}</span>
-              <input
-                type="password"
-                value={pw.confirm}
-                onChange={(e) => updatePw("confirm", e.target.value)}
-                autoComplete="new-password"
-                className="input"
-              />
-            </label>
-          </div>
-
-          {pwMsg ? (
-            <p className={"text-[13px] mt-2 mb-1 " + (pwMsg.type === "ok" ? "text-ok" : "text-bad")}>
-              {pwMsg.text}
-            </p>
-          ) : null}
-
-          <button onClick={savePassword} disabled={pwSaving} className="btn-primary mt-4">
-            {pwSaving ? "…" : t.save}
-          </button>
-        </section>
-
-        <Divider />
-
-        {/* ══ APPEARANCE ═════════════════════════════════════════════════════════ */}
-        <section>
-          <h2 className="text-[17px] font-bold mb-4">{t.appearance}</h2>
-          <SectionRow label={t.theme}>
-            <PillGroup
-              options={[
-                { value: "light", label: t.themeLight },
-                { value: "dark",  label: t.themeDark  },
-              ]}
-              value={theme}
-              onChange={setTheme}
-            />
-          </SectionRow>
-          <SectionRow label={t.language}>
-            <PillGroup
-              options={SUPPORTED_LANGS.map((l) => ({ value: l.code, label: l.short }))}
-              value={lang}
-              onChange={setLang}
-            />
-          </SectionRow>
-        </section>
-
-        <Divider />
-
-        {/* ══ PREFERENCES ════════════════════════════════════════════════════════ */}
-        <section>
-          <h2 className="text-[17px] font-bold mb-4">{t.notifications}</h2>
-          
-          {/* Enable/Disable notifications */}
-          <div className="flex items-center justify-between py-3 border-b border-ink-100">
-            <span className="text-[14px] text-ink-700">{t.enableNotifications}</span>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                checked={notifPrefs.notificationsEnabled}
-                onChange={(e) => updateNotifPref('notificationsEnabled', e.target.checked)}
-              />
-              <div className="w-11 h-6 rounded-full bg-ink-300 peer-checked:bg-brand-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5" />
-            </label>
-          </div>
-
-          {notifPrefs.notificationsEnabled && (
-            <>
-              {/* Sound Settings */}
-              <div className="py-3 border-b border-ink-100">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[14px] text-ink-700">{t.soundEffects}</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="sr-only peer"
-                      checked={notifPrefs.soundEnabled}
-                      onChange={(e) => updateNotifPref('soundEnabled', e.target.checked)}
-                    />
-                    <div className="w-11 h-6 rounded-full bg-ink-300 peer-checked:bg-brand-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5" />
-                  </label>
-                </div>
-
-                {notifPrefs.soundEnabled && (
-                  <div>
-                    <label className="block text-[12px] text-ink-500 mb-2">{t.chooseSound}</label>
-                    <select
-                      value={notifPrefs.selectedSound}
-                      onChange={(e) => updateNotifPref('selectedSound', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-ink-200 bg-surface text-[14px] text-ink-700"
-                    >
-                      {Object.entries(NOTIFICATION_SOUNDS).map(([key, sound]) => (
-                        <option key={key} value={key}>
-                          {sound.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              {/* Browser Notifications */}
-              {notificationsSupported && (
-                <div className="py-3 border-b border-ink-100">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <span className="text-[14px] text-ink-700">{t.browserNotifications}</span>
-                      <p className="text-[12px] text-ink-500 mt-0.5">
-                        {notificationPermission === 'granted'
-                          ? t.permissionGranted
-                          : notificationPermission === 'denied'
-                          ? t.permissionDenied
-                          : t.permissionDefault}
-                      </p>
-                    </div>
-                    {notificationPermission === 'granted' ? (
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={notifPrefs.browserNotificationsEnabled}
-                          onChange={(e) => updateNotifPref('browserNotificationsEnabled', e.target.checked)}
-                        />
-                        <div className="w-11 h-6 rounded-full bg-ink-300 peer-checked:bg-brand-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-5" />
-                      </label>
-                    ) : (
-                      <button
-                        onClick={enableBrowserNotifications}
-                        className="text-[13px] text-brand-500 font-medium px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 transition"
-                      >
-                        {t.requestPermission}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        <Divider />
-
-        {/* ══ ROLE ═══════════════════════════════════════════════════════════════ */}
-        <section>
-          <h2 className="text-[17px] font-bold mb-3">{t.role}</h2>
-          <button onClick={trySwitchRole} className="btn-secondary">
-            {user?.role === "admin" ? t.switchToUser : t.switchToAdmin}
-          </button>
-          <p className="text-[12px] text-ink-500 mt-2">
-            {user?.role === "admin" ? t.adminNote : t.userNote}
-          </p>
-        </section>
-
-        <Divider />
-
-        {/* ══ COMMUNITY ══════════════════════════════════════════════════════════ */}
-        {community && user?.role !== "admin" && (
-          <>
-            <section>
-              <h2 className="text-[17px] font-bold mb-1">{t.community}</h2>
-              <p className="text-[13px] text-ink-500 mb-4">{community.name}</p>
-
-              {leaveState === "pending" ? (
-                <div className="rounded-2xl bg-ink-100 px-4 py-3 text-[13px] text-ink-500 text-center">
-                  {t.leavePending}
-                </div>
-              ) : (
-                <>
-                  <button
-                    onClick={handleLeave}
-                    disabled={leaveBusy}
-                    className="w-full text-left rounded-xl bg-badSoft text-bad font-semibold py-3 px-4 disabled:opacity-60"
-                  >
-                    {leaveBusy ? "…" : t.leaveCommunity}
-                  </button>
-                  {leaveError ? (
-                    <div className="mt-2 rounded-xl bg-badSoft px-4 py-2.5">
-                      <p className="text-[13px] text-bad leading-relaxed">{leaveError}</p>
-                      <button
-                        onClick={() => navigate("/profile/owned")}
-                        className="mt-1 text-[13px] font-semibold text-bad underline underline-offset-2"
-                      >
-                        {t.openHeldBooks}
-                      </button>
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </section>
-            <Divider />
-          </>
-        )}
-
-        {/* ══ PWA SETTINGS ═══════════════════════════════════════════════════════ */}
-        <section>
-          <h2 className="text-[17px] font-bold mb-4">{t.appSection}</h2>
-          <PWASettings />
-        </section>
-
-        <Divider />
-
-        {/* ══ ACCOUNT ════════════════════════════════════════════════════════════ */}
-        <section>
-          <h2 className="text-[17px] font-bold mb-3">{t.account}</h2>
           <button
-            onClick={async () => { await signOut(); navigate("/auth/login", { replace: true }); }}
-            className="w-full text-left rounded-xl bg-badSoft text-bad font-semibold py-3 px-4"
+            onClick={handleLogout}
+            className="w-full font-semibold rounded-xl py-3.5 bg-badSoft text-bad transition"
           >
             {t.logOut}
           </button>
-        </section>
-
-      </div>
+        </div>
+      </Modal>
     </MobileShell>
-  );
-}
-
-// ─── Shared helpers ────────────────────────────────────────────────────────────
-
-function Divider() {
-  return <div className="h-px bg-ink-100" />;
-}
-
-function SectionRow({ label, children }) {
-  return (
-    <div className="flex items-center justify-between py-3 border-b border-ink-100 last:border-b-0">
-      <span className="text-[14px] text-ink-700">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function PillGroup({ options, value, onChange }) {
-  return (
-    <div className="flex gap-2">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          className={
-            "px-4 py-1.5 rounded-full text-[13px] font-medium transition-colors " +
-            (value === opt.value
-              ? "bg-brand-500 text-white"
-              : "bg-ink-100 text-ink-700")
-          }
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
   );
 }
