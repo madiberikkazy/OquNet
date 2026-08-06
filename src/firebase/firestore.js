@@ -13,7 +13,8 @@ import { searchTerm } from "../utils/search.js";
 import {
   bookSearchFields,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
-  normalizeNewCommunity, normalizeNewNotification, normalizeNewUser, normalizeRating,
+  normalizeNewCommunity, normalizeCommunityPatch,
+  normalizeNewNotification, normalizeNewUser, normalizeRating,
   stripServerOwned,
 } from "./schema.js";
 
@@ -425,7 +426,14 @@ export async function createCommunity(payload) {
   return createOne("communities", normalizeNewCommunity(payload));
 }
 export async function getCommunity(id) { return getOne("communities", id); }
-export async function updateCommunity(id, patch) { return updateOne("communities", id, patch); }
+/**
+ * Edit a community. Only its owner can, and only the fields the schema allows —
+ * `ownerId` and `createdAt` are frozen by the security rules, so a patch that
+ * carried them would be a write the server refuses rather than a helpful no-op.
+ */
+export async function updateCommunity(id, patch) {
+  return updateOne("communities", id, normalizeCommunityPatch(patch));
+}
 /**
  * Find communities by the start of their @nickname — an indexed prefix scan,
  * for the same reasons and with the same limits as `searchUsers`.
