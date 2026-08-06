@@ -85,7 +85,7 @@ export default function PWASettings() {
   }
 
   return (
-    <div className="space-y-6 pb-32">
+    <div className="space-y-6">
       {/* Installation Section */}
       {pwaInfo.isInstallPromptAvailable && !pwaInfo.isInstalled && (
         <section>

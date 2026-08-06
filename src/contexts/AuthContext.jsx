@@ -2,7 +2,11 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "../firebase/config.js";
 import { getUserById, updateUser } from "../firebase/firestore.js";
-import { getMockSession, signOut as svcSignOut } from "../firebase/auth.js";
+import {
+  getMockSession,
+  signOut as svcSignOut,
+  deleteAccount as svcDeleteAccount,
+} from "../firebase/auth.js";
 
 const AuthContext = createContext(null);
 
@@ -83,6 +87,16 @@ export function AuthProvider({ children }) {
       },
       async signOut() {
         await svcSignOut();
+        setUser(null);
+        setViewRole(null);
+      },
+
+      /**
+       * Delete the account for good. Clears the session exactly like signOut
+       * does, so ProtectedRoute sends the (now non-existent) user to /auth.
+       */
+      async deleteAccount({ password } = {}) {
+        await svcDeleteAccount({ password });
         setUser(null);
         setViewRole(null);
       },

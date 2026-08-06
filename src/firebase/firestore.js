@@ -303,6 +303,13 @@ export async function getUserByEmail(email) {
   return rows[0] || null;
 }
 export async function updateUser(id, patch) { return updateOne("users", id, patch); }
+/**
+ * Hard-delete a user document. Only reachable in mock mode: the security rules
+ * deny `delete` on `users` outright, because other people's books, borrowings
+ * and notifications still point at the document. The real deletion path in
+ * auth.js scrubs the profile instead — see `deleteAccount()`.
+ */
+export async function deleteUserDoc(id) { return deleteOne("users", id); }
 export async function listUsersByCommunity(communityId) {
   return getCollection("users", { where: [["communityId", "==", communityId]] });
 }

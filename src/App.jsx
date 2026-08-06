@@ -29,6 +29,17 @@ const CompletedBooks     = lazyRoute(() => import("./pages/user/CompletedBooks.j
 const SavedBooks         = lazyRoute(() => import("./pages/user/SavedBooks.jsx"));
 const Settings           = lazyRoute(() => import("./pages/user/Settings.jsx"));
 
+// Settings sub-screens — one topic each, reached from the settings hub.
+const PersonalData         = lazyRoute(() => import("./pages/user/settings/PersonalData.jsx"));
+const SecuritySettings     = lazyRoute(() => import("./pages/user/settings/Security.jsx"));
+const NotificationSettings = lazyRoute(() => import("./pages/user/settings/NotificationSettings.jsx"));
+const ThemeSettings        = lazyRoute(() => import("./pages/user/settings/ThemeSettings.jsx"));
+const LanguageSettings     = lazyRoute(() => import("./pages/user/settings/LanguageSettings.jsx"));
+const AboutApp             = lazyRoute(() => import("./pages/user/settings/AboutApp.jsx"));
+const Support              = lazyRoute(() => import("./pages/user/settings/Support.jsx"));
+const CommunitySettings    = lazyRoute(() => import("./pages/user/settings/CommunitySettings.jsx"));
+const DeleteAccount        = lazyRoute(() => import("./pages/user/settings/DeleteAccount.jsx"));
+
 const AdminHome          = lazyRoute(() => import("./pages/admin/AdminHome.jsx"));
 const AdminBooks         = lazyRoute(() => import("./pages/admin/AdminBooks.jsx"));
 const AddBook            = lazyRoute(() => import("./pages/admin/AddBook.jsx"));
@@ -95,6 +106,15 @@ export default function App() {
             <Route path="/profile/completed" element={<CompletedBooks />} />
             <Route path="/profile/saved"     element={<SavedBooks />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/settings/profile"       element={<PersonalData />} />
+            <Route path="/settings/security"      element={<SecuritySettings />} />
+            <Route path="/settings/notifications" element={<NotificationSettings />} />
+            <Route path="/settings/theme"         element={<ThemeSettings />} />
+            <Route path="/settings/language"      element={<LanguageSettings />} />
+            <Route path="/settings/about"         element={<AboutApp />} />
+            <Route path="/settings/support"       element={<Support />} />
+            <Route path="/settings/community"     element={<CommunitySettings />} />
+            <Route path="/settings/delete"        element={<DeleteAccount />} />
 
             <Route path="/community/create" element={<CreateCommunity />} />
             <Route path="/community/join" element={<JoinCommunity />} />
