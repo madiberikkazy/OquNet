@@ -377,6 +377,18 @@ const kz = {
   invite: "Шақыру",
   joinCommunity: "Өтініш беру",
   contributedBook: "Қауымдастыққа қай кітапты қосасыз?",
+
+  // Community — admin editing
+  editCommunity: "Қоғамдастықты өзгерту",
+  communitySaved: "Қоғамдастық сақталды!",
+  communityNicknameTaken: "Бұл никнейм бос емес. Басқасын таңдаңыз.",
+  communityNicknameInvalid: "Никнейм тек әріп, сан және нүкте болуы тиіс",
+  communityVisibility: "Көріну режимі",
+  publicCommunity: "Ашық",
+  privateCommunity: "Жабық",
+  publicCommunityNote: "Барлығы мүшелерді, кітаптарды және жазбаларды көре алады",
+  privateCommunityNote: "Тек мүшелер ішкі контентті көреді. Бейтаныстар тек атауды көреді",
+  memberNotifications: "Мүшелер үшін жүйелік хабарламалар",
 };
 
 const ru = {
@@ -752,6 +764,18 @@ const ru = {
   invite: "Пригласить",
   joinCommunity: "Подать заявку",
   contributedBook: "Какую книгу вы внесёте в сообщество?",
+
+  // Community — admin editing
+  editCommunity: "Редактировать сообщество",
+  communitySaved: "Сообщество сохранено!",
+  communityNicknameTaken: "Этот никнейм уже занят. Выберите другой.",
+  communityNicknameInvalid: "Никнейм может содержать только буквы, цифры и точку",
+  communityVisibility: "Приватность",
+  publicCommunity: "Открытое",
+  privateCommunity: "Закрытое",
+  publicCommunityNote: "Все видят участников, книги и публикации",
+  privateCommunityNote: "Внутренний контент видят только участники. Остальные видят лишь название",
+  memberNotifications: "Системные уведомления для участников",
 };
 
 const en = {
@@ -1127,6 +1151,18 @@ const en = {
   invite: "Invite",
   joinCommunity: "Request to join",
   contributedBook: "Which book will you bring to the community?",
+
+  // Community — admin editing
+  editCommunity: "Edit community",
+  communitySaved: "Community saved!",
+  communityNicknameTaken: "This nickname is taken. Pick another one.",
+  communityNicknameInvalid: "A nickname may contain only letters, digits and a dot",
+  communityVisibility: "Visibility",
+  publicCommunity: "Public",
+  privateCommunity: "Private",
+  publicCommunityNote: "Anyone can see members, books and posts",
+  privateCommunityNote: "Only members see the content. Everyone else sees just the name",
+  memberNotifications: "System notifications for members",
 };
 
 export const translations = { kz, ru, en };

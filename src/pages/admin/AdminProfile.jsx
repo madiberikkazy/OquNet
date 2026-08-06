@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
+import AppIcon from "../../components/AppIcon.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listPostsByCommunity, listUsersByCommunity } from "../../firebase/firestore.js";
@@ -23,10 +24,7 @@ export default function AdminProfile() {
     <MobileShell>
       <div className="flex justify-end px-4">
         <Link to="/settings" className="icon-btn" aria-label="Settings">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-            <path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
+          <AppIcon name="settings" size={22} />
         </Link>
       </div>
 

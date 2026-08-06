@@ -224,6 +224,53 @@ export function normalizeNewCommunity(payload) {
   }, communitySchema.required);
 }
 
+/**
+ * The fields an owner may edit after the fact, and how each is coerced.
+ *
+ * `ownerId`, `memberIds` and `createdAt` are absent on purpose: the security
+ * rules freeze the first and the third, and the array is written once at
+ * creation and never maintained (see the note above), so an edit screen that
+ * "helpfully" resent it would be writing a value nothing reads.
+ */
+const COMMUNITY_PATCH_FIELDS = Object.freeze({
+  name:     (v) => requiredText("communities", "name", v, LIMITS.NAME_MAX),
+  nickname: (v) => requiredId("communities", "nickname", v).toLowerCase(),
+  isPrivate: (v) => Boolean(v),
+  notificationsEnabled: (v) => v !== false,
+  photoURL: (v) => safeImageUrl(v),
+});
+
+const COMMUNITY_IMMUTABLE = Object.freeze(["ownerId", "memberIds"]);
+
+/**
+ * A community patch, field by field — same contract as `normalizeBookPatch`:
+ * nothing is defaulted, everything present is coerced, and an immutable or
+ * server-owned field is dropped with a warning rather than sent to be refused
+ * by the rules.
+ */
+export function normalizeCommunityPatch(patch) {
+  requirePayload("communities", patch);
+
+  const out = {};
+  for (const [field, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (COMMUNITY_IMMUTABLE.includes(field) || SERVER_OWNED_FIELDS.includes(field)) {
+      logger.warn("schema.communities", `${field} is immutable; dropped from patch`, { attempted: value });
+      continue;
+    }
+    const coerce = COMMUNITY_PATCH_FIELDS[field];
+    if (!coerce) {
+      throw new SchemaError(`communities: unknown field "${field}"`, { collection: "communities", field });
+    }
+    out[field] = coerce(value);
+  }
+
+  if (!Object.keys(out).length) {
+    throw new SchemaError("communities: patch is empty", { collection: "communities" });
+  }
+  return out;
+}
+
 // ---------- books ----------
 //
 // The one collection with a real invariant behind it: `ownerId` is who the book

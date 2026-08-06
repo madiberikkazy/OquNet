@@ -20,6 +20,7 @@ export const deleteIcon        = "/drawable/delete.svg";
 export const communityIcon     = "/drawable/community.svg";
 export const roleIcon          = "/drawable/role.svg";
 export const cameraIcon        = "/drawable/camera.svg";
+export const settingsIcon      = "/drawable/settings.svg";
 
 /** Lookup table so a row can name its icon with a plain string. */
 export const ICONS = Object.freeze({
@@ -35,6 +36,7 @@ export const ICONS = Object.freeze({
   community:     communityIcon,
   role:          roleIcon,
   camera:        cameraIcon,
+  settings:      settingsIcon,
 });
 
 export function iconSrc(name) {

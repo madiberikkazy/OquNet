@@ -51,6 +51,7 @@ const AdminMembers       = lazyRoute(() => import("./pages/admin/AdminMembers.js
 const CreateCommunity    = lazyRoute(() => import("./pages/community/CreateCommunity.jsx"));
 const JoinCommunity      = lazyRoute(() => import("./pages/community/JoinCommunity.jsx"));
 const CommunityProfile   = lazyRoute(() => import("./pages/community/CommunityProfile.jsx"));
+const EditCommunity      = lazyRoute(() => import("./pages/community/EditCommunity.jsx"));
 const LeaveCommunity     = lazyRoute(() => import("./pages/community/LeaveCommunity.jsx"));
 const UserProfile        = lazyRoute(() => import("./pages/community/UserProfile.jsx"));
 
@@ -119,6 +120,8 @@ export default function App() {
             <Route path="/community/create" element={<CreateCommunity />} />
             <Route path="/community/join" element={<JoinCommunity />} />
             <Route path="/community/:id" element={<CommunityProfile />} />
+            {/* Owner-only in practice — the screen bounces anyone else. */}
+            <Route path="/community/:id/edit" element={<EditCommunity />} />
             <Route path="/community/:id/leave" element={<LeaveCommunity />} />
             <Route path="/users/:id" element={<UserProfile />} />
           </Route>

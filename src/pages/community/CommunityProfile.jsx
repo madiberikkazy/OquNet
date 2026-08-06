@@ -232,9 +232,16 @@ export default function CommunityProfile() {
         {/* Action button */}
         <div className="mt-3">
           {isOwner ? (
-            <div className="w-full py-2 rounded-xl bg-ink-100 text-center text-[14px] font-semibold text-ink-600">
-              Сіз — Администратор
-            </div>
+            /* The admin's own community: the header is where editing it starts. */
+            <button
+              onClick={() => navigate(`/community/${id}/edit`)}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-ink-100 text-[14px] font-semibold text-ink-700 active:scale-[0.99] transition"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+              </svg>
+              {t.editCommunity}
+            </button>
           ) : isMember ? (
             <button
               onClick={() => navigate(`/community/${id}/leave`)}
