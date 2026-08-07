@@ -5,15 +5,19 @@ import SearchBar from "../../components/SearchBar.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
+import LikeButton from "../../components/LikeButton.jsx";
 import {
   listPostsByCommunity, listPublicPosts, getCommunity,
-  searchCommunities, searchUsers, toMillis,
+  searchCommunities, searchUsers, togglePostLike,
 } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
+import { formatPostDate } from "../../utils/time.js";
+import { useLang } from "../../contexts/LanguageContext.jsx";
 
 export default function Home() {
-  const { user }      = useAuth();
-  const { community } = useCommunity();
+  const { user, refresh } = useAuth();
+  const { community }     = useCommunity();
+  const { lang }          = useLang();
 
   const [feed, setFeed]             = useState([]);   // enriched posts with communityMeta
   const [loading, setLoading]       = useState(true);
@@ -91,6 +95,55 @@ export default function Home() {
     })();
     return () => { cancelled = true; };
   }, [community, user?.communityId]);
+
+  // ── Likes ───────────────────────────────────────────────────────────────────
+  //
+  // The heart flips on tap and the writes happen behind it. A like is not worth
+  // a spinner, and it is not worth a round trip before the UI admits it
+  // happened — but it is worth being honest when the write fails, so a failure
+  // puts the card back the way it was.
+  const [likedIds, setLikedIds] = useState(() => new Set(user?.likedPostIds || []));
+  useEffect(() => {
+    setLikedIds(new Set(user?.likedPostIds || []));
+  }, [user?.likedPostIds]);
+
+  async function onLike(post) {
+    if (!user?.id) return;
+    const wasLiked = likedIds.has(post.id);
+
+    setLikedIds((prev) => {
+      const next = new Set(prev);
+      if (wasLiked) next.delete(post.id); else next.add(post.id);
+      return next;
+    });
+    setFeed((list) => list.map((p) => (
+      p.id === post.id
+        ? { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (wasLiked ? -1 : 1)) }
+        : p
+    )));
+
+    try {
+      await togglePostLike({
+        postId: post.id,
+        userId: user.id,
+        likedPostIds: user.likedPostIds || [],
+        liked: !wasLiked,
+      });
+      refresh();
+    } catch (err) {
+      logger.error("home.like", err?.message, { postId: post.id });
+      setLikedIds((prev) => {
+        const next = new Set(prev);
+        if (wasLiked) next.add(post.id); else next.delete(post.id);
+        return next;
+      });
+      setFeed((list) => list.map((p) => (
+        p.id === post.id
+          ? { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (wasLiked ? 1 : -1)) }
+          : p
+      )));
+    }
+  }
 
   // Search
   useEffect(() => {
@@ -233,14 +286,17 @@ export default function Home() {
                           {p.body}
                         </p>
                       ) : null}
-                      <p className="text-[11px] text-ink-400 mt-2">
-                        {p.createdAt
-                          ? new Date(toMillis(p.createdAt)).toLocaleDateString("ru-RU", {
-                              day: "2-digit", month: "short", year: "numeric",
-                              hour: "2-digit", minute: "2-digit",
-                            })
-                          : ""}
-                      </p>
+                      <div className="flex items-center justify-between mt-2">
+                        <LikeButton
+                          liked={likedIds.has(p.id)}
+                          count={p.likeCount || 0}
+                          onClick={() => onLike(p)}
+                          disabled={!user?.id}
+                        />
+                        <p className="text-[11px] text-ink-400">
+                          {formatPostDate(p.createdAt, lang)}
+                        </p>
+                      </div>
                     </div>
                   </li>
                 );

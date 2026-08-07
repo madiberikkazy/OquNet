@@ -807,6 +807,77 @@ export async function updatePost(id, patch) {
   return updateOne("posts", id, normalizePostPatch(patch));
 }
 
+/** Take a post down. Only its author can — see the rules. */
+export async function deletePost(id) { return deleteOne("posts", id); }
+
+export async function getPost(id) { return getOne("posts", id); }
+
+/**
+ * The posts behind a user's `likedPostIds`, in the order they were liked.
+ *
+ * Reads are chunked rather than fired all at once for the same reason
+ * `getBooksByIds` chunks: a long list would otherwise open one connection per
+ * id. A post that has since gone private, or been deleted, simply drops out —
+ * the read is refused or empty, and a liked-posts screen that failed wholesale
+ * because one post moved would be worse than one that is a row shorter.
+ */
+export async function getPostsByIds(postIds, concurrency = 5) {
+  if (!postIds || postIds.length === 0) return [];
+  const results = [];
+  for (let i = 0; i < postIds.length; i += concurrency) {
+    const batch = postIds.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map((id) => getPost(id).catch(() => null))
+    );
+    results.push(...batchResults.filter(Boolean));
+  }
+  return results;
+}
+
+/**
+ * Like or unlike a post.
+ *
+ * Two writes, and they are not interchangeable: `likedPostIds` on the profile
+ * is the fact — it is what the liked-posts screen reads and what decides
+ * whether the heart is filled — and `likeCount` on the post is a denormalised
+ * total, kept because a feed cannot count a field it is not allowed to read
+ * across every user.
+ *
+ * The profile is written first. If the counter write then fails (offline, a
+ * rule refusing a stale delta), the user's own view of what they liked is still
+ * correct and the total is merely one behind — the opposite order would show a
+ * heart the profile does not remember.
+ */
+export async function togglePostLike({ postId, userId, likedPostIds = [], liked }) {
+  if (!postId || !userId) throw new Error("togglePostLike: missing postId or userId");
+
+  const current = Array.isArray(likedPostIds) ? likedPostIds : [];
+  const has = current.includes(postId);
+  const next = liked ?? !has;
+  if (next === has) return { likedPostIds: current, changed: false };
+
+  const updatedIds = next
+    ? [postId, ...current.filter((id) => id !== postId)]
+    : current.filter((id) => id !== postId);
+
+  await updateUser(userId, { likedPostIds: updatedIds });
+
+  // Read-modify-write rather than a blind set: the rules only accept a value
+  // one away from the stored one, so the count has to start from what is
+  // actually there — including posts written before likes existed, which have
+  // no counter at all.
+  try {
+    const post = await getOne("posts", postId);
+    const currentCount = Number.isInteger(post?.likeCount) ? post.likeCount : 0;
+    const nextCount = Math.max(0, currentCount + (next ? 1 : -1));
+    await updateOne("posts", postId, { likeCount: nextCount });
+  } catch (err) {
+    logger.warn("firestore.togglePostLike.count", err?.message, { postId });
+  }
+
+  return { likedPostIds: updatedIds, changed: true };
+}
+
 /** How many posts the discovery half of the Home feed reads. */
 export const PUBLIC_FEED_MAX = 60;
 

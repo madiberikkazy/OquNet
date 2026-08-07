@@ -6,8 +6,9 @@ import AppIcon from "../../components/AppIcon.jsx";
 import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { listPostsByCommunity, listUsersByCommunity, updatePost } from "../../firebase/firestore.js";
+import { listPostsByCommunity, listUsersByCommunity, updatePost, deletePost } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
+import { logger } from "../../utils/logger.js";
 
 export default function AdminProfile() {
   const { user, switchView } = useAuth();
@@ -35,6 +36,27 @@ export default function AdminProfile() {
     setEditing(post);
     setForm({ title: post.title || "", body: post.body || "" });
     setError("");
+  }
+
+  // ── Deleting a post ─────────────────────────────────────────────────────────
+  // Behind a confirmation, because there is no undo: the rules refuse a create
+  // that carries its own id, so a deleted notice cannot be put back where it was.
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function removePost() {
+    if (deleting || !confirmDelete) return;
+    setDeleting(true);
+    try {
+      await deletePost(confirmDelete.id);
+      setPosts((list) => list.filter((p) => p.id !== confirmDelete.id));
+      setConfirmDelete(null);
+    } catch (err) {
+      logger.error("adminProfile.deletePost", err?.message, { postId: confirmDelete.id });
+      setError(err?.message || t.error);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function savePost(e) {
@@ -130,16 +152,29 @@ export default function AdminProfile() {
                   <p className="font-medium text-[14px]">{p.title}</p>
                   <p className="text-[12px] text-ink-500 truncate">{p.body}</p>
                 </div>
+                {/* Only the author's own notices — the rules say the same, so a
+                    button on somebody else's post would only be refused. */}
                 {p.authorId === user?.id ? (
-                  <button
-                    onClick={() => openEdit(p)}
-                    aria-label={t.edit}
-                    className="shrink-0 w-8 h-8 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center active:scale-95 transition"
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                      <path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-                    </svg>
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => openEdit(p)}
+                      aria-label={t.edit}
+                      className="w-8 h-8 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center active:scale-95 transition"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                        <path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(p)}
+                      aria-label={t.delete}
+                      className="w-8 h-8 rounded-lg bg-badSoft text-bad flex items-center justify-center active:scale-95 transition"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                        <path d="M5 7h14M10 7V5h4v2m-7 0 1 13h8l1-13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
                 ) : null}
               </li>
             ))}
@@ -161,6 +196,31 @@ export default function AdminProfile() {
           ))}
         </ul>
       </section>
+
+      <Modal
+        open={Boolean(confirmDelete)}
+        onClose={() => !deleting && setConfirmDelete(null)}
+        title={t.deletePostConfirm}
+      >
+        <p className="text-[14px] text-ink-700 mb-1 font-medium">{confirmDelete?.title}</p>
+        <p className="text-[13px] text-ink-500 leading-relaxed mb-4">{t.deletePostWarning}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setConfirmDelete(null)}
+            disabled={deleting}
+            className="btn-secondary"
+          >
+            {t.cancel}
+          </button>
+          <button
+            onClick={removePost}
+            disabled={deleting}
+            className="w-full font-semibold rounded-xl py-3.5 bg-badSoft text-bad transition disabled:opacity-60"
+          >
+            {deleting ? "…" : t.delete}
+          </button>
+        </div>
+      </Modal>
 
       <Modal open={Boolean(editing)} onClose={() => !saving && setEditing(null)} title={t.editPost}>
         <form onSubmit={savePost} className="space-y-3">
