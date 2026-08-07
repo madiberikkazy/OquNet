@@ -105,10 +105,24 @@ service cloud.firestore {
 
     function selfUpdate(userId) {
       return isSelf(userId)
-        && frozen(['email', 'createdAt', 'id'].toSet())
+        && frozen(['createdAt', 'id'].toSet())
+        && emailMatchesAccount()
         && !('password' in request.resource.data)
         && roleChangeAllowed()
         && membershipChangeAllowed();
+    }
+
+    // The profile may only ever repeat what Firebase Auth already says.
+    //
+    // An email change happens in Auth first: the app calls
+    // verifyBeforeUpdateEmail, the user confirms from the new inbox, and only
+    // then does the account's email actually move. This write is the profile
+    // catching up afterwards, so the value has to equal the caller's own token
+    // claim — which exists only because Auth issued it. Typing a new address
+    // into the profile and saving it is still refused, exactly as before.
+    function emailMatchesAccount() {
+      return frozen(['email'].toSet())
+        || request.resource.data.email == request.auth.token.email;
     }
 
     // Self-promotion is allowed for exactly one reason: you just founded a

@@ -309,9 +309,24 @@ const kz = {
 
   // Settings — support
   supportIntro: "Сұрағыңыз бар ма? Бізге жазыңыз — жауап береміз.",
-  supportEmailLabel: "Қолдау поштасы",
-  writeUs: "Хат жазу",
-  copyEmail: "Көшіру",
+  // Settings — email change
+  currentEmail: "Ағымдағы email",
+  newEmail: "Жаңа email",
+  emailSameAsCurrent: "Бұл сіздің қазіргі email-іңіз",
+  emailChangeSent: (email) =>
+    `${email} мекенжайына растау сілтемесі жіберілді. Сілтемеге өткен соң ғана email ауысады.`,
+  emailChangeNote:
+    "Қауіпсіздік үшін жаңа мекенжайға растау сілтемесі жіберіледі. Оны ашқанша email өзгермейді.",
+  emailChanged: "Email өзгертілді",
+
+  // Settings — forgot password
+  forgotPasswordHint: "Ағымдағы құпия сөзді білмейсіз бе?",
+  sendResetLink: "Қалпына келтіру сілтемесін жіберу",
+  resetLinkSent: (email) => `${email} мекенжайына сілтеме жіберілді.`,
+
+  supportTelegramLabel: "Telegram арнамыз",
+  writeUs: "Telegram-ға жазу",
+  copyLink: "Сілтемені көшіру",
   copied: "Көшірілді",
 
   // Settings — information
@@ -696,9 +711,24 @@ const ru = {
 
   // Settings — support
   supportIntro: "Есть вопрос? Напишите нам — мы ответим.",
-  supportEmailLabel: "Почта поддержки",
-  writeUs: "Написать письмо",
-  copyEmail: "Скопировать",
+  // Settings — email change
+  currentEmail: "Текущий email",
+  newEmail: "Новый email",
+  emailSameAsCurrent: "Это ваш текущий email",
+  emailChangeSent: (email) =>
+    `Ссылка для подтверждения отправлена на ${email}. Email изменится только после перехода по ней.`,
+  emailChangeNote:
+    "Для безопасности мы отправим ссылку на новый адрес. Пока вы её не откроете, email не изменится.",
+  emailChanged: "Email изменён",
+
+  // Settings — forgot password
+  forgotPasswordHint: "Не помните текущий пароль?",
+  sendResetLink: "Отправить ссылку для сброса",
+  resetLinkSent: (email) => `Ссылка отправлена на ${email}.`,
+
+  supportTelegramLabel: "Наш канал в Telegram",
+  writeUs: "Написать в Telegram",
+  copyLink: "Скопировать ссылку",
   copied: "Скопировано",
 
   // Settings — information
@@ -1083,9 +1113,24 @@ const en = {
 
   // Settings — support
   supportIntro: "Got a question? Write to us — we'll get back to you.",
-  supportEmailLabel: "Support email",
-  writeUs: "Write an email",
-  copyEmail: "Copy",
+  // Settings — email change
+  currentEmail: "Current email",
+  newEmail: "New email",
+  emailSameAsCurrent: "That is already your email",
+  emailChangeSent: (email) =>
+    `A confirmation link was sent to ${email}. Your email changes only once you open it.`,
+  emailChangeNote:
+    "For security we send a link to the new address. Nothing changes until you open it.",
+  emailChanged: "Email changed",
+
+  // Settings — forgot password
+  forgotPasswordHint: "Don't remember your current password?",
+  sendResetLink: "Send a reset link",
+  resetLinkSent: (email) => `A link was sent to ${email}.`,
+
+  supportTelegramLabel: "Our Telegram channel",
+  writeUs: "Message us on Telegram",
+  copyLink: "Copy link",
   copied: "Copied",
 
   // Settings — information

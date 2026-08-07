@@ -98,6 +98,12 @@ export default function Books() {
     enabled: !!community?.id && showNewBooks,
     queryFn: () => listNewBooks({ communityId: community.id }),
     staleTime: 5 * 60_000,
+    // The rail shows the same books as the list below it, so a cached copy that
+    // predates an edit — an admin adding the cover a minute after the book —
+    // reads as one book with two different covers on one screen. The query
+    // cache is persisted to IndexedDB, so without this the mismatch survives
+    // restarts. Ten documents by index; cheap enough to re-read on mount.
+    refetchOnMount: "always",
   });
 
   const hasNewBooks = showNewBooks && (newBooksQuery.data?.length || 0) > 0;

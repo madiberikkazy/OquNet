@@ -13,6 +13,7 @@ import {
   deleteUser,
   reauthenticateWithCredential,
   reauthenticateWithPopup,
+  verifyBeforeUpdateEmail,
   EmailAuthProvider,
 } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "./config.js";
@@ -312,6 +313,114 @@ export async function signInWithIdentifier({ identifier, password }) {
   if (!profile) throw new Error(t.loginErrorUserNotFound);
   writeMock({ uid: profile.id });
   return profile;
+}
+
+/**
+ * Start an email change.
+ *
+ * The new address is not written anywhere yet. `verifyBeforeUpdateEmail` sends
+ * a confirmation link to it and Firebase moves the account only once that link
+ * is opened — which is the whole point: an unverified address typed into a form
+ * is a way to lock yourself out of your own account, or to point somebody
+ * else's inbox at a password reset. Re-authentication comes first for the same
+ * reason it does on delete: an unlocked phone should not be enough.
+ *
+ * The Firestore profile is deliberately NOT touched here. It catches up in
+ * `syncEmailFromAuth`, after the change is real; the security rules refuse any
+ * profile email that doesn't match the account's own token.
+ *
+ * Returns the normalized address the link went to.
+ */
+export async function requestEmailChange({ newEmail, password }) {
+  const cleanEmail = normalizeEmail(newEmail);
+  if (!isEmail(cleanEmail)) throw new Error(t.emailInvalid);
+
+  if (!isFirebaseConfigured) {
+    // Mock mode has no mail and no auth service, so the check that matters —
+    // is this address free? — is the only one that can be enforced, and the
+    // change applies immediately.
+    const session = readMock();
+    const uid = session?.uid;
+    if (!uid) throw new Error(t.sessionExpired);
+    const profile = await getUserById(uid);
+    if (profile?.email === cleanEmail) throw new Error(t.emailSameAsCurrent);
+    if (profile?.password && password !== profile.password) throw new Error(t.wrongPassword);
+    const taken = await getUserByEmail(cleanEmail);
+    if (taken && taken.id !== uid) throw new Error(t.emailAlreadyInUse);
+    await updateUser(uid, { email: cleanEmail });
+    if (profile?.nickname) await reindexUsername(profile.nickname, uid, cleanEmail);
+    return cleanEmail;
+  }
+
+  const fbUser = auth?.currentUser;
+  if (!fbUser) throw new Error(t.sessionExpired);
+  if (normalizeEmail(fbUser.email) === cleanEmail) throw new Error(t.emailSameAsCurrent);
+
+  try {
+    if (!password) throw new Error(t.deleteAccountNeedPassword);
+    const credential = EmailAuthProvider.credential(fbUser.email, password);
+    await reauthenticateWithCredential(fbUser, credential);
+  } catch (err) {
+    const code = err?.code || "";
+    if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
+      throw new Error(t.wrongPassword);
+    }
+    if (code === "auth/too-many-requests") throw new Error(t.loginErrorTooMany);
+    throw err;
+  }
+
+  try {
+    await verifyBeforeUpdateEmail(fbUser, cleanEmail);
+  } catch (err) {
+    const code = err?.code || "";
+    if (code === "auth/email-already-in-use") throw new Error(t.emailAlreadyInUse);
+    if (code === "auth/invalid-email") throw new Error(t.emailInvalid);
+    if (code === "auth/too-many-requests") throw new Error(t.loginErrorTooMany);
+    logger.error("auth.requestEmailChange", err?.message, { code });
+    throw new Error(humanizeSendError(err));
+  }
+  return cleanEmail;
+}
+
+/** Move a nickname's index entry to a new email. The rules allow create and
+ *  delete on `usernames` but never update, so a change is delete-then-create. */
+async function reindexUsername(nickname, uid, email) {
+  await releaseUsername(nickname).catch(() => {});
+  await claimUsername(nickname, { uid, email }).catch((err) => {
+    logger.warn("auth.reindexUsername", err?.message, { nickname });
+  });
+}
+
+/**
+ * Bring the profile in line after an email change has actually landed.
+ *
+ * Called on every session load. Firebase Auth is the source of truth for the
+ * address, so when the account says one thing and the profile says another, the
+ * profile is stale — the user confirmed the change from their new inbox, which
+ * happens outside this app entirely and possibly on another device.
+ *
+ * Two things have to move: the profile document, and the public nickname index,
+ * which is what login-by-nickname resolves an email through. Leaving the index
+ * behind is what would quietly break signing in by @nickname.
+ *
+ * Returns the corrected profile, or the one it was given when nothing changed.
+ */
+export async function syncEmailFromAuth(profile) {
+  if (!isFirebaseConfigured || !profile?.id) return profile;
+  const accountEmail = normalizeEmail(auth?.currentUser?.email || "");
+  if (!accountEmail || accountEmail === normalizeEmail(profile.email || "")) return profile;
+
+  try {
+    await updateUser(profile.id, { email: accountEmail });
+    if (profile.nickname) await reindexUsername(profile.nickname, profile.id, accountEmail);
+    logger.info("auth.syncEmail", "profile email caught up with the account");
+    return { ...profile, email: accountEmail };
+  } catch (err) {
+    // Not fatal: the account is fine, the profile is merely behind, and the
+    // next load tries again.
+    logger.warn("auth.syncEmail", err?.message, { code: err?.code });
+    return profile;
+  }
 }
 
 /**
