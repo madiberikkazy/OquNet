@@ -13,7 +13,7 @@ import { searchTerm } from "../utils/search.js";
 import {
   bookSearchFields,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
-  normalizeNewCommunity, normalizeCommunityPatch,
+  normalizeNewCommunity, normalizeCommunityPatch, normalizePostPatch,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
   stripServerOwned,
 } from "./schema.js";
@@ -797,6 +797,57 @@ export async function returnBookToOwner({ bookId, fromUserId }) {
 
 // ---------- Posts ----------
 export async function createPost(payload) { return createOne("posts", payload); }
+
+/**
+ * Edit a post. Only its author can, and only its title and body — the rules
+ * freeze the rest, so a patch carrying `authorId` or `communityId` would be a
+ * write the server refuses rather than a helpful no-op.
+ */
+export async function updatePost(id, patch) {
+  return updateOne("posts", id, normalizePostPatch(patch));
+}
+
+/** How many posts the discovery half of the Home feed reads. */
+export const PUBLIC_FEED_MAX = 60;
+
+/**
+ * The discovery feed: posts from every public community, newest first.
+ *
+ * `isPublic` is denormalised onto the post rather than read from its community,
+ * because the security rule has to decide per document and a `get()` there would
+ * cost one document read per row returned. The flag is stamped at creation and
+ * re-stamped by `syncPostVisibility` when a community's privacy changes.
+ *
+ * A caller's own community is NOT excluded here — an inequality on
+ * `communityId` cannot be combined with the equality on `isPublic` and the sort
+ * on `createdAt` in one index. The Home feed drops the duplicates in JavaScript,
+ * over one page of posts.
+ */
+export async function listPublicPosts({ pageSize = PUBLIC_FEED_MAX } = {}) {
+  return getCollection("posts", {
+    where: [["isPublic", "==", true]],
+    orderByField: "createdAt",
+    descending: true,
+    pageSize,
+  });
+}
+
+/**
+ * Re-stamp every post of a community after its privacy changed.
+ *
+ * Without this a community that goes private keeps its old notices in everyone
+ * else's feed — the post carries the flag, so the post is what has to change.
+ * Bounded by the community's own post count and only ever run by its admin.
+ */
+export async function syncPostVisibility(communityId, isPublic) {
+  if (!communityId) return 0;
+  const posts = await listPostsByCommunity(communityId, 500);
+  const stale = posts.filter((p) => Boolean(p.isPublic) !== Boolean(isPublic));
+  for (const post of stale) {
+    await updateOne("posts", post.id, { isPublic: Boolean(isPublic) });
+  }
+  return stale.length;
+}
 
 /**
  * A community's noticeboard, newest first — ordered by the index rather than in

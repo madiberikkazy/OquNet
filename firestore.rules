@@ -414,15 +414,56 @@ service cloud.firestore {
     // its members read them.
 
     match /posts/{postId} {
+      // Two ways to be readable, and a query has to name one of them:
+      //
+      //   isPublic == true      — the discovery feed on Home. The flag lives on
+      //                           the post, not on the community, because a rule
+      //                           that had to `get()` the community would do it
+      //                           once per document returned and blow the
+      //                           per-query document-access limit on any real
+      //                           page of results.
+      //   communityId == mine   — the member's own noticeboard, unchanged.
+      //
+      // A post written before the flag existed has no `isPublic`, which reads as
+      // false here: old posts stay members-only until they are backfilled, which
+      // is the safe direction for a field that controls who can see something.
       allow get, list: if signedIn()
-        && resource.data.communityId == myCommunity();
+        && (resource.data.isPublic == true
+            || resource.data.communityId == myCommunity());
 
       allow create: if isAdminOf(request.resource.data.communityId)
         && request.resource.data.authorId == uid()
+        && request.resource.data.isPublic is bool
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0;
 
-      allow update, delete: if false;
+      allow update: if postAuthorEdit() || postVisibilitySync();
+
+      allow delete: if false;
+    }
+
+    // An author fixing their own notice. `touchesOnly` is what keeps this from
+    // becoming a way to re-attribute a post, move it to another community, or
+    // publish it: everything that identifies the post stays put, and a title may
+    // be corrected but not emptied — the create rule refuses a blank one, so an
+    // edit that could blank it would be a hole in the same rule.
+    function postAuthorEdit() {
+      return isAdminOf(resource.data.communityId)
+        && resource.data.authorId == uid()
+        && touchesOnly(['title', 'body'].toSet())
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0;
+    }
+
+    // Re-stamping visibility when the community's privacy changes. The admin of
+    // the owning community may set this flag and nothing else — which is the
+    // same power they already have by flipping the community itself, so tying it
+    // to a get() of the community would be enforcement in appearance only, and
+    // would spend a document read per post in the batch.
+    function postVisibilitySync() {
+      return isAdminOf(resource.data.communityId)
+        && touchesOnly(['isPublic'].toSet())
+        && request.resource.data.isPublic is bool;
     }
 
     // ═══ notifications ═══

@@ -6,7 +6,7 @@ import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  listPostsByCommunity, getCommunity,
+  listPostsByCommunity, listPublicPosts, getCommunity,
   searchCommunities, searchUsers, toMillis,
 } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
@@ -21,33 +21,65 @@ export default function Home() {
   const [foundUsers, setFoundUsers] = useState([]);
   const [foundComs, setFoundComs]   = useState([]);
 
-  // The feed is the user's own community, and only theirs.
+  // The feed is two shelves, in this order: everything from the community the
+  // user belongs to, then everything public from the rest.
   //
-  // It used to pull every post in the database and drop the private ones in the
-  // browser, which is not a filter so much as a delivery mechanism: the posts
-  // arrived either way. Posts are now readable only to members of the community
-  // that owns them, so the query has to name a community it is allowed to read
-  // — and the one community a user can read is their own.
+  // It is two queries because it has to be. A single query cannot say "mine OR
+  // public" — Firestore has no OR across different fields with one sort — and
+  // the security rule wants each query to name the ground it stands on: the
+  // membership one for the first, the `isPublic` flag for the second. Merging
+  // is what keeps the user's own community first without hiding everyone else.
+  //
+  // The two overlap whenever the user's community is public, so the second list
+  // is filtered against the first by id.
+  //
+  // A failure in one shelf must not empty the other: `allSettled` means a user
+  // with no community still gets discovery, and a discovery query that trips an
+  // index still leaves the member's own noticeboard intact.
   useEffect(() => {
     const communityId = user?.communityId ?? null;
-    if (!communityId) {
-      setFeed([]);
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
+
     (async () => {
       setLoading(true);
       try {
-        const [posts, meta] = await Promise.all([
-          listPostsByCommunity(communityId, 150),
-          // `community` from context is usually already loaded; fetching it here
-          // as well keeps the feed from rendering headerless on a cold start.
-          community?.id === communityId ? Promise.resolve(community) : getCommunity(communityId),
+        const [mineResult, publicResult] = await Promise.allSettled([
+          communityId ? listPostsByCommunity(communityId, 100) : Promise.resolve([]),
+          listPublicPosts(),
         ]);
+
+        if (mineResult.status === "rejected") {
+          logger.error("home.feed.mine", mineResult.reason?.message, {
+            code: mineResult.reason?.code, communityId,
+          });
+        }
+        if (publicResult.status === "rejected") {
+          logger.error("home.feed.public", publicResult.reason?.message, {
+            code: publicResult.reason?.code,
+          });
+        }
+
+        const mine = mineResult.status === "fulfilled" ? mineResult.value : [];
+        const discovered = publicResult.status === "fulfilled" ? publicResult.value : [];
+
+        const seen = new Set(mine.map((p) => p.id));
+        const others = discovered.filter((p) => !seen.has(p.id));
+        const ordered = [...mine, ...others];
+
+        // One fetch per distinct community in the feed, not per post — the
+        // header needs a name and a photo, and a page of posts is usually a
+        // handful of communities. The one already in context is free.
+        const ids = [...new Set(ordered.map((p) => p.communityId).filter(Boolean))];
+        const metaEntries = await Promise.all(
+          ids.map(async (id) => [
+            id,
+            community?.id === id ? community : await getCommunity(id).catch(() => null),
+          ])
+        );
         if (cancelled) return;
-        setFeed(posts.map((p) => ({ ...p, communityMeta: meta ?? null })));
+
+        const metaById = new Map(metaEntries);
+        setFeed(ordered.map((p) => ({ ...p, communityMeta: metaById.get(p.communityId) ?? null })));
       } catch (err) {
         if (!cancelled) {
           logger.error("home.feed", err?.message, { code: err?.code, communityId });
@@ -148,7 +180,7 @@ export default function Home() {
                 </svg>
               </div>
               <p className="font-medium text-ink-600">Жазба жоқ</p>
-              <p className="text-[13px] text-ink-400 mt-1">Қоғамдастығыңыздың жазбалары осында пайда болады</p>
+              <p className="text-[13px] text-ink-400 mt-1">Қоғамдастықтардың жазбалары осында пайда болады</p>
             </div>
           ) : (
             <ul className="space-y-3 pb-4">
