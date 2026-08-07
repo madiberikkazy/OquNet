@@ -1,21 +1,25 @@
-import { useNavigate } from "react-router-dom";
 import MobileShell from "./MobileShell.jsx";
+import { t } from "../utils/i18n.js";
+import { useGoBack } from "../utils/useGoBack.js";
 
 /**
  * SettingsPage — the shared chrome for every settings screen: a back arrow,
  * the screen title, and the page body. Matches the hub so moving between
  * them feels like one screen sliding.
+ *
+ * `backTo` is only the fallback for a cold open — the arrow pops the history
+ * entry it actually came from. See useGoBack.
  */
 export default function SettingsPage({ title, children, backTo = "/settings" }) {
-  const navigate = useNavigate();
+  const goBack = useGoBack(backTo);
 
   return (
     <MobileShell withNav={false}>
       <header className="flex items-center gap-3 px-5 pb-2">
         <button
           type="button"
-          aria-label="Back"
-          onClick={() => navigate(backTo)}
+          aria-label={t.back}
+          onClick={goBack}
           className="-ml-1 p-1 text-ink-900"
         >
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none">

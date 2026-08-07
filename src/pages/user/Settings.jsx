@@ -11,6 +11,7 @@ import { useLang } from "../../contexts/LanguageContext.jsx";
 import { uploadImage } from "../../firebase/storage.js";
 import { logger } from "../../utils/logger.js";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
+import { useGoBack } from "../../utils/useGoBack.js";
 
 /**
  * Settings hub.
@@ -22,6 +23,9 @@ import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
  */
 export default function Settings() {
   const navigate = useNavigate();
+  // Settings is reached from either profile, so the fallback is the profile
+  // route — the arrow still pops normally when there is a history entry.
+  const goBack = useGoBack("/profile");
   const fileRef = useRef(null);
   const { user, updateProfile, signOut } = useAuth();
   const { theme } = useTheme();
@@ -72,7 +76,7 @@ export default function Settings() {
         <button
           type="button"
           aria-label={t.back}
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           className="-ml-1 p-1 text-ink-900"
         >
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none">

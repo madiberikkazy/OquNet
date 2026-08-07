@@ -2,15 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
+import CoverPicker from "../../components/CoverPicker.jsx";
 import { getBook, updateBook, reassignBookOwner, listUsersByCommunity } from "../../firebase/firestore.js";
+import { uploadImage } from "../../firebase/storage.js";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { t, GENRES } from "../../utils/i18n.js";
-
-const FALLBACK =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 90'><rect width='60' height='90' fill='#dde5ee'/><text x='50%' y='52%' text-anchor='middle' fill='#5b6573' font-family='Inter' font-size='9'>OquNet</text></svg>`
-  );
 
 export default function EditBook() {
   const { id }        = useParams();
@@ -22,6 +18,9 @@ export default function EditBook() {
   const [success, setSuccess]       = useState(false);
   const [members, setMembers]       = useState([]);
   const [showOwner, setShowOwner]   = useState(false);
+  // A newly picked cover, uploaded on save. Until then the stored URL is what
+  // the book still has.
+  const [coverFile, setCoverFile]   = useState(null);
   // The owner as stored, so a save can tell "admin reassigned this" apart from
   // "admin edited the blurb and the owner field came along unchanged".
   const [originalOwnerId, setOriginalOwnerId] = useState("");
@@ -80,7 +79,19 @@ export default function EditBook() {
       // `genre` is not passed either: it is derived from `genres` by the
       // schema, which is the only way the two can be relied on to agree.
       const { ownerId, ...fields } = form;
+
+      // A picked file becomes a URL only now, on the save the admin asked for —
+      // the same reason Add Book waits. `uploadImage` falls back to a data-URL
+      // when Storage is unavailable, so the cover is never lost to a failure.
+      if (coverFile) {
+        fields.coverUrl = await uploadImage(coverFile, `books/${id}_${Date.now()}`);
+      }
+
       await updateBook(id, fields);
+      if (coverFile) {
+        upd("coverUrl", fields.coverUrl);
+        setCoverFile(null);
+      }
       if (ownerId && ownerId !== originalOwnerId) {
         await reassignBookOwner(id, ownerId);
         setOriginalOwnerId(ownerId);
@@ -94,7 +105,6 @@ export default function EditBook() {
     }
   }
 
-  const coverSrc = form.coverUrl || FALLBACK;
   const ownerMember = members.find((m) => m.id === form.ownerId);
 
   if (loading) {
@@ -119,19 +129,13 @@ export default function EditBook() {
 
       <div className="px-5 pt-4 pb-10 space-y-5">
 
-        {/* ── Cover photo (URL only) ── */}
-        <div>
-          <p className="text-[13px] text-ink-500 mb-2">{t.bookPhoto}</p>
-          <div className="w-full h-52 rounded-2xl overflow-hidden bg-ink-100">
-            <img src={coverSrc} alt="" className="w-full h-full object-cover" />
-          </div>
-          <input
-            value={form.coverUrl}
-            onChange={(e) => upd("coverUrl", e.target.value)}
-            placeholder={t.orPasteUrl}
-            className="input mt-2 text-[13px]"
-          />
-        </div>
+        {/* ── Cover photo — from the device, or a URL ── */}
+        <CoverPicker
+          coverUrl={form.coverUrl}
+          file={coverFile}
+          onFile={setCoverFile}
+          onUrlChange={(v) => upd("coverUrl", v)}
+        />
 
         {/* ── Basic info ── */}
         <div className="space-y-3">
