@@ -21,6 +21,8 @@ export const communityIcon     = "/drawable/community.svg";
 export const roleIcon          = "/drawable/role.svg";
 export const cameraIcon        = "/drawable/camera.svg";
 export const settingsIcon      = "/drawable/settings.svg";
+/** The app mark itself — a full-bleed tile, so it carries its own background. */
+export const logoIcon          = "/drawable/logo.svg";
 
 /** Lookup table so a row can name its icon with a plain string. */
 export const ICONS = Object.freeze({
@@ -37,6 +39,7 @@ export const ICONS = Object.freeze({
   role:          roleIcon,
   camera:        cameraIcon,
   settings:      settingsIcon,
+  logo:          logoIcon,
 });
 
 export function iconSrc(name) {

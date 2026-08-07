@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
+import AppIcon from "../../components/AppIcon.jsx";
 import { signInWithIdentifier, signInWithGoogle, sendPasswordReset } from "../../firebase/auth.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { t } from "../../utils/i18n.js";
@@ -81,11 +82,9 @@ export default function Login() {
   return (
     <MobileShell withNav={false}>
       <div className="px-6 pt-10 flex flex-col items-center">
-        <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-500 flex items-center justify-center mb-3">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-            <path d="M4 6.5C4 5.67 4.67 5 5.5 5h13c.83 0 1.5.67 1.5 1.5v.5H4v-.5Zm0 3.5h16v1H4v-1Zm0 3h16V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18v-5Z" stroke="currentColor" strokeWidth="1.6" />
-          </svg>
-        </div>
+        {/* The app mark. It is a full-bleed tile with its own background, so it
+            gets no tinted box behind it — only the rounding. */}
+        <AppIcon name="logo" size={64} alt={t.app} className="rounded-2xl mb-3" />
         <h1 className="text-2xl font-bold">{t.welcomeBack}</h1>
         <p className="text-[13px] text-ink-500">{t.loginSubtitle}</p>
       </div>

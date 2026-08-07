@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Stepper from "../../components/Stepper.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
+import CoverPicker from "../../components/CoverPicker.jsx";
 import { listUsersByCommunity, createBook, notifyCommunityMembers } from "../../firebase/firestore.js";
+import { uploadImage } from "../../firebase/storage.js";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { t, GENRES } from "../../utils/i18n.js";
@@ -18,7 +20,9 @@ export default function AddBook() {
     name: "", author: "", year: "", givenAt: "", maxDays: 14,
     description: "", ownerId: "", coverUrl: "", genres: [],
   });
-  // No file upload — only URL paste
+  // The cover can come from the device or from a URL. A picked file is held
+  // here and uploaded at submit, so abandoning the wizard uploads nothing.
+  const [coverFile, setCoverFile] = useState(null);
   const [members, setMembers] = useState([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
@@ -67,9 +71,18 @@ export default function AddBook() {
 
     setSubmitting(true);
     try {
+      // The upload happens here rather than at pick time so the only thing that
+      // ever reaches Storage is a cover attached to a book that got created.
+      // `uploadImage` degrades to a data-URL if Storage is unreachable, so a
+      // failed upload costs the admin nothing.
+      let coverUrl = form.coverUrl;
+      if (coverFile) {
+        coverUrl = await uploadImage(coverFile, `books/${community.id}_${Date.now()}`);
+      }
+
       // Deliberately the raw form: the data layer owns what a book document
       // looks like, including `genre`, `holderId`, `status` and `createdAt`.
-      const book = await createBook({ ...form, communityId: community.id });
+      const book = await createBook({ ...form, coverUrl, communityId: community.id });
 
       // Announce the book to the community — deliberately *not* awaited.
       //
@@ -123,7 +136,14 @@ export default function AddBook() {
       <div className="px-5 pt-3 pb-24">
         {step === 1 ? <Step1 form={form} update={update} /> : null}
         {step === 2 ? <Step2 members={filteredMembers} search={search} setSearch={setSearch} selectedId={form.ownerId} onSelect={(id) => update("ownerId", id)} /> : null}
-        {step === 3 ? <Step3 coverUrl={form.coverUrl} setCoverUrl={(v) => update("coverUrl", v)} /> : null}
+        {step === 3 ? (
+          <CoverPicker
+            coverUrl={form.coverUrl}
+            file={coverFile}
+            onFile={setCoverFile}
+            onUrlChange={(v) => update("coverUrl", v)}
+          />
+        ) : null}
         {error ? <p className="text-bad text-[13px] mt-3">{error}</p> : null}
       </div>
 
@@ -234,31 +254,3 @@ function Step2({ members, search, setSearch, selectedId, onSelect }) {
   );
 }
 
-function Step3({ coverUrl, setCoverUrl }) {
-  return (
-    <div>
-      <h3 className="section-title mb-2">{t.bookPhoto}</h3>
-
-      {coverUrl ? (
-        <div className="rounded-2xl h-44 bg-ink-100 overflow-hidden mb-3">
-          <img src={coverUrl} alt="" className="w-full h-full object-cover" />
-        </div>
-      ) : (
-        <div className="rounded-2xl h-44 bg-brand-50 border-2 border-dashed border-brand-200 flex flex-col items-center justify-center gap-2 text-brand-500 mb-3">
-          <svg width="42" height="42" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="11" fill="currentColor" opacity="0.12" />
-            <path d="M7 12h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-          <span className="text-[13px]">URL арқылы сурет қосыңыз</span>
-        </div>
-      )}
-
-      <input
-        value={coverUrl}
-        onChange={(e) => setCoverUrl(e.target.value)}
-        placeholder={t.orPasteUrl}
-        className="input"
-      />
-    </div>
-  );
-}
