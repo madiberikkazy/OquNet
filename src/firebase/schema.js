@@ -507,6 +507,43 @@ export function normalizeBookPatch(patch) {
   return out;
 }
 
+// ---------- posts ----------
+//
+// A noticeboard entry. Only the two fields an author can see on screen are
+// editable; who wrote it, which community it belongs to and when it was posted
+// are what make it that post rather than a different one, and the security
+// rules freeze all four.
+
+const POST_PATCH_FIELDS = Object.freeze({
+  title: (v) => requiredText("posts", "title", v, LIMITS.NAME_MAX, "addBookErrName"),
+  body: (v) => clampText(v, LIMITS.DESCRIPTION_MAX),
+});
+
+const POST_IMMUTABLE = Object.freeze(["communityId", "authorId", "authorName"]);
+
+export function normalizePostPatch(patch) {
+  requirePayload("posts", patch);
+
+  const out = {};
+  for (const [field, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (POST_IMMUTABLE.includes(field) || SERVER_OWNED_FIELDS.includes(field)) {
+      logger.warn("schema.posts", `${field} is immutable; dropped from patch`, { attempted: value });
+      continue;
+    }
+    const coerce = POST_PATCH_FIELDS[field];
+    if (!coerce) {
+      throw new SchemaError(`posts: unknown field "${field}"`, { collection: "posts", field });
+    }
+    out[field] = coerce(value);
+  }
+
+  if (!Object.keys(out).length) {
+    throw new SchemaError("posts: patch is empty", { collection: "posts" });
+  }
+  return out;
+}
+
 // ---------- notifications ----------
 //
 // An envelope: `recipientId`, `title`, `type` and `read` are the same on every

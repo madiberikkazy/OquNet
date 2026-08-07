@@ -309,6 +309,12 @@ const kz = {
 
   // Settings — support
   supportIntro: "Сұрағыңыз бар ма? Бізге жазыңыз — жауап береміз.",
+  // Community posts
+  editPost: "Жазбаны өзгерту",
+  postTitle: "Тақырыбы",
+  postBody: "Жазба мәтіні",
+  postSaved: "Жазба сақталды",
+
   // Settings — email change
   currentEmail: "Ағымдағы email",
   newEmail: "Жаңа email",
@@ -711,6 +717,12 @@ const ru = {
 
   // Settings — support
   supportIntro: "Есть вопрос? Напишите нам — мы ответим.",
+  // Community posts
+  editPost: "Редактировать публикацию",
+  postTitle: "Заголовок",
+  postBody: "Текст публикации",
+  postSaved: "Публикация сохранена",
+
   // Settings — email change
   currentEmail: "Текущий email",
   newEmail: "Новый email",
@@ -1113,6 +1125,12 @@ const en = {
 
   // Settings — support
   supportIntro: "Got a question? Write to us — we'll get back to you.",
+  // Community posts
+  editPost: "Edit post",
+  postTitle: "Title",
+  postBody: "Post text",
+  postSaved: "Post saved",
+
   // Settings — email change
   currentEmail: "Current email",
   newEmail: "New email",

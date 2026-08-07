@@ -7,6 +7,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
   getCommunity, updateCommunity, getCommunityByNickname, getUsernameEntry,
+  syncPostVisibility,
 } from "../../firebase/firestore.js";
 import { uploadImage } from "../../firebase/storage.js";
 import { logger } from "../../utils/logger.js";
@@ -122,6 +123,16 @@ export default function EditCommunity() {
         photoURL,
       };
       await updateCommunity(community.id, patch);
+
+      // The privacy flag is denormalised onto every post of this community —
+      // that is what the Home discovery feed queries. Going private has to pull
+      // the old notices out of everyone else's feed, and going public has to put
+      // them in; neither happens by editing the community alone.
+      if (Boolean(form.isPrivate) !== Boolean(community.isPrivate)) {
+        await syncPostVisibility(community.id, !form.isPrivate).catch((err) => {
+          logger.warn("community.syncPostVisibility", err?.message, { communityId: community.id });
+        });
+      }
 
       const updated = { ...community, ...patch };
       setLocalCommunity(updated);

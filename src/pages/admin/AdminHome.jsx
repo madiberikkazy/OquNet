@@ -35,6 +35,10 @@ export default function AdminHome() {
     const p = await createPost({
       communityId: community.id, authorId: user.id,
       authorName: `${user.firstName} ${user.lastName}`,
+      // Denormalised from the community so the Home discovery feed can query
+      // posts directly — see listPublicPosts. A private community's notices
+      // stay off that feed and readable only to its members.
+      isPublic: !community.isPrivate,
       ...postForm,
     });
     setPosts([p, ...posts]);

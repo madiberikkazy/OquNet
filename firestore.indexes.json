@@ -111,6 +111,15 @@
       ]
     },
     {
+      "_comment": "listPublicPosts — the discovery half of the Home feed.",
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublic", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "_comment": "listNotifications.",
       "collectionGroup": "notifications",
       "queryScope": "COLLECTION",

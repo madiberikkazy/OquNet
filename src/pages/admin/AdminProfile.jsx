@@ -3,9 +3,11 @@ import { useEffect, useState } from "react";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
+import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { listPostsByCommunity, listUsersByCommunity } from "../../firebase/firestore.js";
+import { listPostsByCommunity, listUsersByCommunity, updatePost } from "../../firebase/firestore.js";
+import { t } from "../../utils/i18n.js";
 
 export default function AdminProfile() {
   const { user, switchView } = useAuth();
@@ -19,6 +21,39 @@ export default function AdminProfile() {
     listPostsByCommunity(community.id).then(setPosts);
     listUsersByCommunity(community.id).then(setMembers);
   }, [community?.id]);
+
+  // ── Editing a post ──────────────────────────────────────────────────────────
+  // Only the author's own notices are editable — the rules say the same thing,
+  // so offering the button on somebody else's post would only produce a write
+  // the server refuses.
+  const [editing, setEditing] = useState(null); // the post being edited
+  const [form, setForm] = useState({ title: "", body: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function openEdit(post) {
+    setEditing(post);
+    setForm({ title: post.title || "", body: post.body || "" });
+    setError("");
+  }
+
+  async function savePost(e) {
+    e.preventDefault();
+    if (saving || !editing) return;
+    if (!form.title.trim()) { setError(t.fillAllFields); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const patch = { title: form.title.trim(), body: form.body };
+      await updatePost(editing.id, patch);
+      setPosts((list) => list.map((p) => (p.id === editing.id ? { ...p, ...patch } : p)));
+      setEditing(null);
+    } catch (err) {
+      setError(t[err?.errorKey] || err?.message || t.error);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <MobileShell>
@@ -90,9 +125,22 @@ export default function AdminProfile() {
         ) : (
           <ul className="space-y-2">
             {posts.slice(0, 3).map((p) => (
-              <li key={p.id} className="card p-3">
-                <p className="font-medium text-[14px]">{p.title}</p>
-                <p className="text-[12px] text-ink-500 truncate">{p.body}</p>
+              <li key={p.id} className="card p-3 flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-[14px]">{p.title}</p>
+                  <p className="text-[12px] text-ink-500 truncate">{p.body}</p>
+                </div>
+                {p.authorId === user?.id ? (
+                  <button
+                    onClick={() => openEdit(p)}
+                    aria-label={t.edit}
+                    className="shrink-0 w-8 h-8 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center active:scale-95 transition"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                      <path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -113,6 +161,38 @@ export default function AdminProfile() {
           ))}
         </ul>
       </section>
+
+      <Modal open={Boolean(editing)} onClose={() => !saving && setEditing(null)} title={t.editPost}>
+        <form onSubmit={savePost} className="space-y-3">
+          <input
+            value={form.title}
+            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+            placeholder={t.postTitle}
+            className="input"
+          />
+          <textarea
+            value={form.body}
+            onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+            placeholder={t.postBody}
+            rows="5"
+            className="input"
+          />
+          {error ? <p className="text-bad text-[13px]">{error}</p> : null}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setEditing(null)}
+              disabled={saving}
+              className="btn-secondary"
+            >
+              {t.cancel}
+            </button>
+            <button type="submit" disabled={saving} className="btn-primary">
+              {saving ? "…" : t.save}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </MobileShell>
   );
 }

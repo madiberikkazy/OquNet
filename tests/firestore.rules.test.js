@@ -801,30 +801,134 @@ describe("borrowings", () => {
 describe("posts", () => {
   it("the community admin may publish a post", async () => {
     await assertSucceeds(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
-      communityId: C1, authorId: ADMIN_A, authorName: "F L",
+      communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: true,
       title: "Hello", body: "text", createdAt: serverTimestamp(),
+    }));
+  });
+
+  it("a post must say whether it is public", async () => {
+    await assertFails(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
+      communityId: C1, authorId: ADMIN_A, title: "Hello", body: "",
+      createdAt: serverTimestamp(),
     }));
   });
 
   it("a plain member may NOT publish a post", async () => {
     await assertFails(setDoc(doc(as(MEMBER_A), "posts", "p1"), {
-      communityId: C1, authorId: MEMBER_A, title: "Hello", body: "",
+      communityId: C1, authorId: MEMBER_A, isPublic: true, title: "Hello", body: "",
       createdAt: serverTimestamp(),
     }));
   });
 
   it("an admin may NOT publish into another community", async () => {
     await assertFails(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
-      communityId: C2, authorId: ADMIN_A, title: "Hello", body: "",
+      communityId: C2, authorId: ADMIN_A, isPublic: true, title: "Hello", body: "",
       createdAt: serverTimestamp(),
     }));
   });
 
   it("an admin may NOT forge somebody else's authorship", async () => {
     await assertFails(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
-      communityId: C1, authorId: MEMBER_A, title: "Hello", body: "",
+      communityId: C1, authorId: MEMBER_A, isPublic: true, title: "Hello", body: "",
       createdAt: serverTimestamp(),
     }));
+  });
+
+  // The Home feed: public posts are readable by anyone signed in, private ones
+  // only by the community's own members.
+  describe("the discovery feed", () => {
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const db = ctx.firestore();
+        await setDoc(doc(db, "posts", "public-1"), {
+          communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: true,
+          title: "Open notice", body: "", createdAt: Date.now(),
+        });
+        await setDoc(doc(db, "posts", "private-1"), {
+          communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: false,
+          title: "Members only", body: "", createdAt: Date.now(),
+        });
+        // Written before the flag existed.
+        await setDoc(doc(db, "posts", "legacy-1"), {
+          communityId: C1, authorId: ADMIN_A, authorName: "F L",
+          title: "Old notice", body: "", createdAt: Date.now(),
+        });
+      });
+    });
+
+    it("an outsider may read a public post", async () => {
+      await assertSucceeds(getDoc(doc(as(MEMBER_B), "posts", "public-1")));
+    });
+
+    it("an outsider may list public posts", async () => {
+      const q = query(collection(as(MEMBER_B), "posts"), where("isPublic", "==", true));
+      await assertSucceeds(getDocs(q));
+    });
+
+    it("an outsider may NOT read a private community's post", async () => {
+      await assertFails(getDoc(doc(as(MEMBER_B), "posts", "private-1")));
+    });
+
+    it("an outsider may NOT read a post that predates the flag", async () => {
+      await assertFails(getDoc(doc(as(MEMBER_B), "posts", "legacy-1")));
+    });
+
+    it("a member still reads their own community's private posts", async () => {
+      await assertSucceeds(getDoc(doc(as(MEMBER_A), "posts", "private-1")));
+      await assertSucceeds(getDoc(doc(as(MEMBER_A), "posts", "legacy-1")));
+    });
+
+    it("an outsider may NOT list every post", async () => {
+      await assertFails(getDocs(collection(as(MEMBER_B), "posts")));
+    });
+
+    it("the owning admin may re-stamp visibility, and only that", async () => {
+      await assertSucceeds(updateDoc(doc(as(ADMIN_A), "posts", "public-1"), { isPublic: false }));
+      await assertFails(updateDoc(doc(as(ADMIN_B), "posts", "public-1"), { isPublic: false }));
+      await assertFails(updateDoc(doc(as(MEMBER_A), "posts", "public-1"), { isPublic: false }));
+      // Not a back door into editing the text.
+      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "public-1"), {
+        isPublic: false, communityId: C2,
+      }));
+    });
+  });
+
+  describe("editing", () => {
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), "posts", "p1"), {
+          communityId: C1, authorId: ADMIN_A, authorName: "F L",
+          title: "Hello", body: "text", createdAt: Date.now(),
+        });
+      });
+    });
+
+    it("the author may fix their own post", async () => {
+      await assertSucceeds(updateDoc(doc(as(ADMIN_A), "posts", "p1"), {
+        title: "Hello again", body: "corrected",
+      }));
+    });
+
+    it("a plain member may NOT edit a post", async () => {
+      await assertFails(updateDoc(doc(as(MEMBER_A), "posts", "p1"), { title: "Nope" }));
+    });
+
+    it("another community's admin may NOT edit it", async () => {
+      await assertFails(updateDoc(doc(as(ADMIN_B), "posts", "p1"), { title: "Nope" }));
+    });
+
+    it("an edit may not empty the title", async () => {
+      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), { title: "" }));
+    });
+
+    it("an edit may not re-attribute or move the post", async () => {
+      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), { authorId: MEMBER_A }));
+      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), { communityId: C2 }));
+    });
+
+    it("a post still cannot be deleted", async () => {
+      await assertFails(deleteDoc(doc(as(ADMIN_A), "posts", "p1")));
+    });
   });
 });
 
