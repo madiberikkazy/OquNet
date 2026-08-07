@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#2853AF" />
+    <!-- Painted by the OS around the app: the Android status bar, and the tab
+         strip in a browser. It has to be the page background, not the brand
+         colour, or a white app sits under a blue bar. Kept in sync with the
+         in-app theme toggle by ThemeContext; the inline script below sets it
+         before first paint. -->
+    <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="Share books with your community. Borrow, lend, and discover new reading experiences." />
     <meta name="keywords" content="books, sharing, community, library, reading" />
     <meta name="author" content="OquNet" />
@@ -11,9 +16,11 @@
     <!-- PWA Meta Tags -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- iOS has no runtime equivalent of theme-color. "default" tracks the page
+         instead of forcing white-on-transparent text over a light background,
+         which is what "black-translucent" was doing. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="OquNet" />
-    <meta name="apple-mobile-web-app-status-bar" content="black-translucent" />
     
     <!-- App Icons -->
     <link rel="icon" type="image/svg+xml" href="/drawable/logo.svg" />
@@ -33,11 +40,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <!-- Anti-flash: apply saved theme before first paint to avoid white flash -->
+    <!-- Anti-flash: apply saved theme before first paint to avoid white flash.
+         The system bars are set here too — Android reads theme-color and the
+         page's color-scheme at load, so leaving them to React would show a
+         white status bar for one frame on a dark launch. -->
     <script>
       (function() {
-        var t = localStorage.getItem('theme');
-        if (t === 'dark') document.documentElement.classList.add('dark');
+        var dark = localStorage.getItem('theme') === 'dark';
+        if (dark) document.documentElement.classList.add('dark');
+        // Must match --bg-base in src/index.css.
+        var bar = document.querySelector('meta[name="theme-color"]');
+        if (bar) bar.setAttribute('content', dark ? '#0D1420' : '#ffffff');
       })();
     </script>
   </head>

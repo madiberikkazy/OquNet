@@ -6,6 +6,12 @@
    COLOUR TOKENS  — light mode defaults
    ═══════════════════════════════════════════════════════════════════ */
 :root {
+  /* Tells the browser which set of system surfaces to paint: the Android
+     navigation bar in a standalone PWA, scrollbars, and native form controls.
+     Without it those stay in the OS default and a dark app keeps a white
+     scrollbar and a light nav bar. */
+  color-scheme: light;
+
   /* Brand — #2853AF */
   --brand-50:  #EDF1FB;
   --brand-100: #D5E0F5;
@@ -44,6 +50,8 @@
    DARK MODE OVERRIDES  — applied when <html class="dark">
    ═══════════════════════════════════════════════════════════════════ */
 .dark {
+  color-scheme: dark;
+
   --ink-900: #F0F4FF;
   --ink-700: #C5CEDF;
   --ink-500: #8A97A8;

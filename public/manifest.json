@@ -6,8 +6,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#ffffff",
-  "theme_color": "#2853AF",
+  "background_color": "#032081",
+  "theme_color": "#032081",
   "categories": ["books", "social"],
   "screenshots": [
     {
