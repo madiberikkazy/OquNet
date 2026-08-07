@@ -515,8 +515,11 @@ export function normalizeBookPatch(patch) {
 // rules freeze all four.
 
 const POST_PATCH_FIELDS = Object.freeze({
-  title: (v) => requiredText("posts", "title", v, LIMITS.NAME_MAX, "addBookErrName"),
-  body: (v) => clampText(v, LIMITS.DESCRIPTION_MAX),
+  // The text is the post, so it is the field that may not be emptied. `title`
+  // is here only for the posts written when it was the required one; nothing
+  // creates it any more, and an edit may clear it.
+  body: (v) => requiredText("posts", "body", v, LIMITS.DESCRIPTION_MAX, "fillAllFields"),
+  title: (v) => clampText(v, LIMITS.NAME_MAX),
 });
 
 const POST_IMMUTABLE = Object.freeze(["communityId", "authorId", "authorName"]);

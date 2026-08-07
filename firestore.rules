@@ -431,11 +431,15 @@ service cloud.firestore {
         && (resource.data.isPublic == true
             || resource.data.communityId == myCommunity());
 
+      // A post is its text. `title` used to be the required field and is kept
+      // only because posts written under that rule still carry one — nothing
+      // creates it any more, and the screen that writes posts asks for one
+      // thing, which is what a noticeboard entry actually is.
       allow create: if isAdminOf(request.resource.data.communityId)
         && request.resource.data.authorId == uid()
         && request.resource.data.isPublic is bool
-        && request.resource.data.title is string
-        && request.resource.data.title.size() > 0;
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0;
 
       allow update: if postAuthorEdit() || postVisibilitySync() || postLikeRollup();
 
@@ -449,15 +453,15 @@ service cloud.firestore {
 
     // An author fixing their own notice. `touchesOnly` is what keeps this from
     // becoming a way to re-attribute a post, move it to another community, or
-    // publish it: everything that identifies the post stays put, and a title may
-    // be corrected but not emptied — the create rule refuses a blank one, so an
-    // edit that could blank it would be a hole in the same rule.
+    // publish it: everything that identifies the post stays put, and the text
+    // may be corrected but not emptied — the create rule refuses a blank one, so
+    // an edit that could blank it would be a hole in the same rule.
     function postAuthorEdit() {
       return isAdminOf(resource.data.communityId)
         && resource.data.authorId == uid()
         && touchesOnly(['title', 'body'].toSet())
-        && request.resource.data.title is string
-        && request.resource.data.title.size() > 0;
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0;
     }
 
     // Re-stamping visibility when the community's privacy changes. The admin of

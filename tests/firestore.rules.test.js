@@ -802,34 +802,41 @@ describe("posts", () => {
   it("the community admin may publish a post", async () => {
     await assertSucceeds(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
       communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: true,
-      title: "Hello", body: "text", createdAt: serverTimestamp(),
+      body: "text", createdAt: serverTimestamp(),
     }));
   });
 
   it("a post must say whether it is public", async () => {
     await assertFails(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
-      communityId: C1, authorId: ADMIN_A, title: "Hello", body: "",
+      communityId: C1, authorId: ADMIN_A, body: "text",
+      createdAt: serverTimestamp(),
+    }));
+  });
+
+  it("a post must have text", async () => {
+    await assertFails(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
+      communityId: C1, authorId: ADMIN_A, isPublic: true, body: "",
       createdAt: serverTimestamp(),
     }));
   });
 
   it("a plain member may NOT publish a post", async () => {
     await assertFails(setDoc(doc(as(MEMBER_A), "posts", "p1"), {
-      communityId: C1, authorId: MEMBER_A, isPublic: true, title: "Hello", body: "",
+      communityId: C1, authorId: MEMBER_A, isPublic: true, body: "text",
       createdAt: serverTimestamp(),
     }));
   });
 
   it("an admin may NOT publish into another community", async () => {
     await assertFails(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
-      communityId: C2, authorId: ADMIN_A, isPublic: true, title: "Hello", body: "",
+      communityId: C2, authorId: ADMIN_A, isPublic: true, body: "text",
       createdAt: serverTimestamp(),
     }));
   });
 
   it("an admin may NOT forge somebody else's authorship", async () => {
     await assertFails(setDoc(doc(as(ADMIN_A), "posts", "p1"), {
-      communityId: C1, authorId: MEMBER_A, isPublic: true, title: "Hello", body: "",
+      communityId: C1, authorId: MEMBER_A, isPublic: true, body: "text",
       createdAt: serverTimestamp(),
     }));
   });
@@ -910,20 +917,24 @@ describe("posts", () => {
     });
 
     it("a plain member may NOT edit a post", async () => {
-      await assertFails(updateDoc(doc(as(MEMBER_A), "posts", "p1"), { title: "Nope" }));
+      await assertFails(updateDoc(doc(as(MEMBER_A), "posts", "p1"), { body: "Nope" }));
     });
 
     it("another community's admin may NOT edit it", async () => {
-      await assertFails(updateDoc(doc(as(ADMIN_B), "posts", "p1"), { title: "Nope" }));
+      await assertFails(updateDoc(doc(as(ADMIN_B), "posts", "p1"), { body: "Nope" }));
     });
 
-    it("an edit may not empty the title", async () => {
-      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), { title: "" }));
+    it("an edit may not empty the text", async () => {
+      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), { body: "" }));
     });
 
     it("an edit may not re-attribute or move the post", async () => {
-      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), { authorId: MEMBER_A }));
-      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), { communityId: C2 }));
+      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), {
+        body: "Rewritten", authorId: MEMBER_A,
+      }));
+      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), {
+        body: "Rewritten", communityId: C2,
+      }));
     });
 
     it("the author may take their own post down", async () => {
@@ -945,11 +956,11 @@ describe("posts", () => {
         const db = ctx.firestore();
         await setDoc(doc(db, "posts", "open"), {
           communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: true,
-          title: "Open", body: "", likeCount: 2, createdAt: Date.now(),
+          title: "Open", body: "text", likeCount: 2, createdAt: Date.now(),
         });
         await setDoc(doc(db, "posts", "closed"), {
           communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: false,
-          title: "Closed", body: "", likeCount: 0, createdAt: Date.now(),
+          title: "Closed", body: "text", likeCount: 0, createdAt: Date.now(),
         });
       });
     });
@@ -977,7 +988,7 @@ describe("posts", () => {
 
     it("a like may not carry anything else along", async () => {
       await assertFails(updateDoc(doc(as(MEMBER_B), "posts", "open"), {
-        likeCount: 3, title: "Hijacked",
+        likeCount: 3, body: "Hijacked",
       }));
     });
 
