@@ -6,6 +6,7 @@ import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import LikeButton from "../../components/LikeButton.jsx";
+import AppIcon from "../../components/AppIcon.jsx";
 import {
   listPostsByCommunity, listPublicPosts, getCommunity,
   searchCommunities, searchUsers, togglePostLike,
@@ -168,14 +169,9 @@ export default function Home() {
             <Link
               to="/profile/liked"
               aria-label={t.likedPosts}
-              className="shrink-0 w-10 h-10 inline-flex items-center justify-center text-brand-500 active:scale-90 transition"
+              className="shrink-0 w-10 h-10 inline-flex items-center justify-center active:scale-90 transition"
             >
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 20.5s-7.5-4.7-7.5-10.4a4.3 4.3 0 0 1 7.5-2.85 4.3 4.3 0 0 1 7.5 2.85c0 5.7-7.5 10.4-7.5 10.4Z"
-                  stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"
-                />
-              </svg>
+              <AppIcon name="heart" size={26} alt={t.likedPosts} />
             </Link>
           }
         />

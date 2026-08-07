@@ -21,6 +21,7 @@ export const communityIcon     = "/drawable/community.svg";
 export const roleIcon          = "/drawable/role.svg";
 export const cameraIcon        = "/drawable/camera.svg";
 export const settingsIcon      = "/drawable/settings.svg";
+export const heartIcon         = "/drawable/heart.svg";
 /** The app mark itself — a full-bleed tile, so it carries its own background. */
 export const logoIcon          = "/drawable/logo.svg";
 
@@ -39,6 +40,7 @@ export const ICONS = Object.freeze({
   role:          roleIcon,
   camera:        cameraIcon,
   settings:      settingsIcon,
+  heart:         heartIcon,
   logo:          logoIcon,
 });
 

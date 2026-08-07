@@ -311,7 +311,6 @@ const kz = {
   supportIntro: "Сұрағыңыз бар ма? Бізге жазыңыз — жауап береміз.",
   // Community posts
   editPost: "Жазбаны өзгерту",
-  postTitle: "Тақырыбы",
   postBody: "Жазба мәтіні",
   postSaved: "Жазба сақталды",
   deletePostConfirm: "Жазбаны жою керек пе?",
@@ -726,7 +725,6 @@ const ru = {
   supportIntro: "Есть вопрос? Напишите нам — мы ответим.",
   // Community posts
   editPost: "Редактировать публикацию",
-  postTitle: "Заголовок",
   postBody: "Текст публикации",
   postSaved: "Публикация сохранена",
   deletePostConfirm: "Удалить публикацию?",
@@ -1141,7 +1139,6 @@ const en = {
   supportIntro: "Got a question? Write to us — we'll get back to you.",
   // Community posts
   editPost: "Edit post",
-  postTitle: "Title",
   postBody: "Post text",
   postSaved: "Post saved",
   deletePostConfirm: "Delete this post?",
