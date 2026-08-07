@@ -6,6 +6,8 @@ import {
   getMockSession,
   signOut as svcSignOut,
   deleteAccount as svcDeleteAccount,
+  requestEmailChange as svcRequestEmailChange,
+  syncEmailFromAuth,
 } from "../firebase/auth.js";
 
 const AuthContext = createContext(null);
@@ -31,7 +33,10 @@ export function AuthProvider({ children }) {
   try {
     if (fbUser) {
       const profile = await getUserById(fbUser.uid);
-      setUser(profile);
+      // An email change is confirmed from the new inbox, outside this app —
+      // so the account can come back with an address the profile has never
+      // seen. This is where the profile catches up.
+      setUser(await syncEmailFromAuth(profile));
     } else {
       setUser(null);
     }
@@ -89,6 +94,20 @@ export function AuthProvider({ children }) {
         await svcSignOut();
         setUser(null);
         setViewRole(null);
+      },
+
+      /**
+       * Ask Firebase to send a confirmation link to a new address. Nothing
+       * changes until the user opens it, so there is no local state to update
+       * here — except in mock mode, where the change is immediate and the
+       * refreshed profile is what the screen should show.
+       */
+      async changeEmail({ newEmail, password }) {
+        const sentTo = await svcRequestEmailChange({ newEmail, password });
+        if (!isFirebaseConfigured && user?.id) {
+          setUser(await getUserById(user.id));
+        }
+        return sentTo;
       },
 
       /**

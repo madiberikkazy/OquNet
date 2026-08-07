@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { FALLBACK_COVER } from "./BookCard.jsx";
 import { t } from "../utils/i18n.js";
@@ -29,7 +30,11 @@ export default function NewBooksRail({ books }) {
 }
 
 function NewBookCard({ book }) {
-  const cover = book.coverUrl || FALLBACK_COVER;
+  // A stored URL can be dead — the host went away, the file was removed, the
+  // link was mistyped. Without this the card is a blank grey rectangle and the
+  // book looks broken rather than simply unillustrated.
+  const [broken, setBroken] = useState(false);
+  const cover = (!broken && book.coverUrl) || FALLBACK_COVER;
 
   return (
     <Link to={`/books/${book.id}`} className="shrink-0 w-[136px] snap-start active:opacity-80 transition">
@@ -41,10 +46,15 @@ function NewBookCard({ book }) {
           className="absolute inset-0 w-full h-full object-cover scale-125 blur-xl"
         />
         <div className="absolute inset-0 flex items-center justify-center p-3">
+          {/* `w-full h-full` + object-contain, NOT max-w/max-h: the max-*
+              variants only ever shrink an image, so anything smaller than the
+              card — or an SVG with no intrinsic size — drew at its own tiny
+              size or vanished entirely. Contain still keeps the aspect ratio. */}
           <img
             src={cover}
             alt={book.name}
-            className="max-w-full max-h-full object-contain rounded-md shadow-soft"
+            onError={() => setBroken(true)}
+            className="w-full h-full object-contain rounded-md shadow-soft"
           />
         </div>
       </div>

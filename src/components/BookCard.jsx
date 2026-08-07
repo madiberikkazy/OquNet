@@ -1,13 +1,18 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import BookStatusBadge from "./BookStatusBadge.jsx";
 import SaveButton from "./SaveButton.jsx";
 import { genreLabel } from "../utils/i18n.js";
 import { ratingSummary, formatRating } from "../utils/rating.js";
 
+// `width`/`height` are not decoration: an SVG with only a viewBox has no
+// intrinsic size, and an <img> sized by `max-width`/`max-height` alone then has
+// nothing to scale *from* and collapses to nothing. Every box this is dropped
+// into is a different shape, so it keeps the aspect ratio and lets CSS fit it.
 export const FALLBACK_COVER =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 90'><rect width='60' height='90' fill='#dde5ee'/><text x='50%' y='52%' text-anchor='middle' fill='#5b6573' font-family='Inter' font-size='9'>OquNet</text></svg>`
+    `<svg xmlns='http://www.w3.org/2000/svg' width='60' height='90' viewBox='0 0 60 90'><rect width='60' height='90' fill='#dde5ee'/><text x='50%' y='52%' text-anchor='middle' fill='#5b6573' font-family='Inter' font-size='9'>OquNet</text></svg>`
   );
 
 /**
@@ -22,6 +27,9 @@ export const FALLBACK_COVER =
 export default function BookCard({ book, onSaveToggle, saved, showRating = true }) {
   const status = book.status || "available";
   const rating = ratingSummary(book);
+  // Same reason as the rail: a dead URL should fall back to the placeholder
+  // rather than leaving the browser's broken-image glyph in the row.
+  const [broken, setBroken] = useState(false);
 
   return (
     <Link
@@ -29,8 +37,9 @@ export default function BookCard({ book, onSaveToggle, saved, showRating = true 
       className="flex gap-3 px-4 py-3 border-b border-ink-100 last:border-b-0 active:bg-ink-100/40 transition"
     >
       <img
-        src={book.coverUrl || FALLBACK_COVER}
+        src={(!broken && book.coverUrl) || FALLBACK_COVER}
         alt={book.name}
+        onError={() => setBroken(true)}
         className="w-[68px] h-[88px] rounded-md object-cover bg-ink-100 shrink-0"
       />
       <div className="flex-1 min-w-0 flex flex-col">

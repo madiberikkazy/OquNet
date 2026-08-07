@@ -162,6 +162,11 @@ export default function Login() {
           />
           <form
             onSubmit={submitReset}
+            // The input is type="email", so the browser would block submit on a
+            // malformed address and show its own tooltip — in its own language,
+            // and never the app's message. `submitReset` validates the same
+            // thing and says it in the user's chosen language.
+            noValidate
             className="relative bg-surface rounded-t-3xl px-6 pt-5 pb-10 space-y-4"
           >
             <div className="w-10 h-1 rounded-full bg-ink-200 mx-auto" />

@@ -1,14 +1,19 @@
 // OquNet Service Worker
 // Handles caching, offline support, and PWA features
 
-// Bumped to v2: the navigation strategy changed from cache-first to
-// network-first (see cacheHtmlNetworkFirst below). Renaming the caches makes
-// the activate handler drop every entry written under the old strategy,
-// including any stale index.html still pointing at deleted chunk hashes.
-const CACHE_NAME = 'oqunet-v2';
-const ASSET_CACHE = 'oqunet-assets-v2';
-const API_CACHE = 'oqunet-api-v2';
-const IMAGE_CACHE = 'oqunet-images-v2';
+// Bumped to v3: index.html and manifest.json now carry the system-bar colours
+// (theme-color, background_color). Both were cached under v2 at install time,
+// and manifest.json is not covered by the network-first navigation path, so an
+// installed app would keep launching with the old blue status bar and white
+// splash until the caches were renamed. Renaming makes the activate handler
+// below drop every v2 entry.
+//
+// Rule of thumb: bump these whenever index.html or manifest.json changes in a
+// way users have to see. Hashed JS/CSS take care of themselves.
+const CACHE_NAME = 'oqunet-v3';
+const ASSET_CACHE = 'oqunet-assets-v3';
+const API_CACHE = 'oqunet-api-v3';
+const IMAGE_CACHE = 'oqunet-images-v3';
 
 // Assets to cache on install (app shell).
 // Deliberately no JS/CSS here: their filenames are content-hashed and change

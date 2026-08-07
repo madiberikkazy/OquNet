@@ -419,6 +419,27 @@ describe("users: membership and profile writes", () => {
     }));
   });
 
+  // The email moves in Firebase Auth first (verifyBeforeUpdateEmail, confirmed
+  // from the new inbox). The profile is then allowed to catch up — but only to
+  // the address the caller's own token already carries.
+  it("a user may sync their profile email to the address on their account", async () => {
+    const withToken = testEnv
+      .authenticatedContext(MEMBER_A, { email: "moved@example.com" })
+      .firestore();
+    await assertSucceeds(updateDoc(doc(withToken, "users", MEMBER_A), {
+      email: "moved@example.com",
+    }));
+  });
+
+  it("a user may not set an email their account does not have", async () => {
+    const withToken = testEnv
+      .authenticatedContext(MEMBER_A, { email: "moved@example.com" })
+      .firestore();
+    await assertFails(updateDoc(doc(withToken, "users", MEMBER_A), {
+      email: "someone-elses@example.com",
+    }));
+  });
+
   it("a user may always leave their community", async () => {
     await assertSucceeds(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), { communityId: null }));
   });
