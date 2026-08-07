@@ -314,6 +314,12 @@ const kz = {
   postTitle: "Тақырыбы",
   postBody: "Жазба мәтіні",
   postSaved: "Жазба сақталды",
+  deletePostConfirm: "Жазбаны жою керек пе?",
+  deletePostWarning: "Жазба біржола жойылады. Бұл әрекетті қайтару мүмкін емес.",
+  like: "Ұнату",
+  likedPosts: "Ұнатқан жазбалар",
+  noLikedPosts: "Ұнатқан жазба жоқ",
+  noLikedPostsHint: "Жүректі басыңыз — жазба осында сақталады.",
 
   // Settings — email change
   currentEmail: "Ағымдағы email",
@@ -722,6 +728,12 @@ const ru = {
   postTitle: "Заголовок",
   postBody: "Текст публикации",
   postSaved: "Публикация сохранена",
+  deletePostConfirm: "Удалить публикацию?",
+  deletePostWarning: "Публикация будет удалена безвозвратно. Отменить это действие нельзя.",
+  like: "Нравится",
+  likedPosts: "Понравившиеся публикации",
+  noLikedPosts: "Пока нет понравившихся публикаций",
+  noLikedPostsHint: "Нажмите на сердечко — публикация появится здесь.",
 
   // Settings — email change
   currentEmail: "Текущий email",
@@ -1130,6 +1142,12 @@ const en = {
   postTitle: "Title",
   postBody: "Post text",
   postSaved: "Post saved",
+  deletePostConfirm: "Delete this post?",
+  deletePostWarning: "The post will be deleted permanently. This cannot be undone.",
+  like: "Like",
+  likedPosts: "Liked posts",
+  noLikedPosts: "No liked posts yet",
+  noLikedPostsHint: "Tap the heart and the post lands here.",
 
   // Settings — email change
   currentEmail: "Current email",

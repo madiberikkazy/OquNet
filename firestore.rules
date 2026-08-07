@@ -437,9 +437,14 @@ service cloud.firestore {
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0;
 
-      allow update: if postAuthorEdit() || postVisibilitySync();
+      allow update: if postAuthorEdit() || postVisibilitySync() || postLikeRollup();
 
-      allow delete: if false;
+      // Only the author takes their own notice down. A community admin is the
+      // author of everything they posted, so this is not narrower in practice —
+      // it is narrower in what it permits: no admin reaching into a post
+      // somebody else wrote, including a predecessor's.
+      allow delete: if isAdminOf(resource.data.communityId)
+        && resource.data.authorId == uid();
     }
 
     // An author fixing their own notice. `touchesOnly` is what keeps this from
@@ -464,6 +469,22 @@ service cloud.firestore {
       return isAdminOf(resource.data.communityId)
         && touchesOnly(['isPublic'].toSet())
         && request.resource.data.isPublic is bool;
+    }
+
+    // A like, counted on the post itself. Anyone who can *read* the post can
+    // like it — the same reach the feed has — and the counter may only move by
+    // one, in either direction, and never below zero. That bound is what keeps
+    // this from being a way to write an arbitrary number onto somebody else's
+    // post: which of the two directions a caller is entitled to is held on
+    // their own profile, in `likedPostIds`, where only they can write it.
+    function postLikeRollup() {
+      return signedIn()
+        && (resource.data.isPublic == true || resource.data.communityId == myCommunity())
+        && touchesOnly(['likeCount'].toSet())
+        && request.resource.data.likeCount is int
+        && request.resource.data.likeCount >= 0
+        && (request.resource.data.likeCount == resource.data.get('likeCount', 0) + 1
+            || request.resource.data.likeCount == resource.data.get('likeCount', 0) - 1);
     }
 
     // ═══ notifications ═══

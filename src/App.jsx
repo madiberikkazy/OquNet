@@ -28,6 +28,7 @@ const ReadingNow         = lazyRoute(() => import("./pages/user/ReadingNow.jsx")
 const CompletedBooks     = lazyRoute(() => import("./pages/user/CompletedBooks.jsx"));
 const SavedBooks         = lazyRoute(() => import("./pages/user/SavedBooks.jsx"));
 const Settings           = lazyRoute(() => import("./pages/user/Settings.jsx"));
+const LikedPosts         = lazyRoute(() => import("./pages/user/LikedPosts.jsx"));
 
 // Settings sub-screens — one topic each, reached from the settings hub.
 const PersonalData         = lazyRoute(() => import("./pages/user/settings/PersonalData.jsx"));
@@ -106,6 +107,7 @@ export default function App() {
             <Route path="/profile/reading"   element={<ReadingNow />} />
             <Route path="/profile/completed" element={<CompletedBooks />} />
             <Route path="/profile/saved"     element={<SavedBooks />} />
+            <Route path="/profile/liked"     element={<LikedPosts />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/settings/profile"       element={<PersonalData />} />
             <Route path="/settings/security"      element={<SecuritySettings />} />

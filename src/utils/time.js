@@ -15,6 +15,32 @@
  *   `0`; code that has to tell "not set yet" apart from "the epoch" — an
  *   unresolved `serverTimestamp()`, say — passes `null` and checks for it.
  */
+/**
+ * The date on a post — day, month, year, and deliberately no clock.
+ *
+ * A noticeboard entry is read days after it was written, where "23:53" says
+ * nothing a reader needs and only makes two posts from the same afternoon look
+ * like they belong to different moments. The locale follows the interface
+ * language rather than the device, so the date reads the same way as the text
+ * around it.
+ *
+ * Returns "" for a timestamp that has not resolved yet — a post written on this
+ * device before its `serverTimestamp()` lands — so a caller can leave the line
+ * out rather than print the epoch.
+ */
+export function formatPostDate(value, lang = "kz") {
+  const ms = toMillis(value, null);
+  if (!ms) return "";
+  const locale = lang === "ru" ? "ru-RU" : lang === "en" ? "en-GB" : "kk-KZ";
+  try {
+    return new Date(ms).toLocaleDateString(locale, {
+      day: "2-digit", month: "short", year: "numeric",
+    });
+  } catch {
+    return new Date(ms).toLocaleDateString();
+  }
+}
+
 export function toMillis(value, fallback = 0) {
   if (value == null) return fallback;
   if (typeof value === "number") return Number.isFinite(value) ? value : fallback;

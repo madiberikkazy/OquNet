@@ -926,8 +926,65 @@ describe("posts", () => {
       await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p1"), { communityId: C2 }));
     });
 
-    it("a post still cannot be deleted", async () => {
-      await assertFails(deleteDoc(doc(as(ADMIN_A), "posts", "p1")));
+    it("the author may take their own post down", async () => {
+      await assertSucceeds(deleteDoc(doc(as(ADMIN_A), "posts", "p1")));
+    });
+
+    it("a plain member may NOT delete a post", async () => {
+      await assertFails(deleteDoc(doc(as(MEMBER_A), "posts", "p1")));
+    });
+
+    it("another community's admin may NOT delete it", async () => {
+      await assertFails(deleteDoc(doc(as(ADMIN_B), "posts", "p1")));
+    });
+  });
+
+  describe("likes", () => {
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const db = ctx.firestore();
+        await setDoc(doc(db, "posts", "open"), {
+          communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: true,
+          title: "Open", body: "", likeCount: 2, createdAt: Date.now(),
+        });
+        await setDoc(doc(db, "posts", "closed"), {
+          communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: false,
+          title: "Closed", body: "", likeCount: 0, createdAt: Date.now(),
+        });
+      });
+    });
+
+    it("anyone who can read the post may like it", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_B), "posts", "open"), { likeCount: 3 }));
+    });
+
+    it("and may unlike it", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_B), "posts", "open"), { likeCount: 1 }));
+    });
+
+    it("a member may like their own community's private post", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A), "posts", "closed"), { likeCount: 1 }));
+    });
+
+    it("an outsider may NOT like a post they cannot read", async () => {
+      await assertFails(updateDoc(doc(as(MEMBER_B), "posts", "closed"), { likeCount: 1 }));
+    });
+
+    it("the counter moves by one, not to anything the caller likes", async () => {
+      await assertFails(updateDoc(doc(as(MEMBER_B), "posts", "open"), { likeCount: 9999 }));
+      await assertFails(updateDoc(doc(as(MEMBER_B), "posts", "open"), { likeCount: -1 }));
+    });
+
+    it("a like may not carry anything else along", async () => {
+      await assertFails(updateDoc(doc(as(MEMBER_B), "posts", "open"), {
+        likeCount: 3, title: "Hijacked",
+      }));
+    });
+
+    it("a user may record their own likes on their profile", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_B), "users", MEMBER_B), {
+        likedPostIds: ["open"],
+      }));
     });
   });
 });
