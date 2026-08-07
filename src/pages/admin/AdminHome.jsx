@@ -9,14 +9,12 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
   createPost, listPostsByCommunity, searchUsers, createNotification,
 } from "../../firebase/firestore.js";
-import { useLang } from "../../contexts/LanguageContext.jsx";
 import { formatPostDate } from "../../utils/time.js";
 import { Link, useNavigate } from "react-router-dom";
 
 export default function AdminHome() {
   const { user } = useAuth();
   const { community } = useCommunity();
-  const { lang } = useLang();
   const navigate = useNavigate();
   const [posts, setPosts] = useState([]);
   const [search, setSearch] = useState("");
@@ -107,7 +105,7 @@ export default function AdminHome() {
                   <p className="text-[14px] text-ink-700 mt-1 whitespace-pre-wrap">{p.body}</p>
                   {p.createdAt ? (
                     <p className="text-[12px] text-ink-500 mt-2">
-                      {formatPostDate(p.createdAt, lang)}
+                      {formatPostDate(p.createdAt)}
                     </p>
                   ) : null}
                 </li>

@@ -12,12 +12,11 @@ import {
 } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
 import { formatPostDate } from "../../utils/time.js";
-import { useLang } from "../../contexts/LanguageContext.jsx";
+import { t } from "../../utils/i18n.js";
 
 export default function Home() {
   const { user, refresh } = useAuth();
   const { community }     = useCommunity();
-  const { lang }          = useLang();
 
   const [feed, setFeed]             = useState([]);   // enriched posts with communityMeta
   const [loading, setLoading]       = useState(true);
@@ -162,6 +161,23 @@ export default function Home() {
           onChange={setSearch}
           placeholder="Пайдаланушы немесе қоғамдастық іздеу"
           showFilter={false}
+          rightSlot={
+            /* Liked posts. It sits next to the search field rather than on the
+               profile because it belongs to the feed — it is where the hearts
+               tapped below end up. */
+            <Link
+              to="/profile/liked"
+              aria-label={t.likedPosts}
+              className="shrink-0 w-10 h-10 inline-flex items-center justify-center text-brand-500 active:scale-90 transition"
+            >
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 20.5s-7.5-4.7-7.5-10.4a4.3 4.3 0 0 1 7.5-2.85 4.3 4.3 0 0 1 7.5 2.85c0 5.7-7.5 10.4-7.5 10.4Z"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"
+                />
+              </svg>
+            </Link>
+          }
         />
       </div>
 
@@ -210,18 +226,17 @@ export default function Home() {
         </div>
       ) : (
         /* ── Community feed ── */
-        <div className="px-4 mt-2">
+        <div className="mt-1">
           {loading ? (
-            <div className="space-y-3 mt-2">
+            <div>
               {[1, 2, 3].map((i) => (
-                <div key={i} className="card p-4 animate-pulse space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-ink-100" />
-                    <div className="h-3 w-32 rounded bg-ink-100" />
+                <div key={i} className="flex gap-3 px-4 py-4 border-b border-ink-100 animate-pulse">
+                  <div className="w-11 h-11 rounded-full bg-ink-100 shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-28 rounded bg-ink-100" />
+                    <div className="h-3 w-full rounded bg-ink-100" />
+                    <div className="h-3 w-2/3 rounded bg-ink-100" />
                   </div>
-                  <div className="h-4 w-3/4 rounded bg-ink-100" />
-                  <div className="h-3 w-full rounded bg-ink-100" />
-                  <div className="h-3 w-2/3 rounded bg-ink-100" />
                 </div>
               ))}
             </div>
@@ -236,7 +251,11 @@ export default function Home() {
               <p className="text-[13px] text-ink-400 mt-1">Қоғамдастықтардың жазбалары осында пайда болады</p>
             </div>
           ) : (
-            <ul className="space-y-3 pb-4">
+            /* One row per post, separated by a hairline — no cards. The three
+               columns are fixed so the feed reads as a single column of text:
+               avatar, the post, then the date and its heart stacked at the
+               right edge. */
+            <ul className="pb-4">
               {feed.map((p, idx) => {
                 const isOwnCommunity = p.communityId === community?.id;
                 const prevIsOwnCommunity = idx > 0 && feed[idx - 1].communityId === community?.id;
@@ -244,60 +263,63 @@ export default function Home() {
 
                 return (
                   <li key={p.id}>
-                    {/* Divider between own community posts and others */}
+                    {/* Where the user's own community ends and discovery begins */}
                     {showDivider && (
-                      <div className="flex items-center gap-3 mb-3 mt-1">
+                      <div className="flex items-center gap-3 px-4 py-3">
                         <div className="flex-1 h-px bg-ink-100" />
-                        <p className="text-[11px] text-ink-400 font-medium shrink-0">Басқа қоғамдастықтар</p>
+                        <p className="text-[11px] text-ink-400 font-medium shrink-0">
+                          {t.otherCommunities}
+                        </p>
                         <div className="flex-1 h-px bg-ink-100" />
                       </div>
                     )}
 
-                    <div className="card p-4">
-                      {/* Community header */}
-                      <Link
-                        to={`/community/${p.communityId}`}
-                        className="flex items-center gap-2 mb-3 active:opacity-70 transition"
-                      >
+                    <article className="flex gap-3 px-4 py-4 border-b border-ink-100">
+                      <Link to={`/community/${p.communityId}`} className="shrink-0 active:opacity-70 transition">
                         <Avatar
                           src={p.communityMeta?.photoURL}
                           name={p.communityMeta?.name ?? "?"}
-                          size={28}
+                          size={44}
                         />
-                        <div className="flex-1 min-w-0">
-                          <span className="font-semibold text-[13px] truncate block">
-                            {p.communityMeta?.name}
-                          </span>
-                          <span className="text-[11px] text-ink-500">
-                            @{p.communityMeta?.nickname}
-                          </span>
-                        </div>
-                        {isOwnCommunity && (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 shrink-0">
-                            Сіздің
-                          </span>
-                        )}
                       </Link>
 
-                      {/* Post content */}
-                      <h4 className="font-semibold text-[15px] leading-snug">{p.title}</h4>
-                      {p.body ? (
-                        <p className="text-[14px] text-ink-700 mt-1.5 whitespace-pre-wrap leading-relaxed">
-                          {p.body}
-                        </p>
-                      ) : null}
-                      <div className="flex items-center justify-between mt-2">
+                      <div className="flex-1 min-w-0">
+                        <Link
+                          to={`/community/${p.communityId}`}
+                          className="font-bold text-[15px] text-brand-700 active:opacity-70 transition"
+                        >
+                          {p.communityMeta?.nickname
+                            ? p.communityMeta.nickname
+                            : p.communityMeta?.name}
+                        </Link>
+
+                        {/* The title carries the same weight as the handle above
+                            it, so a post that has one reads as a headline and a
+                            post that is only text still looks like the design. */}
+                        {p.title ? (
+                          <p className="text-[15px] text-ink-900 font-semibold leading-snug mt-1">
+                            {p.title}
+                          </p>
+                        ) : null}
+                        {p.body ? (
+                          <p className="text-[15px] text-ink-900 whitespace-pre-wrap leading-relaxed mt-0.5">
+                            {p.body}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-col items-end gap-3 shrink-0 w-14">
+                        <span className="text-[12px] text-ink-300 tabular-nums">
+                          {formatPostDate(p.createdAt)}
+                        </span>
                         <LikeButton
                           liked={likedIds.has(p.id)}
                           count={p.likeCount || 0}
                           onClick={() => onLike(p)}
                           disabled={!user?.id}
                         />
-                        <p className="text-[11px] text-ink-400">
-                          {formatPostDate(p.createdAt, lang)}
-                        </p>
                       </div>
-                    </div>
+                    </article>
                   </li>
                 );
               })}

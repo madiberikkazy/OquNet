@@ -1,5 +1,8 @@
 export default function SearchBar({
   value, onChange, placeholder = "Search...", showFilter = true, onFilterClick, onBack, filterActive = false,
+  // Anything a screen wants to sit to the right of the field — Home puts its
+  // liked-posts shortcut there, where the filter button lives on Books.
+  rightSlot = null,
 }) {
   return (
     <div className="flex items-center gap-2 px-4">
@@ -22,6 +25,7 @@ export default function SearchBar({
           className="w-full bg-ink-100 rounded-2xl pl-10 pr-12 py-3 text-[15px] placeholder-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-200"
         />
       </div>
+      {rightSlot}
       {showFilter ? (
         <button aria-label="Filter" onClick={onFilterClick} className="icon-btn shrink-0 relative">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">

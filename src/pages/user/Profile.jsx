@@ -143,28 +143,6 @@ export default function Profile() {
         />
       </div>
 
-      {/* Liked posts — the feed's counterpart, kept out of the stats grid
-          because it counts posts, not books. */}
-      <div className="px-4 mt-3">
-        <Link
-          to="/profile/liked"
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-ink-100 active:scale-[0.99] transition"
-        >
-          <span className="w-9 h-9 rounded-xl bg-surface flex items-center justify-center shrink-0">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-bad">
-              <path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.65A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-            </svg>
-          </span>
-          <span className="flex-1 text-[14px] font-semibold text-ink-900">{t.likedPosts}</span>
-          <span className="text-[14px] text-ink-500 tabular-nums">
-            {(user?.likedPostIds || []).length}
-          </span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
-            <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </Link>
-      </div>
-
       {/* Admin switch-back banner */}
       {isViewingAsUser && (
         <div className="px-4 mt-4">

@@ -318,6 +318,7 @@ const kz = {
   deletePostWarning: "Жазба біржола жойылады. Бұл әрекетті қайтару мүмкін емес.",
   like: "Ұнату",
   likedPosts: "Ұнатқан жазбалар",
+  otherCommunities: "Басқа қоғамдастықтар",
   noLikedPosts: "Ұнатқан жазба жоқ",
   noLikedPostsHint: "Жүректі басыңыз — жазба осында сақталады.",
 
@@ -732,6 +733,7 @@ const ru = {
   deletePostWarning: "Публикация будет удалена безвозвратно. Отменить это действие нельзя.",
   like: "Нравится",
   likedPosts: "Понравившиеся публикации",
+  otherCommunities: "Другие сообщества",
   noLikedPosts: "Пока нет понравившихся публикаций",
   noLikedPostsHint: "Нажмите на сердечко — публикация появится здесь.",
 
@@ -1146,6 +1148,7 @@ const en = {
   deletePostWarning: "The post will be deleted permanently. This cannot be undone.",
   like: "Like",
   likedPosts: "Liked posts",
+  otherCommunities: "Other communities",
   noLikedPosts: "No liked posts yet",
   noLikedPostsHint: "Tap the heart and the post lands here.",
 

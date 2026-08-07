@@ -16,29 +16,25 @@
  *   unresolved `serverTimestamp()`, say — passes `null` and checks for it.
  */
 /**
- * The date on a post — day, month, year, and deliberately no clock.
+ * The date on a post — `27.05.25`, and deliberately no clock.
  *
  * A noticeboard entry is read days after it was written, where "23:53" says
  * nothing a reader needs and only makes two posts from the same afternoon look
- * like they belong to different moments. The locale follows the interface
- * language rather than the device, so the date reads the same way as the text
- * around it.
+ * like they belong to different moments. Numeric and fixed-width rather than
+ * localised month names, because it sits in the corner of every row and a
+ * three-letter month in one language and a six-letter one in another would
+ * shift the column about.
  *
  * Returns "" for a timestamp that has not resolved yet — a post written on this
  * device before its `serverTimestamp()` lands — so a caller can leave the line
  * out rather than print the epoch.
  */
-export function formatPostDate(value, lang = "kz") {
+export function formatPostDate(value) {
   const ms = toMillis(value, null);
   if (!ms) return "";
-  const locale = lang === "ru" ? "ru-RU" : lang === "en" ? "en-GB" : "kk-KZ";
-  try {
-    return new Date(ms).toLocaleDateString(locale, {
-      day: "2-digit", month: "short", year: "numeric",
-    });
-  } catch {
-    return new Date(ms).toLocaleDateString();
-  }
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${pad(d.getFullYear() % 100)}`;
 }
 
 export function toMillis(value, fallback = 0) {

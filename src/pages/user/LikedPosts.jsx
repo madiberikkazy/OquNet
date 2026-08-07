@@ -4,7 +4,6 @@ import SettingsPage from "../../components/SettingsPage.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import LikeButton from "../../components/LikeButton.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { useLang } from "../../contexts/LanguageContext.jsx";
 import { getPostsByIds, getCommunity, togglePostLike } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
 import { formatPostDate } from "../../utils/time.js";
@@ -23,7 +22,6 @@ import { t } from "../../utils/i18n.js";
  */
 export default function LikedPosts() {
   const { user, refresh } = useAuth();
-  const { lang } = useLang();
 
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -121,7 +119,7 @@ export default function LikedPosts() {
 
                 <div className="flex items-center justify-between mt-2">
                   <LikeButton liked count={p.likeCount || 0} onClick={() => unlike(p)} />
-                  <p className="text-[11px] text-ink-400">{formatPostDate(p.createdAt, lang)}</p>
+                  <p className="text-[11px] text-ink-400">{formatPostDate(p.createdAt)}</p>
                 </div>
               </li>
             ))}
