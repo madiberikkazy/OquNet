@@ -16,16 +16,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
 
-  /**
-   * viewRole — local-only UI toggle, never written to the database.
-   *
-   * null  → follow the real user.role from the DB (default)
-   * "admin" | "user" → admin has manually switched their view
-   *
-   * Resets to null whenever the logged-in user changes (login / logout).
-   */
-  const [viewRole, setViewRole] = useState(null);
-
   useEffect(() => {
     let unsubscribe = () => {};
     if (isFirebaseConfigured) {
@@ -68,17 +58,14 @@ export function AuthProvider({ children }) {
       setUser,
 
       /**
-       * The role that drives the UI (RoleRoute, profile pages, etc.).
-       * Defaults to the real DB role; overridden locally when an admin
-       * calls switchView().
+       * True when the user's DB role is "admin".
+       *
+       * There is one interface now: every screen an admin sees is the screen a
+       * reader sees, and this only decides whether the community they own hands
+       * them its management controls on top. It is not a mode — there is
+       * nothing to switch into and nothing to switch back from.
        */
-      viewRole: viewRole ?? user?.role ?? "user",
-
-      /** True only when the user's real DB role is "admin". */
       isAdmin: user?.role === "admin",
-
-      /** True when an admin is currently browsing in user-view mode. */
-      isViewingAsUser: user?.role === "admin" && (viewRole ?? user?.role) === "user",
 
       async refresh() {
         if (!user?.id) return;
@@ -93,7 +80,6 @@ export function AuthProvider({ children }) {
       async signOut() {
         await svcSignOut();
         setUser(null);
-        setViewRole(null);
       },
 
       /**
@@ -117,22 +103,9 @@ export function AuthProvider({ children }) {
       async deleteAccount({ password } = {}) {
         await svcDeleteAccount({ password });
         setUser(null);
-        setViewRole(null);
-      },
-
-      /**
-       * Toggle between admin and user views — LOCAL ONLY, no DB write.
-       * Only available to users whose real role is "admin".
-       */
-      switchView() {
-        if (!user || user.role !== "admin") return;
-        setViewRole((prev) => {
-          const current = prev ?? user.role;
-          return current === "admin" ? "user" : "admin";
-        });
       },
     }),
-    [user, loading, viewRole]
+    [user, loading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

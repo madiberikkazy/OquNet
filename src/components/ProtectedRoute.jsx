@@ -5,10 +5,10 @@ import { t } from "../utils/i18n.js";
 /**
  * Gates a subtree of routes behind authentication.
  *
- * Pass `adminOnly` to additionally require the real DB role to be "admin".
- * The local viewRole toggle (admin-browsing-as-user) is intentionally
- * NOT respected here — the route is locked by the underlying DB role
- * so a switched view can't bypass admin pages, and users can't elevate.
+ * Pass `adminOnly` to additionally require the DB role to be "admin" — the two
+ * book forms reached from a community page are the only routes that use it.
+ * The role comes from the profile document, never from anything the client
+ * holds, so there is no view to switch into that would open these.
  */
 export default function ProtectedRoute({ adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth();

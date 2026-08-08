@@ -138,7 +138,6 @@ const kz = {
   continueGetBook: "Кітапты алуды жалғастыру →",
   codeAlreadySent: "Код жіберілді. Келесі бетте енгізіңіз.",
   yourBook: "Бұл сіздің кітабыңыз.",
-  adminCantBorrow: "Администраторлар кітап ала алмайды. Пайдаланушы режиміне ауысыңыз.",
   notCommunityMember: "Бұл кітапты тек қауымдастық мүшелері ала алады.",
   returnBook: "Кітапты қайтару",
   youHoldBook: "Бұл кітап қазір сізде. Оны қайтармайынша қайта ала алмайсыз.",
@@ -219,10 +218,7 @@ const kz = {
   memberReadingTitle: "Қазір оқып жатыр",
   memberOwnedTitle: "Мүшенің кітаптары",
   communityAdmin: "Қоғамдастық әкімшісі",
-  viewingAsUser: "Пайдаланушы режимі",
   exit: "Шығу",
-  switchToAdminView: "Әкімші режиміне ауысу",
-  switchToAdminViewHint: "Қоғамдастықты басқаруға оралу",
   shareProfile: "Профильмен бөлісу",
   shareProfileText: (name) => `${name} — OquNet-тегі профиль`,
   linkCopied: "Сілтеме көшірілді",
@@ -330,13 +326,11 @@ const kz = {
   bookReturnedNotifTitle: "Кітабыңыз қайтарылды",
   bookReturnedNotifBody: (name, book) => `${name} «${book}» кітабыңызды сізге қайтарды.`,
   appSection: "Қосымша",
-  switchToAdmin: "Қауымдастық әкімшісі болу",
-  switchToUser: "Пайдаланушы режиміне оралу",
   createCommunity: "Қауымдастық құру",
+  becomeCommunityAdmin: "Қауымдастық құру",
+  becomeCommunityAdminNote: "Өз қауымдастығыңызды құрсаңыз, оны басқара аласыз.",
+  manageCommunity: "Қоғамдастықты басқару",
   logOut: "Шығу",
-  adminNote: "Режимді ауыстыру қауымдастықты жоймайды.",
-  userNote: "Әкімші болу үшін жаңа қауымдастық құру керек.",
-  returnBookFirst: "Алдымен алған кітабыңызды қайтарыңыз.",
 
   // Settings hub — topic rows
   personalData: "Жеке деректер",
@@ -364,11 +358,40 @@ const kz = {
   // Settings — support
   supportIntro: "Сұрағыңыз бар ма? Бізге жазыңыз — жауап береміз.",
   // Community posts
+  newPost: "Жаңа жазба",
+  publish: "Жариялау",
   editPost: "Жазбаны өзгерту",
   postBody: "Жазба мәтіні",
   postSaved: "Жазба сақталды",
   deletePostConfirm: "Жазбаны жою керек пе?",
   deletePostWarning: "Жазба біржола жойылады. Бұл әрекетті қайтару мүмкін емес.",
+
+  // Community management — the admin's controls on the community page
+  deleteBookConfirm: "Кітапты жою керек пе?",
+  deleteBookWarning: "Кітап қоғамдастық сөресінен біржола жойылады.",
+  removeMemberConfirm: "Мүшені шығару керек пе?",
+  removeMemberWarning:
+    "Бұл адам қоғамдастықтан шығарылады. Ол қайтадан кіру өтінішін бере алады.",
+
+  // Join / leave requests — the decision the admin makes on a notification
+  requestApprove: "Қабылдау",
+  requestReject: "Бас тарту",
+  requestApproved: "Өтініш қабылданды",
+  requestRejected: "Өтініш қабылданбады",
+  requestCancelledByUser: "Өтініш болдырылмады",
+  joinRequestSection: "Қосылу өтініші",
+  leaveRequestSection: "Шығу өтініші",
+  joinApprovedTitle: "Өтініш қабылданды 🎉",
+  joinApprovedBody: (name) =>
+    `«${name}» қоғамдастығының әкімшісі өтінішіңізді қабылдады. Қосыласыз ба?`,
+  joinRejectedTitle: "Өтініш қабылданбады",
+  joinRejectedBody: (name) => `Өкінішке қарай, «${name}» қоғамдастығына өтінішіңіз қабылданбады.`,
+  leaveApprovedTitle: "Өтінішіңіз қабылданды",
+  leaveApprovedBody: (name) =>
+    `Әкімші «${name}» қоғамдастығынан шығу өтінішіңізді қабылдады.`,
+  leaveRejectedTitle: "Өтінішіңіз қабылданбады",
+  leaveRejectedBody: (name) =>
+    `Әкімші «${name}» қоғамдастығынан шығу өтінішіңізді қабылдамады.`,
   like: "Ұнату",
   likedPosts: "Ұнатқан жазбалар",
   otherCommunities: "Басқа қоғамдастықтар",
@@ -605,7 +628,6 @@ const ru = {
   continueGetBook: "Продолжить получение книги →",
   codeAlreadySent: "Код уже отправлен. Введите его на следующей странице.",
   yourBook: "Это ваша книга.",
-  adminCantBorrow: "Администраторы не могут брать книги. Переключитесь в режим пользователя.",
   notCommunityMember: "Взять эту книгу могут только участники сообщества.",
   returnBook: "Вернуть книгу",
   youHoldBook: "Эта книга сейчас у вас. Пока не вернёте — не сможете взять снова.",
@@ -687,10 +709,7 @@ const ru = {
   memberReadingTitle: "Читает сейчас",
   memberOwnedTitle: "Книги участника",
   communityAdmin: "Администратор сообщества",
-  viewingAsUser: "Режим просмотра пользователя",
   exit: "Выйти",
-  switchToAdminView: "Переключиться на администратора",
-  switchToAdminViewHint: "Вернуться к управлению сообществом",
   shareProfile: "Поделиться профилем",
   shareProfileText: (name) => `${name} — профиль в OquNet`,
   linkCopied: "Ссылка скопирована",
@@ -798,13 +817,11 @@ const ru = {
   bookReturnedNotifTitle: "Вашу книгу вернули",
   bookReturnedNotifBody: (name, book) => `${name} вернул(а) вам книгу «${book}».`,
   appSection: "Приложение",
-  switchToAdmin: "Стать админом сообщества",
-  switchToUser: "Вернуться в режим пользователя",
   createCommunity: "Создать сообщество",
+  becomeCommunityAdmin: "Создать сообщество",
+  becomeCommunityAdminNote: "Создайте своё сообщество, чтобы управлять им.",
+  manageCommunity: "Управление сообществом",
   logOut: "Выйти",
-  adminNote: "Переключение в режим пользователя не удалит ваше сообщество.",
-  userNote: "Чтобы стать администратором, нужно создать новое сообщество.",
-  returnBookFirst: "Сначала верните взятую книгу.",
 
   // Settings hub — topic rows
   personalData: "Личные данные",
@@ -832,11 +849,41 @@ const ru = {
   // Settings — support
   supportIntro: "Есть вопрос? Напишите нам — мы ответим.",
   // Community posts
+  newPost: "Новая публикация",
+  publish: "Опубликовать",
   editPost: "Редактировать публикацию",
   postBody: "Текст публикации",
   postSaved: "Публикация сохранена",
   deletePostConfirm: "Удалить публикацию?",
   deletePostWarning: "Публикация будет удалена безвозвратно. Отменить это действие нельзя.",
+
+  // Community management — the admin's controls on the community page
+  deleteBookConfirm: "Удалить книгу?",
+  deleteBookWarning: "Книга будет безвозвратно удалена с полки сообщества.",
+  removeMemberConfirm: "Удалить участника?",
+  removeMemberWarning:
+    "Этот пользователь будет удалён из сообщества. Он сможет подать заявку снова.",
+
+  // Join / leave requests — the decision the admin makes on a notification
+  requestApprove: "Принять",
+  requestReject: "Отклонить",
+  requestApproved: "Заявка принята",
+  requestRejected: "Заявка отклонена",
+  requestCancelledByUser: "Заявка отменена",
+  joinRequestSection: "Заявка на вступление",
+  leaveRequestSection: "Заявка на выход",
+  joinApprovedTitle: "Заявка одобрена 🎉",
+  joinApprovedBody: (name) =>
+    `Администратор сообщества «${name}» одобрил вашу заявку. Хотите вступить?`,
+  joinRejectedTitle: "Заявка отклонена",
+  joinRejectedBody: (name) =>
+    `К сожалению, ваша заявка в сообщество «${name}» была отклонена.`,
+  leaveApprovedTitle: "Заявка одобрена",
+  leaveApprovedBody: (name) =>
+    `Администратор одобрил вашу заявку на выход из сообщества «${name}».`,
+  leaveRejectedTitle: "Заявка отклонена",
+  leaveRejectedBody: (name) =>
+    `Администратор отклонил вашу заявку на выход из сообщества «${name}».`,
   like: "Нравится",
   likedPosts: "Понравившиеся публикации",
   otherCommunities: "Другие сообщества",
@@ -1073,7 +1120,6 @@ const en = {
   continueGetBook: "Continue pickup →",
   codeAlreadySent: "Code already sent. Enter it on the next screen.",
   yourBook: "This is your book.",
-  adminCantBorrow: "Admins cannot borrow books. Switch to user mode.",
   notCommunityMember: "Only community members can borrow this book.",
   returnBook: "Return book",
   youHoldBook: "You currently hold this book. Return it before borrowing again.",
@@ -1155,10 +1201,7 @@ const en = {
   memberReadingTitle: "Reading now",
   memberOwnedTitle: "Their books",
   communityAdmin: "Community administrator",
-  viewingAsUser: "User view mode",
   exit: "Exit",
-  switchToAdminView: "Switch to administrator",
-  switchToAdminViewHint: "Go back to managing the community",
   shareProfile: "Share profile",
   shareProfileText: (name) => `${name} on OquNet`,
   linkCopied: "Link copied",
@@ -1266,13 +1309,11 @@ const en = {
   bookReturnedNotifTitle: "Your book is back",
   bookReturnedNotifBody: (name, book) => `${name} returned your book "${book}".`,
   appSection: "App",
-  switchToAdmin: "Become community admin",
-  switchToUser: "Back to user mode",
   createCommunity: "Create community",
+  becomeCommunityAdmin: "Create a community",
+  becomeCommunityAdminNote: "Found your own community and you manage it.",
+  manageCommunity: "Manage community",
   logOut: "Log out",
-  adminNote: "Switching mode does not delete your community.",
-  userNote: "To become an admin, you need to create a new community.",
-  returnBookFirst: "Return your borrowed book first.",
 
   // Settings hub — topic rows
   personalData: "Personal details",
@@ -1300,11 +1341,38 @@ const en = {
   // Settings — support
   supportIntro: "Got a question? Write to us — we'll get back to you.",
   // Community posts
+  newPost: "New post",
+  publish: "Publish",
   editPost: "Edit post",
   postBody: "Post text",
   postSaved: "Post saved",
   deletePostConfirm: "Delete this post?",
   deletePostWarning: "The post will be deleted permanently. This cannot be undone.",
+
+  // Community management — the admin's controls on the community page
+  deleteBookConfirm: "Delete this book?",
+  deleteBookWarning: "The book will be permanently removed from the community shelf.",
+  removeMemberConfirm: "Remove this member?",
+  removeMemberWarning:
+    "This person will be removed from the community. They can ask to join again.",
+
+  // Join / leave requests — the decision the admin makes on a notification
+  requestApprove: "Approve",
+  requestReject: "Decline",
+  requestApproved: "Request approved",
+  requestRejected: "Request declined",
+  requestCancelledByUser: "Request cancelled",
+  joinRequestSection: "Join request",
+  leaveRequestSection: "Leave request",
+  joinApprovedTitle: "Request approved 🎉",
+  joinApprovedBody: (name) =>
+    `The admin of «${name}» approved your request. Would you like to join?`,
+  joinRejectedTitle: "Request declined",
+  joinRejectedBody: (name) => `Unfortunately, your request to join «${name}» was declined.`,
+  leaveApprovedTitle: "Request approved",
+  leaveApprovedBody: (name) => `The admin approved your request to leave «${name}».`,
+  leaveRejectedTitle: "Request declined",
+  leaveRejectedBody: (name) => `The admin declined your request to leave «${name}».`,
   like: "Like",
   likedPosts: "Liked posts",
   otherCommunities: "Other communities",
