@@ -1197,9 +1197,9 @@ describe("readingSessions", () => {
     userId,
     communityId: C1,
     bookId: null,
-    minutes: 30,
+    seconds: 1_805,
     startedAt: 1_700_000_000_000,
-    endedAt: 1_700_001_800_000,
+    endedAt: 1_700_001_805_000,
     dayKey: "2026-08-08",
     createdAt: serverTimestamp(),
     ...over,
@@ -1213,18 +1213,25 @@ describe("readingSessions", () => {
     await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"), session(MEMBER_A2)));
   });
 
-  it("rejects a length that is not a positive whole number of minutes", async () => {
+  it("rejects a length that is not a whole number of seconds", async () => {
     await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"),
-      session(MEMBER_A, { minutes: 0 })));
+      session(MEMBER_A, { seconds: 0 })));
     await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s2"),
-      session(MEMBER_A, { minutes: -5 })));
+      session(MEMBER_A, { seconds: -60 })));
     await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s3"),
-      session(MEMBER_A, { minutes: 12.5 })));
+      session(MEMBER_A, { seconds: 90.5 })));
+  });
+
+  it("rejects a sitting too short to be reading", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"),
+      session(MEMBER_A, { seconds: 29 })));
+    await assertSucceeds(setDoc(doc(as(MEMBER_A), "readingSessions", "s2"),
+      session(MEMBER_A, { seconds: 30 })));
   });
 
   it("rejects a sitting longer than the ten-hour ceiling", async () => {
     await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"),
-      session(MEMBER_A, { minutes: 601 })));
+      session(MEMBER_A, { seconds: 36_001 })));
   });
 
   it("rejects a run that ends before it starts", async () => {
@@ -1261,7 +1268,7 @@ describe("readingSessions", () => {
       await setDoc(doc(ctx.firestore(), "readingSessions", "s1"),
         { ...session(MEMBER_A), createdAt: new Date() });
     });
-    await assertFails(updateDoc(doc(as(MEMBER_A), "readingSessions", "s1"), { minutes: 600 }));
+    await assertFails(updateDoc(doc(as(MEMBER_A), "readingSessions", "s1"), { seconds: 36_000 }));
     await assertFails(deleteDoc(doc(as(MEMBER_A), "readingSessions", "s1")));
   });
 });

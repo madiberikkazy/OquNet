@@ -45,14 +45,14 @@
   --stat-red:    #FDECEC;
   --stat-pink:   #FDE9F0;
 
-  /* Reading heatmap — level 0 is "no reading", 1–4 are the filled shades.
-     A ramp of the brand hue rather than an unrelated palette, so the grid reads
-     as part of the profile and not as a chart pasted onto it. */
-  --heat-0: #E8EDF7;
-  --heat-1: #C3D3F0;
-  --heat-2: #86A6DF;
-  --heat-3: #4A78C9;
-  --heat-4: #1E3E87;
+  /* Soft brand-tinted panel, and the accent text that goes on it.
+     The `brand-*` ramp has no dark-mode variant on purpose — it is the logo
+     colour and stays put. But a `bg-brand-50` panel filled with default ink text
+     breaks in the dark: the panel stays pale while the ink turns light, and the
+     text disappears into it. Anything panel-sized uses these instead, so the
+     surface and the text on it flip together. */
+  --tint:     #EDF1FB;
+  --tint-ink: #1E3E87;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -80,13 +80,10 @@
   --stat-red:    #2E1A1A;
   --stat-pink:   #2E1A22;
 
-  /* Reading heatmap — the ramp inverts in the dark: an empty day has to sit
-     just above the card it is on, and intensity has to read as *brighter*. */
-  --heat-0: #1E2A3B;
-  --heat-1: #24406F;
-  --heat-2: #35619F;
-  --heat-3: #5087D4;
-  --heat-4: #8FB6F5;
+  /* Tinted panel — a shade above the card it sits on rather than below it, with
+     the accent text lightened to match. */
+  --tint:     #1B2537;
+  --tint-ink: #9DBDF5;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

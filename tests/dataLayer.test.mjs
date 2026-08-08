@@ -22,7 +22,9 @@ const {
   NEW_BOOK_WINDOW_DAYS,
 } = await import("../src/firebase/firestore.js");
 
-const { dayKey } = await import("../src/utils/readingProgress.js");
+const {
+  buildReadingWeek, dayKey, formatDuration, readerLevel,
+} = await import("../src/utils/readingProgress.js");
 
 const LS_KEY = "oqunet:db";
 const DAY = 86_400_000;
@@ -280,7 +282,7 @@ describe("community fan-out", () => {
 // The one write in the data layer that lands in two places at once: an
 // immutable row in `readingSessions`, and a folded aggregate on the reader's own
 // profile. These cover the fold, because it is the half a screen actually reads
-// and the half a bug in would be invisible until a heatmap came out wrong.
+// and the half a bug in would be invisible until the weekly chart came out wrong.
 
 describe("reading sessions", () => {
   async function seedReader(id = "r1") {
@@ -296,32 +298,34 @@ describe("reading sessions", () => {
     const endedAt = Date.now();
 
     const { session, patch } = await logReadingSession({
-      userId, communityId: COMMUNITY, minutes: 45, endedAt, readingDays: {},
+      userId, communityId: COMMUNITY, seconds: 2_705, endedAt, readingDays: {},
     });
 
-    assert.equal(session.minutes, 45);
+    // Seconds survive intact — the profile reports HH:MM:SS, so rounding to
+    // whole minutes here would make that readout decorative.
+    assert.equal(session.seconds, 2_705);
     assert.equal(session.dayKey, dayKey(new Date(endedAt)));
     // A session with no explicit start is stamped from its own length, never
     // after its end.
     assert.ok(session.startedAt <= session.endedAt);
 
-    assert.equal(patch.readingMinutes, 45);
-    assert.equal(patch.readingDays[session.dayKey], 45);
+    assert.equal(patch.readingSeconds, 2_705);
+    assert.equal(patch.readingDays[session.dayKey], 2_705);
 
     const rows = await listReadingSessions({ userId });
     assert.equal(rows.length, 1);
-    assert.equal((await getUserById(userId)).readingMinutes, 45);
+    assert.equal((await getUserById(userId)).readingSeconds, 2_705);
   });
 
   it("accumulates two sittings on the same day", async () => {
     const userId = await seedReader();
-    const first = await logReadingSession({ userId, minutes: 20, readingDays: {} });
+    const first = await logReadingSession({ userId, seconds: 1_200, readingDays: {} });
     const second = await logReadingSession({
-      userId, minutes: 25, readingDays: first.patch.readingDays,
+      userId, seconds: 1_505, readingDays: first.patch.readingDays,
     });
 
-    assert.equal(second.patch.readingDays[second.session.dayKey], 45);
-    assert.equal(second.patch.readingMinutes, 45);
+    assert.equal(second.patch.readingDays[second.session.dayKey], 2_705);
+    assert.equal(second.patch.readingSeconds, 2_705);
     assert.equal((await listReadingSessions({ userId })).length, 2);
   });
 
@@ -330,24 +334,35 @@ describe("reading sessions", () => {
     const stale = dayKey(new Date(Date.now() - 500 * 86_400_000));
 
     const { patch } = await logReadingSession({
-      userId, minutes: 10, readingDays: { [stale]: 90 },
+      userId, seconds: 600, readingDays: { [stale]: 5_400 },
     });
 
     assert.equal(patch.readingDays[stale], undefined);
-    assert.equal(patch.readingMinutes, 10, "the total follows the map it is summed from");
+    assert.equal(patch.readingSeconds, 600, "the total follows the map it is summed from");
   });
 
-  it("refuses a session that is not a positive length", async () => {
+  it("refuses a sitting too short to be reading", async () => {
     const userId = await seedReader();
-    await assert.rejects(() => logReadingSession({ userId, minutes: 0 }));
+    await assert.rejects(() => logReadingSession({ userId, seconds: 0 }));
+    await assert.rejects(() => logReadingSession({ userId, seconds: 29 }));
     assert.equal((await listReadingSessions({ userId })).length, 0);
   });
 
-  it("ranks a community by reading minutes, sharing a place on a tie", async () => {
-    for (const [id, minutes] of [["a", 300], ["b", 300], ["c", 120], ["d", 0]]) {
+  it("ranks a community by the trailing week, not by all-time reading", async () => {
+    const today = dayKey();
+    const ancient = dayKey(new Date(Date.now() - 30 * 86_400_000));
+
+    // `d` has read far more in total than anybody, but none of it this week.
+    const fixtures = [
+      ["a", { [today]: 3_600 }],
+      ["b", { [today]: 3_600 }],
+      ["c", { [today]: 1_200 }],
+      ["d", { [ancient]: 100_000 }],
+    ];
+    for (const [id, readingDays] of fixtures) {
       await seedReader(id);
       const db = JSON.parse(store.get(LS_KEY));
-      db.users.find((u) => u.id === id).readingMinutes = minutes;
+      db.users.find((u) => u.id === id).readingDays = readingDays;
       store.set(LS_KEY, JSON.stringify(db));
     }
 
@@ -355,8 +370,70 @@ describe("reading sessions", () => {
     assert.equal((await rank("a")).place, 1);
     assert.equal((await rank("b")).place, 1, "a tie shares the place");
     assert.equal((await rank("c")).place, 3, "and consumes the one after it");
-    assert.equal((await rank("d")).place, 4, "nobody is unranked for reading nothing");
+    assert.equal((await rank("d")).place, 4, "an old total earns nothing this week");
     assert.equal((await rank("d")).total, 4);
     assert.equal(await rank("nobody"), null);
+  });
+});
+
+// ── The week the profile reports on ──────────────────────────────────────────
+
+describe("reading week", () => {
+  const at = (daysAgo) => dayKey(new Date(Date.now() - daysAgo * 86_400_000));
+
+  it("is seven days ending today, oldest first", () => {
+    const week = buildReadingWeek({});
+    assert.equal(week.days.length, 7);
+    assert.equal(week.days[6].key, at(0));
+    assert.equal(week.days[0].key, at(6));
+    assert.equal(week.days[6].isToday, true);
+  });
+
+  it("counts only days inside the window", () => {
+    const week = buildReadingWeek({ [at(0)]: 3_600, [at(6)]: 1_800, [at(7)]: 9_000 });
+    assert.equal(week.totalSeconds, 5_400, "the eighth day back is outside the week");
+    assert.equal(week.activeDays, 2);
+  });
+
+  it("scores a day against one hour, capped at 100%", () => {
+    const week = buildReadingWeek({ [at(0)]: 7_200, [at(1)]: 1_800, [at(2)]: 900 });
+    const byKey = Object.fromEntries(week.days.map((d) => [d.key, d.percent]));
+    assert.equal(byKey[at(0)], 100, "two hours is still a full day, not 200%");
+    assert.equal(byKey[at(1)], 50);
+    assert.equal(byKey[at(2)], 25);
+    assert.equal(byKey[at(3)], 0);
+  });
+
+  it("puts a week on the reader ladder", () => {
+    const level = (hours) => readerLevel(hours * 3600);
+    assert.equal(level(0).index, -1, "a week under three hours has not made the first rung");
+    assert.equal(level(0).next.key, "levelBeginner");
+    assert.equal(level(3).level.key, "levelBeginner");
+    assert.equal(level(4.9).level.key, "levelBeginner");
+    assert.equal(level(5).level.key, "levelCasual");
+    assert.equal(level(7).level.key, "levelSteady");
+    assert.equal(level(10).level.key, "levelActive");
+    assert.equal(level(15).level.key, "levelAdvanced");
+    assert.equal(level(40).level.key, "levelAdvanced", "the top rung is the top");
+  });
+
+  it("measures progress between the rung held and the next one", () => {
+    // Halfway from Белсенді (10h) to Жоғары деңгейлі (15h).
+    const mid = readerLevel(12.5 * 3600);
+    assert.equal(mid.progress, 0.5);
+    assert.equal(mid.targetSeconds, 15 * 3600);
+
+    // Below the ladder, progress is measured from zero.
+    assert.equal(readerLevel(1.5 * 3600).progress, 0.5);
+
+    // At the top there is nothing left to fill toward.
+    assert.equal(readerLevel(20 * 3600).progress, 1);
+    assert.equal(readerLevel(20 * 3600).next, null);
+  });
+
+  it("formats the readout as HH:MM:SS", () => {
+    assert.equal(formatDuration(11 * 3600 + 5 * 60 + 56), "11:05:56");
+    assert.equal(formatDuration(0), "00:00:00");
+    assert.equal(formatDuration(-5), "00:00:00");
   });
 });

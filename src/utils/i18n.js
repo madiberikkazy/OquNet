@@ -212,9 +212,6 @@ const kz = {
   noReadingBook: "Оқып жатқан кітап жоқ",
   openLibraryHint: "Кітапханаді ашып, бір кітап алыңыз.",
   remainingDays: "Қалған күндер",
-  ownerBooksCard: "Менің кітаптарым",
-  ownerBooksEmpty: "Кітап қосылмаған",
-  ownerBooksEmptyHint: "Қоғамдастыққа қосқан кітаптарыңыз осында көрінеді.",
   memberHeldTitle: "Қазір қолында",
   memberReadingTitle: "Қазір оқып жатыр",
   memberOwnedTitle: "Мүшенің кітаптары",
@@ -234,11 +231,22 @@ const kz = {
   activeLoanLabel: "Оқып жатыр",
   completedLoanLabel: "Оқып бітірген",
 
-  // Reading time — the heatmap, the standing badge and the timer
-  readingHeatmapTitle: "Оқу уақыттары",
+  // Reading time — the weekly card, the standing badge and the timer
+  readingSectionTitle: "Оқу уақыттары",
   readingTotalLabel: "Барлығы:",
-  heatmapLess: "Аз",
-  heatmapMore: "Көп",
+  levelWeekLabel: "Деңгей - 1 апта",
+  nextLevelLabel: "Келесі:",
+  levelTopReached: "Ең жоғарғы деңгей",
+  readTimeLabel: "Оқылған уақыт",
+  levelNone: "Жаңа оқырман",
+  levelBeginner: "Бастапқы оқырман",
+  levelCasual: "Әуесқой оқырман",
+  levelSteady: "Тұрақты оқырман",
+  levelActive: "Белсенді оқырман",
+  levelAdvanced: "Жоғары деңгейлі оқырман",
+  statSaved: "Сақталған",
+  statCompleted: "Аяқталған",
+  statHeld: "Қазір бар",
   placeShort: "орын",
   hoursShort: "сағ",
   minutesShort: "мин",
@@ -669,9 +677,6 @@ const ru = {
   noReadingBook: "Сейчас вы ничего не читаете",
   openLibraryHint: "Откройте библиотеку и возьмите книгу.",
   remainingDays: "Осталось дней",
-  ownerBooksCard: "Мои книги",
-  ownerBooksEmpty: "Книг не добавлено",
-  ownerBooksEmptyHint: "Книги, которые вы добавили в сообщество, появятся здесь.",
   memberHeldTitle: "Сейчас на руках",
   memberReadingTitle: "Читает сейчас",
   memberOwnedTitle: "Книги участника",
@@ -691,11 +696,22 @@ const ru = {
   activeLoanLabel: "Читает сейчас",
   completedLoanLabel: "Прочитано",
 
-  // Reading time — the heatmap, the standing badge and the timer
-  readingHeatmapTitle: "Время чтения",
+  // Reading time — the weekly card, the standing badge and the timer
+  readingSectionTitle: "Время чтения",
   readingTotalLabel: "Всего:",
-  heatmapLess: "Меньше",
-  heatmapMore: "Больше",
+  levelWeekLabel: "Уровень - 1 неделя",
+  nextLevelLabel: "Далее:",
+  levelTopReached: "Максимальный уровень",
+  readTimeLabel: "Прочитано времени",
+  levelNone: "Новый читатель",
+  levelBeginner: "Начинающий читатель",
+  levelCasual: "Читатель-любитель",
+  levelSteady: "Постоянный читатель",
+  levelActive: "Активный читатель",
+  levelAdvanced: "Продвинутый читатель",
+  statSaved: "Сохранено",
+  statCompleted: "Завершено",
+  statHeld: "Сейчас есть",
   placeShort: "место",
   hoursShort: "ч",
   minutesShort: "мин",
@@ -1126,9 +1142,6 @@ const en = {
   noReadingBook: "Not reading anything right now",
   openLibraryHint: "Open the library and borrow a book.",
   remainingDays: "Days left",
-  ownerBooksCard: "My books",
-  ownerBooksEmpty: "No books added",
-  ownerBooksEmptyHint: "Books you add to the community show up here.",
   memberHeldTitle: "Currently holding",
   memberReadingTitle: "Reading now",
   memberOwnedTitle: "Their books",
@@ -1148,11 +1161,22 @@ const en = {
   activeLoanLabel: "Reading now",
   completedLoanLabel: "Finished",
 
-  // Reading time — the heatmap, the standing badge and the timer
-  readingHeatmapTitle: "Reading time",
+  // Reading time — the weekly card, the standing badge and the timer
+  readingSectionTitle: "Reading time",
   readingTotalLabel: "Total:",
-  heatmapLess: "Less",
-  heatmapMore: "More",
+  levelWeekLabel: "Level - 1 week",
+  nextLevelLabel: "Next:",
+  levelTopReached: "Top level reached",
+  readTimeLabel: "Time read",
+  levelNone: "New reader",
+  levelBeginner: "Beginner reader",
+  levelCasual: "Casual reader",
+  levelSteady: "Steady reader",
+  levelActive: "Active reader",
+  levelAdvanced: "Advanced reader",
+  statSaved: "Saved",
+  statCompleted: "Finished",
+  statHeld: "In hand",
   placeShort: "place",
   hoursShort: "h",
   minutesShort: "min",
@@ -1400,10 +1424,10 @@ export function getCurrentLang() {
 //
 // Written out rather than asked of `Intl`. Kazakh is the app's default language
 // and `kk-KZ` is a locale plenty of browsers ship no calendar data for — those
-// fall back to ISO-ish placeholders, so the reading heatmap's month axis came
-// out as "M04 M05 M06". A table is three lines longer and always right.
+// fall back to ISO-ish placeholders, so a month axis came out as "M04 M05 M06".
+// A table is three lines longer and always right.
 //
-// Weekdays start on Monday, matching the heatmap's rows.
+// Weekdays start on Monday, matching the reading week's ordering.
 
 const MONTHS_SHORT = Object.freeze({
   kz: ["Қаң", "Ақп", "Нау", "Сәу", "Мам", "Мау", "Шіл", "Там", "Қыр", "Қаз", "Қар", "Жел"],
@@ -1411,10 +1435,10 @@ const MONTHS_SHORT = Object.freeze({
   en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
 });
 
-const WEEKDAYS_NARROW = Object.freeze({
-  kz: ["Д", "С", "С", "Б", "Ж", "С", "Ж"],
-  ru: ["П", "В", "С", "Ч", "П", "С", "В"],
-  en: ["M", "T", "W", "T", "F", "S", "S"],
+const WEEKDAYS_SHORT = Object.freeze({
+  kz: ["Дс", "Сс", "Ср", "Бс", "Жм", "Сб", "Жс"],
+  ru: ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
+  en: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
 });
 
 /** Abbreviated month name, 0-indexed as `Date#getMonth` returns. */
@@ -1423,9 +1447,10 @@ export function monthShort(index) {
   return table[index] ?? "";
 }
 
-/** Weekday initials, Monday first. */
-export function weekdaysNarrow() {
-  return WEEKDAYS_NARROW[getCurrentLang()] || WEEKDAYS_NARROW.en;
+/** Abbreviated weekday name by Monday-first index, as the reading week uses. */
+export function weekdayShort(index) {
+  const table = WEEKDAYS_SHORT[getCurrentLang()] || WEEKDAYS_SHORT.en;
+  return table[index] ?? "";
 }
 
 // ─── Genre list — stable `value` stored in DB, localised labels ───────────────

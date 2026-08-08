@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
-import ProfileHeader from "../../components/ProfileHeader.jsx";
-import ProfileStatCards, { statRoute } from "../../components/ProfileStatCards.jsx";
-import ReadingHeatmap from "../../components/ReadingHeatmap.jsx";
+import CurrentBookCard from "../../components/CurrentBookCard.jsx";
+import ProfileHeader, { CommunityRankChip } from "../../components/ProfileHeader.jsx";
+import ProfileStatsRow, { PROFILE_STATS } from "../../components/ProfileStatsRow.jsx";
+import ReadingWeek from "../../components/ReadingWeek.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  getCommunityReadingRank, listBooksOwnedBy, listBorrowingsForUser, listBooksHeldBy,
+  getBook, getCommunityReadingRank, listBooksHeldBy, listBorrowingsForUser,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import {
@@ -18,16 +19,17 @@ import {
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 
-const DEFAULT_STATS = { held: 0, reading: 0, completed: 0, saved: 0, owned: 0 };
+const DEFAULT_STATS = { saved: 0, completed: 0, held: 0 };
 
 export default function Profile() {
-  const { user, isAdmin, isViewingAsUser, switchView } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { community } = useCommunity();
   const navigate = useNavigate();
 
-  // Stats are four parallel fetches that then combine — allSettled keeps wall
-  // time to the slowest request, and keeps one failing fetch from zeroing the
-  // counters that did load.
+  // Three parallel fetches that then combine — allSettled keeps wall time to the
+  // slowest request, and keeps one failing fetch from zeroing the counters that
+  // did load. The active loan comes back from the same query as the counter it
+  // feeds, so the number and the book named beside it always agree.
   const statsQuery = useQuery({
     queryKey: qk.profile.stats(user?.id, community?.id),
     enabled: !!user?.id,
@@ -46,39 +48,44 @@ export default function Profile() {
         // `holderId` returns exactly those, so the counter no longer depends on
         // them falling inside the community's first two hundred books.
         listBooksHeldBy({ communityId: community?.id, userId: user.id }),
-        // What belongs to them, which is a different question — a lent-out book
-        // is still theirs.
-        listBooksOwnedBy({ communityId: community?.id, userId: user.id }),
       ]);
       results.forEach((r, i) => {
         if (r.status === "rejected") {
           logger.error("profile.stats", r.reason?.message, {
             code: r.reason?.code,
-            source: ["active", "completed", "held", "owned"][i],
+            source: ["active", "completed", "held"][i],
           });
         }
       });
-      const [readingList, completed, held, owned] = results.map((r) =>
+      const [readingList, completed, held] = results.map((r) =>
         r.status === "fulfilled" ? r.value : null
       );
-      const savedIds = user.savedBookIds || [];
       return {
         stats: {
-          held: held?.length ?? 0,
-          reading: readingList?.length ?? 0,
+          saved: (user.savedBookIds || []).length,
           completed: completed?.length ?? 0,
-          saved: savedIds.length,
-          owned: owned?.length ?? 0,
+          held: held?.length ?? 0,
         },
         activeBorrowing: readingList?.[0] || null,
       };
     },
   });
 
-  // Standing in the community. Its own query rather than a fifth branch of the
-  // one above: it reads a different collection, changes on other people's
-  // activity as much as this reader's, and is the one number on the screen that
-  // is fine to show a minute stale.
+  const activeBorrowing = statsQuery.data?.activeBorrowing ?? null;
+
+  // The loan says which book and when it started; the book document carries the
+  // cover, the score and the days allowed. Two reads, so the card is only worth
+  // making once there is actually a loan to describe.
+  const bookQuery = useQuery({
+    queryKey: qk.books.detail(activeBorrowing?.bookId),
+    enabled: !!activeBorrowing?.bookId,
+    staleTime: 60_000,
+    queryFn: () => getBook(activeBorrowing.bookId),
+  });
+
+  // Standing in the community. Its own query rather than a fourth branch of the
+  // one above: it depends on other people's reading as much as this reader's,
+  // and is the one number on the screen that is fine to show a minute stale.
   const rankQuery = useQuery({
     queryKey: qk.reading.rank(community?.id, user?.id),
     enabled: !!user?.id && !!community?.id,
@@ -87,33 +94,26 @@ export default function Profile() {
   });
 
   const stats = statsQuery.data?.stats ?? DEFAULT_STATS;
-  const activeBorrowing = statsQuery.data?.activeBorrowing ?? null;
   const readingDays = user?.readingDays || {};
 
   return (
     <MobileShell>
+      {/* Nothing about the admin view lives on this screen any more. Switching
+          between admin and reader is a settings decision, reached through the
+          gear in the banner — a mode switch sitting in the middle of a profile
+          was one mis-tap away from silently changing the whole app. */}
       <ProfileHeader
         user={user}
-        community={community}
-        rank={rankQuery.data}
         showSettings
         badge={isAdmin ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span> : null}
       />
 
-      {isViewingAsUser && (
-        <div className="mx-4 mt-3 px-4 py-2.5 bg-brand-50 border border-brand-200 rounded-2xl flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-brand-500 flex-shrink-0">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" stroke="currentColor" strokeWidth="1.6" />
-              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-            </svg>
-            <span className="text-[13px] text-brand-700 font-medium">{t.viewingAsUser}</span>
-          </div>
-          <button onClick={switchView} className="text-[12px] font-semibold text-brand-600 underline underline-offset-2 whitespace-nowrap">
-            {t.exit}
-          </button>
-        </div>
-      )}
+      <div className="px-5 mt-4">
+        <ProfileStatsRow
+          stats={stats}
+          onSelect={(kind) => navigate(routeFor(kind))}
+        />
+      </div>
 
       {!community && (
         <div className="px-4 mt-4">
@@ -121,50 +121,28 @@ export default function Profile() {
         </div>
       )}
 
-      <div className="px-4 mt-4">
-        <ReadingHeatmap readingDays={readingDays} />
+      <div className="px-4 mt-5">
+        <CurrentBookCard borrowing={activeBorrowing} book={bookQuery.data} />
+      </div>
+
+      <div className="px-4 mt-6 flex items-center justify-between gap-3">
+        <h3 className="text-[17px] font-bold truncate">{t.readingSectionTitle}</h3>
+        <CommunityRankChip community={community} rank={rankQuery.data} />
+      </div>
+
+      <div className="px-4 mt-2.5">
+        <ReadingWeek readingDays={readingDays} />
       </div>
 
       <div className="px-4 mt-3">
         <ReadingLauncher
           readingDays={readingDays}
-          onStart={(minutes) => navigate(`/profile/timer?minutes=${minutes}`)}
+          onStart={(minutes) => navigate(
+            `/profile/timer?minutes=${minutes}` +
+            (activeBorrowing?.bookId ? `&book=${encodeURIComponent(activeBorrowing.bookId)}` : "")
+          )}
         />
       </div>
-
-      <div className="px-4 mt-4">
-        <ProfileStatCards
-          stats={stats}
-          note={{ reading: activeBorrowing?.bookName }}
-          onSelect={(kind) => navigate(statRoute(kind))}
-        />
-      </div>
-
-      {/* Admin switch-back banner */}
-      {isViewingAsUser && (
-        <div className="px-4 mt-4">
-          <button
-            onClick={switchView}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-brand-50 border border-brand-200 hover:bg-brand-100 transition active:scale-[0.99]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="w-8 h-8 rounded-xl bg-surface flex items-center justify-center shadow-sm">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-brand-500">
-                  <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-                  <path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                </svg>
-              </span>
-              <div className="text-left">
-                <p className="text-[14px] font-semibold text-brand-900">{t.switchToAdminView}</p>
-                <p className="text-[12px] text-brand-600">{t.switchToAdminViewHint}</p>
-              </div>
-            </div>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-brand-400 flex-shrink-0">
-              <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-      )}
 
       <div className="h-4" />
     </MobileShell>
@@ -173,8 +151,12 @@ export default function Profile() {
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
+function routeFor(kind) {
+  return PROFILE_STATS.find((s) => s.key === kind)?.route ?? "/profile";
+}
+
 /**
- * "Read ▶  −  30  +" — pick a length and start the timer.
+ * "Оқу ▶  −  30  +" — pick a length and start the timer.
  *
  * The length lives here rather than in the timer screen so it can be chosen and
  * changed without leaving the profile, and it travels in the URL so the timer
@@ -189,19 +171,19 @@ function ReadingLauncher({ readingDays, onStart }) {
   );
 
   return (
-    <div className="rounded-2xl bg-brand-50 px-3 py-2.5 flex items-center justify-between gap-3">
+    <div className="rounded-2xl bg-tint px-3 py-2.5 flex items-center justify-between gap-3">
       <button
         onClick={() => onStart(minutes)}
         className="flex items-center gap-2 min-w-0 active:scale-[0.98] transition"
       >
-        <span className="text-[20px] font-bold text-brand-700">{t.readAction}</span>
+        <span className="text-[20px] font-bold text-tintInk">{t.readAction}</span>
         <span className="w-8 h-8 rounded-full bg-brand-500 text-white inline-flex items-center justify-center shrink-0">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5.5v13l11-6.5-11-6.5Z" />
           </svg>
         </span>
         {streak > 0 ? (
-          <span className="text-[12px] text-brand-600 truncate">{t.streakLabel(streak)}</span>
+          <span className="text-[12px] text-ink-500 truncate">{t.streakLabel(streak)}</span>
         ) : null}
       </button>
 

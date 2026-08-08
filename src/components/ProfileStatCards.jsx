@@ -1,7 +1,11 @@
 import { t } from "../utils/i18n.js";
 
 /**
- * The five counters on a profile, and the one place that says what they are.
+ * The five shelves of a *member* profile, as a grid of selectable cards.
+ *
+ * The reader's own profile shows three counters in a row instead — see
+ * ProfileStatsRow. This grid exists because a member profile has to expose five
+ * lists with nowhere to navigate to: tapping a card swaps the list underneath it.
  *
  * "Owned" and "held" are the two that get confused, so they are both here and
  * both named: `owned` is what belongs to this person, `held` is what is
@@ -13,32 +17,22 @@ import { t } from "../utils/i18n.js";
  */
 export const STAT_KINDS = Object.freeze(["held", "reading", "completed", "saved", "owned"]);
 
-// Three of the five labels are written in the second person — "books YOU have
-// now" — which is right on your own profile and wrong on anybody else's. Each
-// card therefore carries both, and `variant` picks the voice.
+// Labels are in the third person throughout — "currently holding", not "books
+// you have now". This grid only ever describes somebody else.
 const CARDS = Object.freeze({
-  held:      { color: "bg-statPurple", icon: "user",     labelKey: "ownedBooks",     memberLabelKey: "memberHeldTitle",    route: "/profile/owned" },
-  reading:   { color: "bg-statGreen",  icon: "calendar", labelKey: "readingNow",     memberLabelKey: "memberReadingTitle", route: "/profile/reading" },
-  completed: { color: "bg-statRed",    icon: "check",    labelKey: "completed",      memberLabelKey: "completed",          route: "/profile/completed" },
-  saved:     { color: "bg-statPink",   icon: "heart",    labelKey: "saved",          memberLabelKey: "saved",              route: "/profile/saved" },
-  owned:     { color: "bg-brand-50",   icon: "book",     labelKey: "ownerBooksCard", memberLabelKey: "memberOwnedTitle",   route: "/profile/my-books" },
+  held:      { color: "bg-statPurple", icon: "user",     labelKey: "memberHeldTitle" },
+  reading:   { color: "bg-statGreen",  icon: "calendar", labelKey: "memberReadingTitle" },
+  completed: { color: "bg-statRed",    icon: "check",    labelKey: "completed" },
+  saved:     { color: "bg-statPink",   icon: "heart",    labelKey: "saved" },
+  owned:     { color: "bg-tint",       icon: "book",     labelKey: "memberOwnedTitle" },
 });
-
-/** The route a counter opens on the reader's *own* profile. */
-export function statRoute(kind) {
-  return CARDS[kind]?.route ?? "/profile";
-}
 
 /**
  * @param stats   `{ held, reading, completed, saved, owned }` — plain counts.
- * @param onSelect called with the kind. The own-profile screen navigates; the
- *   other-member screen swaps the list below instead, which is why this is a
- *   callback rather than a `<Link>` baked into the card.
- * @param active  the kind currently expanded, if the caller works that way.
- * @param note    optional secondary line, keyed by kind (the book being read).
- * @param variant "self" or "member" — which voice the labels are written in.
+ * @param onSelect called with the kind; the caller swaps the list below.
+ * @param active  the kind currently expanded.
  */
-export default function ProfileStatCards({ stats, onSelect, active = null, note = {}, variant = "self" }) {
+export default function ProfileStatCards({ stats, onSelect, active = null }) {
   return (
     <div className="grid grid-cols-2 gap-3">
       {STAT_KINDS.map((kind, i) => {
@@ -61,10 +55,7 @@ export default function ProfileStatCards({ stats, onSelect, active = null, note 
             }
           >
             <div className="text-ink-700 mb-2">{renderIcon(card.icon)}</div>
-            <h4 className="font-semibold text-[14px] leading-tight">
-              {t[variant === "member" ? card.memberLabelKey : card.labelKey]}
-            </h4>
-            {note[kind] ? <p className="text-[12px] text-ink-500 mt-1 line-clamp-2">{note[kind]}</p> : null}
+            <h4 className="font-semibold text-[14px] leading-tight">{t[card.labelKey]}</h4>
             <p className="text-[20px] font-bold mt-2">{stats?.[kind] ?? 0}</p>
           </button>
         );

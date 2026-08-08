@@ -381,11 +381,13 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.userId == uid()
         && request.resource.data.dayKey is string
-        && request.resource.data.minutes is int
-        && request.resource.data.minutes > 0
-        // Mirrors MAX_SESSION_MINUTES in utils/readingProgress.js. A sitting
-        // longer than ten hours is a stuck timer, not a reader.
-        && request.resource.data.minutes <= 600
+        && request.resource.data.seconds is int
+        // Mirrors MIN_SESSION_SECONDS in utils/readingProgress.js: below half a
+        // minute a "session" is a mis-tap, not reading.
+        && request.resource.data.seconds >= 30
+        // And MAX_SESSION_SECONDS. A sitting longer than ten hours is a stuck
+        // timer, not a reader.
+        && request.resource.data.seconds <= 36000
         && request.resource.data.startedAt is number
         && request.resource.data.endedAt is number
         && request.resource.data.startedAt <= request.resource.data.endedAt
