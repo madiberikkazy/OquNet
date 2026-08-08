@@ -1097,10 +1097,95 @@ export async function updateLeaveRequest(id, patch) { return updateOne("requests
 
 // ---------- Pickup requests ----------
 // Stored in the same "requests" collection with type:"pickup".
-// One pending request per user per book at a time.
+//
+// Two invariants, and both are enforced here rather than by the screen that
+// happens to be open. A screen can be re-entered, double-tapped, restored from a
+// stale cache, or opened in a second tab; a rule that only lives in a click
+// handler is a rule that holds until one of those happens.
+//
+//   1. At most ONE pending request per (book, requester). `openPickupRequest`
+//      is idempotent, and its `created` flag is what tells a caller whether it
+//      is looking at a request it just opened or one that was already there.
+//   2. At most ONE pickup in flight per requester, across all books. Collecting
+//      a book is a physical errand; two of them at once is not a thing a reader
+//      can do, and each one blocks a book for three days.
 
 export async function createPickupRequest(payload) {
   return createOne("requests", { type: "pickup", status: "pending", ...payload });
+}
+
+/** A pickup the caller cannot start, and which of the two rules refused it. */
+export class PickupBlockedError extends Error {
+  constructor(reason, { bookId = null } = {}) {
+    super(`pickup blocked: ${reason}`);
+    this.name = "PickupBlockedError";
+    /** "other-pickup" — a request is open elsewhere; "other-loan" — a book is out. */
+    this.reason = reason;
+    /** The book that is in the way, so a caller can link to it. */
+    this.bookId = bookId;
+  }
+}
+
+/**
+ * The requester's open pickup request, on any book, or null.
+ *
+ * Three equality clauses and no orderBy, so Firestore serves it by merging the
+ * single-field indexes it maintains anyway — no composite index, and the rules
+ * accept the query because `requesterId == uid()` is one of the disjuncts the
+ * `requests` list rule allows.
+ */
+export async function getPendingPickupForUser(requesterId) {
+  if (!requesterId) return null;
+  const rows = await getCollection("requests", {
+    where: [
+      ["requesterId", "==", requesterId],
+      ["type", "==", "pickup"],
+      ["status", "==", "pending"],
+    ],
+    pageSize: 1,
+  });
+  return rows[0] || null;
+}
+
+/**
+ * Open a pickup request — or hand back the one that is already open.
+ *
+ * This is the fix for a code being sent twice. The notification carrying the
+ * handoff code used to be sent by whoever pressed the button, next to a create
+ * that never asked whether a request already existed; so a second press, a
+ * re-entered screen, or a book page restored from cache all produced a second
+ * identical request and a second identical code. Sending is now conditional on
+ * `created`, and `created` can only be true once per (book, requester) — the
+ * check and the create sit in the same call, so nothing in between can slip past.
+ *
+ * @returns `{ request, created }` — `created` is false when an open request was
+ *   found, and the caller must NOT notify again in that case.
+ * @throws {PickupBlockedError} when the requester already has a pickup in
+ *   flight on a different book, or a book of their own still out on loan.
+ */
+export async function openPickupRequest(payload) {
+  const bookId = payload?.bookId;
+  const requesterId = payload?.requesterId;
+  if (!bookId || !requesterId) {
+    throw new Error("openPickupRequest: bookId and requesterId are required");
+  }
+
+  const existing = await getPickupRequest(bookId, requesterId);
+  if (existing) return { request: existing, created: false };
+
+  // Nothing open for this book — so this would be a new errand, and the
+  // one-at-a-time rules apply. Checked in this order because a request the
+  // reader has forgotten about is the likelier of the two.
+  const elsewhere = await getPendingPickupForUser(requesterId);
+  if (elsewhere) throw new PickupBlockedError("other-pickup", { bookId: elsewhere.bookId });
+
+  const loan = await getActiveBorrowingForUser(requesterId);
+  if (loan && loan.bookId !== bookId) {
+    throw new PickupBlockedError("other-loan", { bookId: loan.bookId });
+  }
+
+  const request = await createPickupRequest(payload);
+  return { request, created: true };
 }
 
 /**

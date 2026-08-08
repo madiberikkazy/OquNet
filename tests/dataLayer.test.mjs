@@ -19,6 +19,8 @@ const {
   updateBook, getBook, createNotification, listNotifications,
   createUserDoc, getUserById, notifyCommunityMembers,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
+  openPickupRequest, getPickupRequest, getPendingPickupForUser,
+  cancelPickupRequest, fulfillPickupRequest, createBorrowing, PickupBlockedError,
   NEW_BOOK_WINDOW_DAYS,
 } = await import("../src/firebase/firestore.js");
 
@@ -437,3 +439,107 @@ describe("reading week", () => {
     assert.equal(formatDuration(-5), "00:00:00");
   });
 });
+
+// ── Pickup requests ──────────────────────────────────────────────────────────
+// Two invariants, and they are here rather than in a screen because a screen can
+// be re-entered, double-tapped, or restored from a stale cache. The handoff code
+// is announced only when a request is *created*, so "created at most once" is
+// what makes "the code is sent at most once" true.
+
+describe("pickup requests", () => {
+  const READER = "reader-1";
+  const base = (bookId) => ({
+    bookId,
+    bookName: `Book ${bookId}`,
+    requesterId: READER,
+    requesterName: "R Eader",
+    loanDays: 7,
+  });
+
+  it("creates a request once and reuses it afterwards", async () => {
+    const first = await openPickupRequest(base("b1"));
+    assert.equal(first.created, true, "the first call opens the request");
+
+    const second = await openPickupRequest(base("b1"));
+    assert.equal(second.created, false, "reopening must not create a second one");
+    assert.equal(second.request.id, first.request.id);
+
+    // The whole point: one row, so one notification was ever justified.
+    const all = await getCollection_requests();
+    assert.equal(all.length, 1, "a duplicate pending request was written");
+  });
+
+  it("keeps the code that was already handed out", async () => {
+    const first = await openPickupRequest({ ...base("b1"), pickupCode: "1234" });
+    const second = await openPickupRequest({ ...base("b1"), pickupCode: "9999" });
+
+    assert.equal(second.created, false);
+    assert.equal(second.request.pickupCode, "1234",
+      "reopening must not rotate the code the holder was already told");
+    assert.equal(first.request.pickupCode, "1234");
+  });
+
+  it("refuses a second pickup while one is open on another book", async () => {
+    await openPickupRequest(base("b1"));
+
+    await assert.rejects(
+      () => openPickupRequest(base("b2")),
+      (err) => {
+        assert.ok(err instanceof PickupBlockedError);
+        assert.equal(err.reason, "other-pickup");
+        assert.equal(err.bookId, "b1", "the blocker names the book in the way");
+        return true;
+      }
+    );
+    assert.equal((await getPickupRequest("b2", READER)), null, "nothing was written for b2");
+  });
+
+  it("frees the reader once the blocking request is closed", async () => {
+    const { request } = await openPickupRequest(base("b1"));
+    await assert.rejects(() => openPickupRequest(base("b2")));
+
+    await cancelPickupRequest(request.id);
+    assert.equal(await getPendingPickupForUser(READER), null);
+
+    const next = await openPickupRequest(base("b2"));
+    assert.equal(next.created, true);
+  });
+
+  it("frees the reader once the blocking request is fulfilled", async () => {
+    const { request } = await openPickupRequest(base("b1"));
+    await fulfillPickupRequest(request.id);
+    assert.equal((await openPickupRequest(base("b2"))).created, true);
+  });
+
+  it("refuses a pickup while a different book is still on loan", async () => {
+    await createBorrowing({ bookId: "b9", borrowerId: READER, ownerId: "someone" });
+
+    await assert.rejects(
+      () => openPickupRequest(base("b1")),
+      (err) => {
+        assert.equal(err.reason, "other-loan");
+        assert.equal(err.bookId, "b9");
+        return true;
+      }
+    );
+  });
+
+  it("still lets the reader collect the very book they have on loan", async () => {
+    // Renewing the loan on a book already in hand is not a second errand.
+    await createBorrowing({ bookId: "b1", borrowerId: READER, ownerId: "someone" });
+    assert.equal((await openPickupRequest(base("b1"))).created, true);
+  });
+
+  it("scopes both rules to the requester", async () => {
+    await openPickupRequest(base("b1"));
+    const other = await openPickupRequest({ ...base("b1"), requesterId: "reader-2" });
+    assert.equal(other.created, true, "another reader may ask for the same book");
+    assert.equal((await getPendingPickupForUser("reader-3")), null);
+  });
+});
+
+/** Every request row in the fallback store — the duplicate detector. */
+async function getCollection_requests() {
+  const db = JSON.parse(store.get(LS_KEY));
+  return (db.requests || []).filter((r) => r.type === "pickup" && r.status === "pending");
+}
