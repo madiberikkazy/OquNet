@@ -1066,6 +1066,14 @@ export async function deleteNotification(id) {
   return deleteOne("notifications", id);
 }
 
+// ---------- Requests, generally ----------
+//
+// A notification about a request carries only its id, so the screen that acts
+// on one — approving a join, refusing a leave — reads the request itself rather
+// than trusting the copy of it that travelled in the notification. The rules
+// let the subject and the community's admin read it, and nobody else.
+export async function getRequestById(id) { return getOne("requests", id); }
+
 // ---------- Join requests ----------
 export async function createJoinRequest(payload) {
   return createOne("requests", { type: "join", status: "pending", ...payload });

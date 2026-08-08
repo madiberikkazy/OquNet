@@ -27,7 +27,7 @@ export default function BookDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, refresh, viewRole } = useAuth();
+  const { user, refresh } = useAuth();
 
   const [expand, setExpand] = useState(false);
   const [error, setError] = useState(null);
@@ -339,7 +339,6 @@ export default function BookDetail() {
   const ratingAvg = ratingCount ? average : DEFAULT_RATING;
   const reviews = reviewsFromRatings(ratings);
 
-  const isAdminView = viewRole === "admin";
   const isOwner     = book.ownerId === user?.id;
   const isCurrentHolder =
     !!user?.id && readerHolderIdOf(book) === user.id;
@@ -349,9 +348,9 @@ export default function BookDetail() {
   const isCommunityMember =
     !!book.communityId && !!user?.communityId && book.communityId === user.communityId;
 
-  // Only a reader who has returned this book may rate it. Admins browse in a
-  // read-only capacity and never borrow, so they never qualify.
-  const canRate = !isAdminView && !!user?.id && canRateQuery.data === true;
+  // Only a reader who has returned this book may rate it — which is now every
+  // member, an admin included: there is no read-only mode to browse in any more.
+  const canRate = !!user?.id && canRateQuery.data === true;
   const pendingStars = draftStars ?? myRating?.value ?? 0;
   const pendingReview = draftReview ?? myRating?.review ?? "";
   const ratingDirty =
@@ -579,11 +578,7 @@ export default function BookDetail() {
       ) : null}
 
       <div className="px-4 mt-6 mb-2">
-        {isAdminView ? (
-          <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
-            {t.adminCantBorrow}
-          </p>
-        ) : isCurrentHolder ? (
+        {isCurrentHolder ? (
           /* Current borrower — can return, cannot get again */
           <div className="space-y-2">
             <button

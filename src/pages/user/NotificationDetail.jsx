@@ -7,21 +7,39 @@ import {
   updateUser,
   getCommunity,
   cancelJoinRequest,
+  createNotification,
+  getRequestById,
+  updateJoinRequest,
+  updateLeaveRequest,
   toMillis,
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
+import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.js";
+import { logger } from "../../utils/logger.js";
+import { t } from "../../utils/i18n.js";
+
+// The two notifications that ask their reader for a decision rather than
+// telling them something. Both name the request they are about.
+const DECIDABLE = new Set(["join-request", "leave-request"]);
 
 export default function NotificationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { setCommunity } = useCommunity();
+  const { community, setCommunity } = useCommunity();
 
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // The join/leave request this notification is about, when it is about one.
+  // Read from the database rather than from the notification: a request can be
+  // cancelled or already decided between the message arriving and being opened,
+  // and its own `status` is the only honest answer to that.
+  const [request, setRequest] = useState(null);
+  const [blocked, setBlocked] = useState("");   // approval refused: books still out
 
   useEffect(() => {
     if (!id) return;
@@ -33,9 +51,111 @@ export default function NotificationDetail() {
         if (n && !n.read) {
           updateNotification(id, { read: true });
         }
+        if (n && DECIDABLE.has(n.type) && n.requestId) {
+          // Only the subject and the community's admin may read it, so a
+          // refusal here is ordinary — it just means no decision to offer.
+          getRequestById(n.requestId)
+            .then(setRequest)
+            .catch((err) => logger.error("notificationDetail.request", err?.message, {
+              requestId: n.requestId, code: err?.code,
+            }));
+        }
       })
       .finally(() => setLoading(false));
   }, [id]);
+
+  // ── Deciding a join request ─────────────────────────────────────────────────
+  //
+  // Approval does not add the member: it sends them an offer they still have to
+  // accept, because joining is a write to their own profile and only they can
+  // make it. The request id travels with the offer — the rules re-read it to
+  // tell an accepted invitation from someone helping themselves to a community.
+  async function decideJoin(approved) {
+    setBusy(true);
+    setError("");
+    try {
+      await updateJoinRequest(request.id, { status: approved ? "approved" : "rejected" });
+      await createNotification(approved ? {
+        recipientId: request.userId,
+        title: t.joinApprovedTitle,
+        body: t.joinApprovedBody(community?.name || notification.communityName || ""),
+        read: false,
+        type: "join-approved",
+        requestId: request.id,
+        communityId: request.communityId,
+        communityName: community?.name || "",
+        bookName: request.bookName || "",
+        bookAuthor: request.bookAuthor || "",
+        bookDescription: request.bookDescription || "",
+        bookCoverUrl: request.bookCoverUrl || "",
+        confirmed: "pending",
+      } : {
+        recipientId: request.userId,
+        title: t.joinRejectedTitle,
+        body: t.joinRejectedBody(community?.name || notification.communityName || ""),
+        read: false,
+        type: "join-rejected",
+      });
+      setRequest((prev) => ({ ...prev, status: approved ? "approved" : "rejected" }));
+    } catch (err) {
+      logger.error("notificationDetail.decideJoin", err?.message, { code: err?.code });
+      setError(err?.message || t.error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── Deciding a leave request ────────────────────────────────────────────────
+  async function decideLeave(approved) {
+    setBusy(true);
+    setError("");
+    setBlocked("");
+    try {
+      if (approved) {
+        // The final gate, and the one that matters most: a request can sit here
+        // for days, and in the meantime the member may have picked up a book.
+        // Approval is what actually drops their membership, so the rules are
+        // re-checked against live data right before that write.
+        const verdict = await checkCommunityExit({
+          userId: request.userId,
+          communityId: request.communityId || community?.id,
+        });
+        if (!verdict.canLeave) {
+          const message = exitBlockMessage(verdict.blockedBy);
+          setBlocked(message);
+          await createNotification({
+            recipientId: request.userId,
+            title: t.leaveTitle,
+            body: message,
+            read: false,
+            type: "leave-blocked",
+            communityId: request.communityId || community?.id,
+          });
+          return;
+        }
+        await updateLeaveRequest(request.id, { status: "approved" });
+        await updateUser(request.userId, { communityId: null });
+      } else {
+        await updateLeaveRequest(request.id, { status: "rejected" });
+      }
+
+      await createNotification({
+        recipientId: request.userId,
+        title: approved ? t.leaveApprovedTitle : t.leaveRejectedTitle,
+        body: approved
+          ? t.leaveApprovedBody(community?.name || "")
+          : t.leaveRejectedBody(community?.name || ""),
+        read: false,
+        type: approved ? "leave-approved" : "leave-rejected",
+      });
+      setRequest((prev) => ({ ...prev, status: approved ? "approved" : "rejected" }));
+    } catch (err) {
+      logger.error("notificationDetail.decideLeave", err?.message, { code: err?.code });
+      setError(err?.message || t.error);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleJoinAccept() {
     setBusy(true);
@@ -132,6 +252,12 @@ export default function NotificationDetail() {
   // Show the code widget for ANY notification that carries a pickupCode field.
   const hasCode = Boolean(notification.pickupCode);
 
+  // A decision to make: a request this reader is entitled to act on, still
+  // waiting. Anyone else either never receives this notification or cannot read
+  // the request behind it, so there is nothing to hide from them here.
+  const isLeaveRequest = notification.type === "leave-request";
+  const decidable = DECIDABLE.has(notification.type) && !!request;
+
   return (
     <MobileShell withNav={false}>
       {/* Header */}
@@ -173,6 +299,58 @@ export default function NotificationDetail() {
             <p className="text-[12px] text-ink-500 text-center">
               Назовите этот код новому читателю, когда физически передадите книгу.
             </p>
+          </div>
+        ) : null}
+
+        {/* ── Join / leave request: the admin's decision ── */}
+        {decidable ? (
+          <div className="space-y-3">
+            <div className="card px-4 py-3">
+              <p className="text-[13px] text-ink-500">
+                {isLeaveRequest ? t.leaveRequestSection : t.joinRequestSection}
+              </p>
+              <p className="font-semibold text-[15px] mt-0.5">
+                {request.userName || `@${request.userNickname || ""}`}
+              </p>
+              {/* The book they are bringing in — the price of admission, and
+                  the thing the admin is actually agreeing to. */}
+              {request.bookName ? (
+                <p className="text-[13px] text-ink-500 mt-1">
+                  «{request.bookName}»{request.bookAuthor ? ` — ${request.bookAuthor}` : ""}
+                </p>
+              ) : null}
+            </div>
+
+            {blocked ? (
+              <div className="rounded-xl bg-badSoft text-bad text-[13px] px-3 py-2 leading-relaxed">
+                {blocked}
+              </div>
+            ) : null}
+
+            {request.status === "pending" ? (
+              <div className="flex gap-2">
+                <button
+                  disabled={busy}
+                  onClick={() => (isLeaveRequest ? decideLeave(true) : decideJoin(true))}
+                  className="flex-1 py-3 rounded-2xl bg-brand-500 text-white text-[14px] font-semibold active:scale-[0.98] transition disabled:opacity-60"
+                >
+                  {busy ? "…" : t.requestApprove}
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => (isLeaveRequest ? decideLeave(false) : decideJoin(false))}
+                  className="flex-1 py-3 rounded-2xl bg-badSoft text-bad text-[14px] font-semibold active:scale-[0.98] transition disabled:opacity-60"
+                >
+                  {busy ? "…" : t.requestReject}
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-ink-100 px-4 py-3 text-[14px] text-ink-500 text-center">
+                {request.status === "approved" ? t.requestApproved
+                 : request.status === "rejected" ? t.requestRejected
+                 : t.requestCancelledByUser}
+              </div>
+            )}
           </div>
         ) : null}
 

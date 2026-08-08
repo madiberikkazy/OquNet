@@ -4,20 +4,36 @@ import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import Modal from "../../components/Modal.jsx";
+import Fab from "../../components/Fab.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getCommunity, listUsersByCommunity, listPostsByCommunity, listBooks,
   createJoinRequest, createNotification, getActiveBorrowingForUser,
+  createPost, updatePost, deletePost, deleteBook, updateUser,
 } from "../../firebase/firestore.js";
+import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 import { clampText, isAddress, isPhone, LIMITS } from "../../utils/validators.js";
 
 const TABS = ["posts", "books", "members"];
 
+/**
+ * What to show when a management write is refused.
+ *
+ * A SchemaError names the i18n key for the field it refused. Firestore's own
+ * "Missing or insufficient permissions" is translated because it is the one a
+ * user can do least with: it means the rules do not allow what was asked.
+ */
+function writeError(err) {
+  if (err?.errorKey && t[err.errorKey]) return t[err.errorKey];
+  if (err?.code === "permission-denied") return t.notAuthorized;
+  return err?.message || t.error;
+}
+
 export default function CommunityProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, updateProfile } = useAuth();
+  const { user, isAdmin, updateProfile } = useAuth();
 
   const [community, setCommunity]   = useState(null);
   const [members, setMembers]       = useState([]);
@@ -36,6 +52,18 @@ export default function CommunityProfile() {
   const [joinError, setJoinError]   = useState("");
   const [joining, setJoining]       = useState(false);
   const [joinDone, setJoinDone]     = useState(false);
+
+  // ── Management state — only ever reachable for the community's own admin ──
+  // Everything below drives the controls that appear on top of the page the
+  // members already see; none of it renders when `canManage` is false.
+  const [postOpen, setPostOpen]         = useState(false);  // compose
+  const [postBody, setPostBody]         = useState("");
+  const [postBusy, setPostBusy]         = useState(false);
+  const [editingPost, setEditingPost]   = useState(null);
+  const [editBody, setEditBody]         = useState("");
+  const [removing, setRemoving]         = useState(null);   // { kind, item }
+  const [removeBusy, setRemoveBusy]     = useState(false);
+  const [manageError, setManageError]   = useState("");
 
   useEffect(() => {
     setHeaderLoading(true);
@@ -77,6 +105,16 @@ export default function CommunityProfile() {
   const isPrivate = community?.isPrivate;
   // Non-members can't see content of private communities
   const canSeeContent = !isPrivate || isMember || isOwner;
+
+  /**
+   * Whether this visitor may manage what they are looking at.
+   *
+   * Deliberately the same three conditions the security rules check — an admin
+   * of *this* community, which means the role, the membership and the ownership
+   * all pointing at the same place. A button the server was always going to
+   * refuse is worse than no button.
+   */
+  const canManage = isAdmin && isOwner && isMember;
 
   async function handleJoin(e) {
     e.preventDefault();
@@ -138,6 +176,92 @@ export default function CommunityProfile() {
       setJoinError(err?.message || "Қате");
     } finally {
       setJoining(false);
+    }
+  }
+
+  // ── Posts ───────────────────────────────────────────────────────────────────
+
+  async function submitPost(e) {
+    e.preventDefault();
+    if (postBusy || !postBody.trim()) return;
+    setPostBusy(true);
+    setManageError("");
+    try {
+      // No `createdAt`: the data layer stamps it server-side, which is why the
+      // post prepended below carries no date until the next load.
+      const p = await createPost({
+        communityId: id,
+        authorId: user.id,
+        authorName: `${user.firstName} ${user.lastName}`,
+        // Denormalised from the community so the Home discovery feed can query
+        // posts directly — a private community's notices stay off that feed.
+        isPublic: !community.isPrivate,
+        body: postBody.trim(),
+      });
+      setPosts((list) => [p, ...list]);
+      setPostBody("");
+      setPostOpen(false);
+    } catch (err) {
+      logger.error("community.createPost", err?.message, { code: err?.code });
+      setManageError(writeError(err));
+    } finally {
+      setPostBusy(false);
+    }
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    if (postBusy || !editingPost) return;
+    if (!editBody.trim()) { setManageError(t.fillAllFields); return; }
+    setPostBusy(true);
+    setManageError("");
+    try {
+      const patch = { body: editBody.trim() };
+      await updatePost(editingPost.id, patch);
+      setPosts((list) => list.map((p) => (p.id === editingPost.id ? { ...p, ...patch } : p)));
+      setEditingPost(null);
+    } catch (err) {
+      logger.error("community.updatePost", err?.message, { postId: editingPost.id, code: err?.code });
+      setManageError(writeError(err));
+    } finally {
+      setPostBusy(false);
+    }
+  }
+
+  // ── Removal — one dialog for all three kinds of row ──────────────────────────
+  //
+  // A post, a book and a member are removed by three different calls, but they
+  // are the same decision to the person making it: this row, gone, are you sure.
+  // Keeping one dialog is what stops the three from drifting apart.
+  function askRemove(kind, item) {
+    setManageError("");
+    setRemoving({ kind, item });
+  }
+
+  async function confirmRemove() {
+    if (removeBusy || !removing) return;
+    const { kind, item } = removing;
+    setRemoveBusy(true);
+    setManageError("");
+    try {
+      if (kind === "post") {
+        await deletePost(item.id);
+        setPosts((list) => list.filter((p) => p.id !== item.id));
+      } else if (kind === "book") {
+        await deleteBook(item.id);
+        setBooks((list) => list.filter((b) => b.id !== item.id));
+      } else {
+        // Ejecting a member is a write to *their* profile, which the rules
+        // allow this community's admin to make for exactly this field.
+        await updateUser(item.id, { communityId: null });
+        setMembers((list) => list.filter((m) => m.id !== item.id));
+      }
+      setRemoving(null);
+    } catch (err) {
+      logger.error(`community.remove.${kind}`, err?.message, { targetId: item.id, code: err?.code });
+      setManageError(writeError(err));
+    } finally {
+      setRemoveBusy(false);
     }
   }
 
@@ -314,9 +438,25 @@ export default function CommunityProfile() {
               ) : (
                 <div className="space-y-3">
                   {posts.map((p) => (
-                    <div key={p.id} className="card p-4">
-                      <h4 className="font-semibold text-[15px]">{p.title}</h4>
-                      <p className="text-[14px] text-ink-700 mt-1 whitespace-pre-wrap">{p.body}</p>
+                    <div key={p.id} className="card p-4 flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        {/* `title` only exists on posts written before the field
+                            was dropped — nothing creates one now. */}
+                        {p.title ? <h4 className="font-semibold text-[15px]">{p.title}</h4> : null}
+                        <p className="text-[14px] text-ink-700 mt-1 whitespace-pre-wrap">{p.body}</p>
+                      </div>
+                      {/* Only the admin's own notices — the rules say the same,
+                          so a button on somebody else's post would be refused. */}
+                      {canManage && p.authorId === user?.id ? (
+                        <RowActions
+                          onEdit={() => {
+                            setEditingPost(p);
+                            setEditBody(p.body || "");
+                            setManageError("");
+                          }}
+                          onDelete={() => askRemove("post", p)}
+                        />
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -330,10 +470,10 @@ export default function CommunityProfile() {
               ) : (
                 <ul className="divide-y divide-ink-100">
                   {books.map((b) => (
-                    <li key={b.id}>
+                    <li key={b.id} className="flex items-center gap-2">
                       <Link
                         to={`/books/${b.id}`}
-                        className="flex items-center gap-3 py-3 active:bg-ink-100/40 transition rounded-xl px-1"
+                        className="flex items-center gap-3 flex-1 min-w-0 py-3 active:bg-ink-100/40 transition rounded-xl px-1"
                       >
                         {b.coverUrl ? (
                           <img src={b.coverUrl} alt={b.name} className="w-10 h-14 rounded-lg object-cover bg-ink-100 shrink-0" />
@@ -345,10 +485,18 @@ export default function CommunityProfile() {
                           <p className="text-[13px] text-ink-500 truncate">{b.author}</p>
                           <div className="mt-1"><BookStatusBadge status={b.status} /></div>
                         </div>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
-                          <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
+                        {!canManage ? (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
+                            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          </svg>
+                        ) : null}
                       </Link>
+                      {canManage ? (
+                        <RowActions
+                          onEdit={() => navigate(`/books/${b.id}/edit`)}
+                          onDelete={() => askRemove("book", b)}
+                        />
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -362,10 +510,10 @@ export default function CommunityProfile() {
               ) : (
                 <ul className="divide-y divide-ink-100">
                   {members.map((m) => (
-                    <li key={m.id}>
+                    <li key={m.id} className="flex items-center gap-2">
                       <Link
                         to={`/users/${m.id}`}
-                        className="flex items-center gap-3 py-3 active:bg-ink-100/40 transition rounded-xl px-1"
+                        className="flex items-center gap-3 flex-1 min-w-0 py-3 active:bg-ink-100/40 transition rounded-xl px-1"
                       >
                         <Avatar src={m.photoURL} name={`${m.firstName} ${m.lastName}`} size={40} />
                         <div className="flex-1 min-w-0">
@@ -377,10 +525,17 @@ export default function CommunityProfile() {
                           </div>
                           <p className="text-[13px] text-ink-500">@{m.nickname}</p>
                         </div>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
-                          <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
+                        {!canManage ? (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
+                            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          </svg>
+                        ) : null}
                       </Link>
+                      {/* The admin cannot eject themselves — leaving their own
+                          community is a different decision, made elsewhere. */}
+                      {canManage && m.id !== community.ownerId ? (
+                        <RowActions onDelete={() => askRemove("member", m)} />
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -389,6 +544,99 @@ export default function CommunityProfile() {
           </div>
         </>
       )}
+
+      {/* ── Adding — what the "+" adds depends on the tab under it ── */}
+      {canManage && canSeeContent && tab !== "members" ? (
+        <Fab
+          onClick={() => {
+            if (tab === "books") { navigate("/books/add"); return; }
+            setManageError("");
+            setPostBody("");
+            setPostOpen(true);
+          }}
+          ariaLabel={tab === "books" ? t.addBookTitle : t.newPost}
+        />
+      ) : null}
+
+      {/* ── Compose a notice ── */}
+      <Modal open={postOpen} onClose={() => !postBusy && setPostOpen(false)} title={t.newPost}>
+        <form onSubmit={submitPost} className="space-y-3">
+          <textarea
+            value={postBody}
+            onChange={(e) => setPostBody(e.target.value)}
+            placeholder={t.postBody}
+            rows="6"
+            className="input"
+            autoFocus
+          />
+          {manageError ? <p className="text-bad text-[13px]">{manageError}</p> : null}
+          <button disabled={postBusy || !postBody.trim()} className="btn-primary">
+            {postBusy ? "…" : t.publish}
+          </button>
+        </form>
+      </Modal>
+
+      {/* ── Edit a notice ── */}
+      <Modal
+        open={Boolean(editingPost)}
+        onClose={() => !postBusy && setEditingPost(null)}
+        title={t.editPost}
+      >
+        <form onSubmit={saveEdit} className="space-y-3">
+          <textarea
+            value={editBody}
+            onChange={(e) => setEditBody(e.target.value)}
+            placeholder={t.postBody}
+            rows="6"
+            className="input"
+          />
+          {manageError ? <p className="text-bad text-[13px]">{manageError}</p> : null}
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setEditingPost(null)} disabled={postBusy} className="btn-secondary">
+              {t.cancel}
+            </button>
+            <button type="submit" disabled={postBusy} className="btn-primary">
+              {postBusy ? "…" : t.save}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ── Remove a post, a book or a member ── */}
+      <Modal
+        open={Boolean(removing)}
+        onClose={() => !removeBusy && setRemoving(null)}
+        title={
+          removing?.kind === "post"  ? t.deletePostConfirm
+          : removing?.kind === "book" ? t.deleteBookConfirm
+          : t.removeMemberConfirm
+        }
+      >
+        <p className="text-[13px] text-ink-700 mb-1 line-clamp-3">
+          {removing?.kind === "post"  ? removing.item.body
+           : removing?.kind === "book" ? `«${removing.item.name}» — ${removing.item.author}`
+           : removing ? `${removing.item.firstName} ${removing.item.lastName} (@${removing.item.nickname})` : ""}
+        </p>
+        <p className="text-[13px] text-ink-500 leading-relaxed mb-4">
+          {removing?.kind === "post"  ? t.deletePostWarning
+           : removing?.kind === "book" ? t.deleteBookWarning
+           : t.removeMemberWarning}
+        </p>
+        {/* Whatever the server said belongs on the dialog that asked. */}
+        {manageError ? <p className="text-bad text-[13px] mb-3">{manageError}</p> : null}
+        <div className="flex gap-3">
+          <button onClick={() => setRemoving(null)} disabled={removeBusy} className="btn-secondary">
+            {t.cancel}
+          </button>
+          <button
+            onClick={confirmRemove}
+            disabled={removeBusy}
+            className="w-full font-semibold rounded-xl py-3.5 bg-badSoft text-bad transition disabled:opacity-60"
+          >
+            {removeBusy ? "…" : t.delete}
+          </button>
+        </div>
+      </Modal>
 
       {/* ── Join modal ── */}
       <Modal open={joinOpen} onClose={() => setJoinOpen(false)} title="Қосылу өтінішi" scrollable>
@@ -472,5 +720,39 @@ export default function CommunityProfile() {
         )}
       </Modal>
     </MobileShell>
+  );
+}
+
+/**
+ * The pencil-and-bin pair that sits at the right edge of a manageable row.
+ *
+ * One component for all three tabs so a post, a book and a member offer the
+ * same affordance in the same place. `onEdit` is optional — a member has
+ * nothing to edit here, only to be removed.
+ */
+function RowActions({ onEdit, onDelete }) {
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      {onEdit ? (
+        <button
+          onClick={onEdit}
+          aria-label={t.edit}
+          className="w-8 h-8 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center active:scale-95 transition"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+          </svg>
+        </button>
+      ) : null}
+      <button
+        onClick={onDelete}
+        aria-label={t.delete}
+        className="w-8 h-8 rounded-lg bg-badSoft text-bad flex items-center justify-center active:scale-95 transition"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M5 7h14M10 7V5h4v2m-7 0 1 13h8l1-13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </div>
   );
 }
