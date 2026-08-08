@@ -47,6 +47,15 @@ export default function BookDetail() {
   const bookQuery = useQuery({
     queryKey: qk.books.detail(id),
     queryFn: () => getBook(id),
+    // Who holds this book is the one fact on the page that changes on somebody
+    // else's phone. A handoff is two people and two devices, and only the one
+    // who typed the code runs invalidateHolderCaches — so under the app-wide
+    // 60s staleTime with refetchOnMount:false, every other viewer kept reading
+    // the old holder off the cache. That cache is persisted to IndexedDB, so it
+    // survived app restarts too, and only a window-focus refetch corrected it.
+    // This screen is where the holder is read, so it re-reads it on every mount.
+    staleTime: 0,
+    refetchOnMount: "always",
   });
   const book = bookQuery.data ?? null;
 
@@ -80,6 +89,11 @@ export default function BookDetail() {
     queryKey: qk.borrowings.activeByBook(id),
     queryFn: () => getActiveBorrowingByBook(id),
     enabled: book?.status === "unavailable",
+    // The loan is the other half of the same handoff — it names the countdown
+    // and the return date shown beside the holder card, so a stale one would
+    // put the previous reader's dates under the new reader's name.
+    staleTime: 0,
+    refetchOnMount: "always",
   });
   const activeBorrowing = activeBorrowingQuery.data ?? null;
   // The book document names its own holder, so the card paints as soon as the
