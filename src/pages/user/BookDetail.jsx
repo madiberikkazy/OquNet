@@ -10,7 +10,7 @@ import StarRating from "../../components/StarRating.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getBook, getUserById, listRatingsForBook, updateUser,
-  getPickupRequest,
+  getPickupRequest, getPendingPickupForUser,
   getActiveBorrowingByBook, createNotification,
   releaseBookAfterReading, updateBorrowing, submitRating, getUserRatingForBook, hasUserCompletedBook,
   toMillis,
@@ -98,11 +98,27 @@ export default function BookDetail() {
     enabled: !!user?.id,
   });
 
+  // Whether this reader already has a pickup running somewhere else. Collecting
+  // a book is a physical errand and each one blocks a book for three days, so
+  // there is only ever one in flight — and the page has to know that before it
+  // offers a button that would be refused.
+  const pendingPickupQuery = useQuery({
+    queryKey: qk.pickupRequest.pendingForUser(user?.id),
+    queryFn: () => getPendingPickupForUser(user.id),
+    enabled: !!user?.id,
+  });
+
   const ratings = ratingsQuery.data ?? [];
   const myRating = myRatingQuery.data ?? null;
   const owner = ownerQuery.data ?? null;
   const currentHolder = holderQuery.data ?? null;
   const pickupRequest = pickupRequestQuery.data ?? null;
+  // A pickup open on some *other* book. A request for this one is not a blocker
+  // — it is the thing the "continue" button resumes.
+  const blockingPickup =
+    pickupRequestQuery.isSuccess && !pickupRequest && pendingPickupQuery.data?.bookId !== id
+      ? pendingPickupQuery.data ?? null
+      : null;
 
   // Countdown + auto-return: when the borrowing period has expired, roll the
   // book back to available in one shot. The mutation writes both server-side
@@ -607,6 +623,21 @@ export default function BookDetail() {
             <p className="text-[12px] text-ink-500 text-center">
               {t.codeAlreadySent}
             </p>
+          </div>
+        ) : blockingPickup ? (
+          /* Mid-pickup on another book. Offering the request button here would
+             only produce an error two screens later, so it offers the way out
+             instead: finish or cancel the one already running. */
+          <div className="space-y-2">
+            <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+              {t.pickupOtherPending}
+            </p>
+            <button
+              onClick={() => navigate(`/books/${blockingPickup.bookId}/pickup`)}
+              className="btn-secondary"
+            >
+              {t.pickupOpenBlockingBook}
+            </button>
           </div>
         ) : (
           <button onClick={requestPickup} className="btn-primary">

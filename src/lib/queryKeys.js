@@ -42,6 +42,10 @@ export const qk = {
   },
   pickupRequest: {
     byBookAndUser: (bookId, userId) => ["pickupRequest", bookId, userId],
+    /** Every viewer's answer for one book — the prefix an invalidate targets. */
+    forBook: (bookId) => ["pickupRequest", bookId],
+    /** "Does this reader have a pickup open anywhere?" — the one-at-a-time gate. */
+    pendingForUser: (userId) => ["pickupRequest", "pendingForUser", userId],
   },
   profile: {
     stats: (userId, communityId) => ["profile", "stats", userId, communityId],

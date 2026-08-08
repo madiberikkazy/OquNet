@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import {
@@ -6,8 +6,10 @@ import {
   getUserById,
   getActiveBorrowingByBook,
   getActiveBorrowingForUser,
+  getPendingPickupForUser,
   getPickupRequest,
-  createPickupRequest,
+  openPickupRequest,
+  PickupBlockedError,
   cancelPickupRequest,
   fulfillPickupRequest,
   transferBookHolder,
@@ -17,7 +19,7 @@ import {
   toMillis,
 } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { invalidateHolderCaches } from "../../lib/bookCaches.js";
+import { invalidateHolderCaches, invalidatePickupRequest } from "../../lib/bookCaches.js";
 import { newPickupCode } from "../../firebase/schema.js";
 import { holderIdOf } from "../../utils/bookHolder.js";
 import { safeImageUrl } from "../../utils/validators.js";
@@ -51,6 +53,11 @@ function formatLongDate(ts) {
     return d.toLocaleDateString();
   }
 }
+/** Why a reader cannot start this pickup, in words. */
+export function blockMessage(reason) {
+  return reason === "other-pickup" ? t.pickupOtherPending : t.pickupReturnOtherBook;
+}
+
 function isExpired(request) {
   const created = toMillis(request?.createdAt, null);
   // A request whose createdAt hasn't resolved yet (serverTimestamp) is brand new.
@@ -81,6 +88,18 @@ export default function PickupBook() {
   const [resending, setResending]         = useState(false);
   const [resent, setResent]               = useState(false);
   const [success, setSuccess]             = useState(false);
+  // A pickup this reader has open on some *other* book, which is what stops
+  // them starting a second one. Null when they are free to collect this book.
+  const [blockedBy, setBlockedBy]         = useState(null);
+
+  // Guards `handleSendCode` against a second press landing while the first is
+  // still in flight. A ref and not the `sending` state: state is only visible to
+  // the *next* render, so two taps inside one await both read `sending === false`
+  // and both send a code. The data layer refuses the duplicate either way; this
+  // is what stops the second notification from being written at all.
+  const sendingRef = useRef(false);
+  const resendingRef = useRef(false);
+  const submittingRef = useRef(false);
 
   const maxDays = book?.maxDays || 14;
 
@@ -102,6 +121,7 @@ export default function PickupBook() {
       if (holderId) setCurrentHolder(await getUserById(holderId));
 
       let req = null;
+      let blocker = null;
       if (user?.id) {
         req = await getPickupRequest(id, user.id);
         // Reopening a stale request would hand out a code nobody remembers.
@@ -112,8 +132,19 @@ export default function PickupBook() {
           req = null;
           setError(t.pickupRequestExpired);
         }
+        // Only worth asking when this book has no request of its own: a reader
+        // already partway through collecting *this* book is not blocked by it.
+        if (!req) {
+          const [elsewhere, loan] = await Promise.all([
+            getPendingPickupForUser(user.id).catch(() => null),
+            getActiveBorrowingForUser(user.id).catch(() => null),
+          ]);
+          if (elsewhere) blocker = { reason: "other-pickup", bookId: elsewhere.bookId };
+          else if (loan && loan.bookId !== id) blocker = { reason: "other-loan", bookId: loan.bookId };
+        }
       }
       setPickupRequest(req);
+      setBlockedBy(blocker);
       setStep(req ? 2 : 1);
       setLoanDays(Math.max(1, Math.min(req?.loanDays ?? 7, bookMaxDays)));
 
@@ -128,7 +159,12 @@ export default function PickupBook() {
   async function handleCancel() {
     setCancelling(true);
     try {
-      if (pickupRequest?.id) await cancelPickupRequest(pickupRequest.id);
+      if (pickupRequest?.id) {
+        await cancelPickupRequest(pickupRequest.id);
+        // Frees this reader to ask for a different book, and puts the book page
+        // back to offering a fresh request rather than "continue".
+        invalidatePickupRequest();
+      }
     } catch (err) {
       logger.error("pickup.cancel", err?.message, { bookId: id });
     } finally {
@@ -141,16 +177,19 @@ export default function PickupBook() {
    * Step 1 → 2. Opens the pickup request and tells whoever holds the book which
    * code to read out. The book itself does not move until that code comes back
    * on step 2 — this only announces the intent.
+   *
+   * The code is sent exactly once per request, and that is structural rather
+   * than careful: `openPickupRequest` decides whether a request was *created*,
+   * and only a created one is announced. Pressing this button again — after
+   * going back to the book, on a second tab, or twice in a row — finds the open
+   * request and walks to step 2 in silence.
    */
   async function handleSendCode() {
-    if (sending || !user?.id || !book) return;
+    if (sendingRef.current || !user?.id || !book) return;
+    sendingRef.current = true;
+    setSending(true);
     setError("");
 
-    // One active loan at a time; check before generating anything.
-    const active = await getActiveBorrowingForUser(user.id);
-    if (active && active.bookId !== id) { setError(t.pickupReturnOtherBook); return; }
-
-    setSending(true);
     try {
       const base = {
         bookId: id,
@@ -160,12 +199,29 @@ export default function PickupBook() {
         loanDays,
       };
 
-      let req;
+      // The code differs by where the book is, so it has to be settled before
+      // the request is written: a book out on loan reuses the reader's own
+      // handoff code (every loan is born with one — see borrowingSchema), a
+      // free book on somebody's shelf gets a fresh one stored on the request.
+      const { request, created } = existingBorrowing
+        ? await openPickupRequest(base)
+        : await openPickupRequest({ ...base, pickupCode: newPickupCode() });
+
+      setPickupRequest(request);
+      setStep(2);
+
+      // Somebody else's copy of this screen already sent the code. Saying so
+      // beats silently doing nothing after a button press.
+      if (!created) {
+        setError(t.pickupCodeAlreadySent);
+        return;
+      }
+
+      // The book page asks whether this reader has a request open — for this
+      // book, and for any book. Both answers just changed.
+      invalidatePickupRequest();
+
       if (existingBorrowing) {
-        // The book is out on loan: the reader's own handoff code is the one
-        // they read out. Every loan is born with one — see borrowingSchema.
-        const code = existingBorrowing.pickupCode;
-        req = await createPickupRequest(base);
         if (existingBorrowing.borrowerId && existingBorrowing.borrowerId !== user.id) {
           await createNotification({
             recipientId: existingBorrowing.borrowerId,
@@ -174,14 +230,10 @@ export default function PickupBook() {
             read: false,
             type: "pickup-request",
             bookId: id,
-            pickupCode: code,
+            pickupCode: existingBorrowing.pickupCode,
           });
         }
       } else {
-        // The book is free but still on its last holder's shelf — the code is
-        // minted here and lives on the request.
-        const code = newPickupCode();
-        req = await createPickupRequest({ ...base, pickupCode: code });
         const holderId = currentHolder?.id || book.ownerId;
         if (holderId && holderId !== user.id) {
           await createNotification({
@@ -191,22 +243,29 @@ export default function PickupBook() {
             read: false,
             type: "borrow-request",
             bookId: id,
-            pickupCode: code,
+            pickupCode: request.pickupCode,
           });
         }
       }
-
-      setPickupRequest(req);
-      setStep(2);
     } catch (err) {
-      logger.error("pickup.sendCode", err?.message, { code: err?.code, bookId: id });
-      setError(err?.message || t.error);
+      if (err instanceof PickupBlockedError) {
+        setBlockedBy({ reason: err.reason, bookId: err.bookId });
+        setError(blockMessage(err.reason));
+      } else {
+        logger.error("pickup.sendCode", err?.message, { code: err?.code, bookId: id });
+        setError(err?.message || t.error);
+      }
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
 
   async function handleResend() {
+    // Same reason as `sendingRef`: this rotates the code and notifies, so a
+    // double-tap is two codes, and the second invalidates the first.
+    if (resendingRef.current || !user?.id || !book) return;
+    resendingRef.current = true;
     setResending(true);
     setResent(false);
     try {
@@ -242,7 +301,10 @@ export default function PickupBook() {
       setResent(true);
     } catch (err) {
       logger.error("pickup.resend", err?.message, { code: err?.code, bookId: id });
-    } finally { setResending(false); }
+    } finally {
+      resendingRef.current = false;
+      setResending(false);
+    }
   }
 
   function handleDigit(index, value) {
@@ -260,7 +322,9 @@ export default function PickupBook() {
 
   async function onSubmit(e) {
     e.preventDefault();
-    if (submitting || !user?.id || !book) return; // double-tap + missing-prereq guard
+    // Ref, not state: this is the write that moves the book, and `submitting`
+    // is only false-then-true across a render.
+    if (submittingRef.current || !user?.id || !book) return;
     setError("");
     const enteredCode = digits.join("");
     if (enteredCode.length < 4) { setError(t.pickupCodeMissing); return; }
@@ -275,6 +339,7 @@ export default function PickupBook() {
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const active = await getActiveBorrowingForUser(user.id);
@@ -320,7 +385,10 @@ export default function PickupBook() {
     } catch (err) {
       logger.error("pickup.confirm", err?.message, { code: err?.code, bookId: id });
       setError(err?.message || t.error);
-    } finally { setSubmitting(false); }
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   }
 
   if (loading || !book) {
@@ -451,14 +519,40 @@ export default function PickupBook() {
 
             {error ? <p className="text-bad text-[13px]">{error}</p> : null}
 
-            <div className="space-y-2">
-              <button onClick={handleSendCode} disabled={sending} className="btn-primary">
-                {sending ? "…" : t.sendCode}
-              </button>
-              <button type="button" onClick={backToBook} className="btn-secondary">
-                {t.cancel}
-              </button>
-            </div>
+            {/* One errand at a time. Shown here rather than only on the button
+                press, so a reader who cannot collect this book learns it before
+                choosing a loan length — with a way to reach the book that is
+                actually in their way. */}
+            {blockedBy ? (
+              <div className="space-y-2">
+                <div className="rounded-2xl bg-warnSoft px-4 py-3.5">
+                  <p className="text-[13px] text-ink-900 leading-relaxed">
+                    {blockMessage(blockedBy.reason)}
+                  </p>
+                </div>
+                {blockedBy.bookId ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/books/${blockedBy.bookId}`, { replace: true })}
+                    className="btn-primary"
+                  >
+                    {t.pickupOpenBlockingBook}
+                  </button>
+                ) : null}
+                <button type="button" onClick={backToBook} className="btn-secondary">
+                  {t.cancel}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button onClick={handleSendCode} disabled={sending} className="btn-primary">
+                  {sending ? "…" : t.sendCode}
+                </button>
+                <button type="button" onClick={backToBook} className="btn-secondary">
+                  {t.cancel}
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <>

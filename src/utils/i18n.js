@@ -191,6 +191,9 @@ const kz = {
   pickupCodeWrong: "Код қате. Кітапты ұстаушыдан кодты қайта сұраңыз.",
   pickupRequestExpired: "Алдыңғы өтініш мерзімі бітті. Кодты қайта жіберіңіз.",
   pickupReturnOtherBook: "Алдымен алған кітабыңызды қайтарыңыз.",
+  pickupOtherPending: "Сізде басқа кітапқа өтінім бар. Алдымен соны аяқтаңыз немесе бас тартыңыз.",
+  pickupOpenBlockingBook: "Сол кітапқа өту →",
+  pickupCodeAlreadySent: "Код бұрын жіберілген. Оны төменде енгізіңіз.",
   contactNotSet: "Көрсетілмеген",
 
   // Contact details (required to join a community)
@@ -656,6 +659,9 @@ const ru = {
   pickupCodeWrong: "Неверный код. Попросите держателя книги назвать код ещё раз.",
   pickupRequestExpired: "Прошлый запрос истёк. Отправьте код заново.",
   pickupReturnOtherBook: "Сначала верните взятую вами книгу.",
+  pickupOtherPending: "У вас уже есть запрос на другую книгу. Завершите или отмените его.",
+  pickupOpenBlockingBook: "Перейти к той книге →",
+  pickupCodeAlreadySent: "Код уже был отправлен. Введите его ниже.",
   contactNotSet: "Не указан",
 
   // Contact details (required to join a community)
@@ -1121,6 +1127,9 @@ const en = {
   pickupCodeWrong: "Wrong code. Ask the holder to read it out again.",
   pickupRequestExpired: "The previous request expired. Send the code again.",
   pickupReturnOtherBook: "Return the book you already have first.",
+  pickupOtherPending: "You already have a request open for another book. Finish or cancel it first.",
+  pickupOpenBlockingBook: "Go to that book →",
+  pickupCodeAlreadySent: "The code was already sent. Enter it below.",
   contactNotSet: "Not provided",
 
   // Contact details (required to join a community)
