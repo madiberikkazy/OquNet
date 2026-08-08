@@ -1192,6 +1192,81 @@ describe("the app's own write sequences still work", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+describe("readingSessions", () => {
+  const session = (userId, over = {}) => ({
+    userId,
+    communityId: C1,
+    bookId: null,
+    minutes: 30,
+    startedAt: 1_700_000_000_000,
+    endedAt: 1_700_001_800_000,
+    dayKey: "2026-08-08",
+    createdAt: serverTimestamp(),
+    ...over,
+  });
+
+  it("a reader may log their own sitting", async () => {
+    await assertSucceeds(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"), session(MEMBER_A)));
+  });
+
+  it("a reader may NOT log a sitting in somebody else's name", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"), session(MEMBER_A2)));
+  });
+
+  it("rejects a length that is not a positive whole number of minutes", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"),
+      session(MEMBER_A, { minutes: 0 })));
+    await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s2"),
+      session(MEMBER_A, { minutes: -5 })));
+    await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s3"),
+      session(MEMBER_A, { minutes: 12.5 })));
+  });
+
+  it("rejects a sitting longer than the ten-hour ceiling", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"),
+      session(MEMBER_A, { minutes: 601 })));
+  });
+
+  it("rejects a run that ends before it starts", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"),
+      session(MEMBER_A, { startedAt: 2_000_000_000_000, endedAt: 1_000_000_000_000 })));
+  });
+
+  it("rejects a client-invented createdAt", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "readingSessions", "s1"),
+      session(MEMBER_A, { createdAt: 123 })));
+  });
+
+  it("is readable only by its author, not by fellow members", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "readingSessions", "s1"),
+        { ...session(MEMBER_A), createdAt: new Date() });
+    });
+    await assertSucceeds(getDoc(doc(as(MEMBER_A), "readingSessions", "s1")));
+    await assertFails(getDoc(doc(as(MEMBER_A2), "readingSessions", "s1")));
+    await assertFails(getDoc(doc(as(ADMIN_A), "readingSessions", "s1")));
+    await assertFails(getDoc(doc(anon(), "readingSessions", "s1")));
+  });
+
+  it("lists only a query scoped to the caller", async () => {
+    await assertSucceeds(getDocs(query(
+      collection(as(MEMBER_A), "readingSessions"), where("userId", "==", MEMBER_A))));
+    await assertFails(getDocs(query(
+      collection(as(MEMBER_A), "readingSessions"), where("userId", "==", MEMBER_A2))));
+    await assertFails(getDocs(collection(as(MEMBER_A), "readingSessions")));
+  });
+
+  it("is a log: nobody may rewrite or erase a sitting, including its author", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "readingSessions", "s1"),
+        { ...session(MEMBER_A), createdAt: new Date() });
+    });
+    await assertFails(updateDoc(doc(as(MEMBER_A), "readingSessions", "s1"), { minutes: 600 }));
+    await assertFails(deleteDoc(doc(as(MEMBER_A), "readingSessions", "s1")));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 describe("collections with no rule at all", () => {
   it("are unreachable", async () => {
     await assertFails(getDoc(doc(as(ADMIN_A), "reviews", "anything")));

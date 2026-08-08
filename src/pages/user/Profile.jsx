@@ -1,25 +1,31 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
-import Avatar from "../../components/Avatar.jsx";
-import AppIcon from "../../components/AppIcon.jsx";
+import ProfileHeader from "../../components/ProfileHeader.jsx";
+import ProfileStatCards, { statRoute } from "../../components/ProfileStatCards.jsx";
+import ReadingHeatmap from "../../components/ReadingHeatmap.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  listBorrowingsForUser, listBooksHeldBy,
+  getCommunityReadingRank, listBooksOwnedBy, listBorrowingsForUser, listBooksHeldBy,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
+import {
+  READING_MINUTES_DEFAULT, READING_MINUTES_MAX, READING_MINUTES_MIN, READING_MINUTE_STEP,
+  readingStreak,
+} from "../../utils/readingProgress.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 
-const DEFAULT_STATS = { owned: 0, reading: 0, completed: 0, saved: 0 };
+const DEFAULT_STATS = { held: 0, reading: 0, completed: 0, saved: 0, owned: 0 };
 
 export default function Profile() {
   const { user, isAdmin, isViewingAsUser, switchView } = useAuth();
   const { community } = useCommunity();
   const navigate = useNavigate();
 
-  // Stats are three parallel fetches that then combine — allSettled keeps wall
+  // Stats are four parallel fetches that then combine — allSettled keeps wall
   // time to the slowest request, and keeps one failing fetch from zeroing the
   // counters that did load.
   const statsQuery = useQuery({
@@ -40,106 +46,97 @@ export default function Profile() {
         // `holderId` returns exactly those, so the counter no longer depends on
         // them falling inside the community's first two hundred books.
         listBooksHeldBy({ communityId: community?.id, userId: user.id }),
+        // What belongs to them, which is a different question — a lent-out book
+        // is still theirs.
+        listBooksOwnedBy({ communityId: community?.id, userId: user.id }),
       ]);
       results.forEach((r, i) => {
         if (r.status === "rejected") {
           logger.error("profile.stats", r.reason?.message, {
             code: r.reason?.code,
-            source: ["active", "completed", "books"][i],
+            source: ["active", "completed", "held", "owned"][i],
           });
         }
       });
-      const [readingList, completed, held] = results.map((r) =>
+      const [readingList, completed, held, owned] = results.map((r) =>
         r.status === "fulfilled" ? r.value : null
       );
       const savedIds = user.savedBookIds || [];
       return {
         stats: {
-          owned: held?.length ?? 0,
+          held: held?.length ?? 0,
           reading: readingList?.length ?? 0,
           completed: completed?.length ?? 0,
           saved: savedIds.length,
+          owned: owned?.length ?? 0,
         },
         activeBorrowing: readingList?.[0] || null,
       };
     },
   });
 
+  // Standing in the community. Its own query rather than a fifth branch of the
+  // one above: it reads a different collection, changes on other people's
+  // activity as much as this reader's, and is the one number on the screen that
+  // is fine to show a minute stale.
+  const rankQuery = useQuery({
+    queryKey: qk.reading.rank(community?.id, user?.id),
+    enabled: !!user?.id && !!community?.id,
+    staleTime: 60_000,
+    queryFn: () => getCommunityReadingRank({ communityId: community.id, userId: user.id }),
+  });
+
   const stats = statsQuery.data?.stats ?? DEFAULT_STATS;
   const activeBorrowing = statsQuery.data?.activeBorrowing ?? null;
+  const readingDays = user?.readingDays || {};
 
   return (
     <MobileShell>
-      {/* Settings icon */}
-      <div className="flex justify-end px-4">
-        <Link to="/settings" className="icon-btn" aria-label={t.settings}>
-          <AppIcon name="settings" size={22} />
-        </Link>
-      </div>
+      <ProfileHeader
+        user={user}
+        community={community}
+        rank={rankQuery.data}
+        showSettings
+        badge={isAdmin ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span> : null}
+      />
 
       {isViewingAsUser && (
-        <div className="mx-4 mb-1 px-4 py-2.5 bg-brand-50 border border-brand-200 rounded-2xl flex items-center justify-between gap-3">
+        <div className="mx-4 mt-3 px-4 py-2.5 bg-brand-50 border border-brand-200 rounded-2xl flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-brand-500 flex-shrink-0">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" stroke="currentColor" strokeWidth="1.6" />
               <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
             </svg>
-            <span className="text-[13px] text-brand-700 font-medium">Режим просмотра пользователя</span>
+            <span className="text-[13px] text-brand-700 font-medium">{t.viewingAsUser}</span>
           </div>
           <button onClick={switchView} className="text-[12px] font-semibold text-brand-600 underline underline-offset-2 whitespace-nowrap">
-            Выйти
+            {t.exit}
           </button>
         </div>
       )}
 
-      {/* Avatar + name */}
-      <div className="flex flex-col items-center pt-2">
-        <Avatar src={user?.photoURL} name={`${user?.firstName} ${user?.lastName}`} size={92} />
-        <h2 className="font-bold text-xl mt-3">{user?.firstName} {user?.lastName}</h2>
-        <p className="text-ink-500 text-[14px]">@{user?.nickname}</p>
-        {isAdmin && (
-          <span className="mt-2 pill bg-brand-50 text-brand-700">Администратор сообщества</span>
-        )}
+      {!community && (
+        <div className="px-4 mt-4">
+          <Link to="/community/join" className="btn-primary block text-center">{t.findCommunity}</Link>
+        </div>
+      )}
+
+      <div className="px-4 mt-4">
+        <ReadingHeatmap readingDays={readingDays} />
       </div>
 
-      {/* Community link */}
-      <div className="px-4 mt-5">
-        {community ? (
-          <Link to={`/community/${community.id}`} className="flex items-center gap-3 border-2 border-brand-200 rounded-2xl px-3 py-3">
-            <Avatar src={community.photoURL} name={community.name} size={44} />
-            <div><p className="font-medium">{community.name}</p><p className="text-[13px] text-ink-500">@{community.nickname}</p></div>
-          </Link>
-        ) : (
-          <Link to="/community/join" className="btn-primary block text-center">Найти сообщество</Link>
-        )}
+      <div className="px-4 mt-3">
+        <ReadingLauncher
+          readingDays={readingDays}
+          onStart={(minutes) => navigate(`/profile/timer?minutes=${minutes}`)}
+        />
       </div>
 
-      {/* ── Stats grid — all 4 cards are tappable ── */}
-      <div className="px-4 mt-5 grid grid-cols-2 gap-3">
-        <Card
-          color="bg-statPurple" icon="user"
-          title={t.ownedBooks}
-          value={stats.owned}
-          onClick={() => navigate("/profile/owned")}
-        />
-        <Card
-          color="bg-statGreen" icon="calendar"
-          title={t.readingNow}
-          desc={activeBorrowing ? activeBorrowing.bookName : undefined}
-          value={stats.reading}
-          onClick={() => navigate("/profile/reading")}
-        />
-        <Card
-          color="bg-statRed" icon="check"
-          title={t.completed}
-          value={stats.completed}
-          onClick={() => navigate("/profile/completed")}
-        />
-        <Card
-          color="bg-statPink" icon="heart"
-          title={t.saved}
-          value={stats.saved}
-          onClick={() => navigate("/profile/saved")}
+      <div className="px-4 mt-4">
+        <ProfileStatCards
+          stats={stats}
+          note={{ reading: activeBorrowing?.bookName }}
+          onSelect={(kind) => navigate(statRoute(kind))}
         />
       </div>
 
@@ -158,8 +155,8 @@ export default function Profile() {
                 </svg>
               </span>
               <div className="text-left">
-                <p className="text-[14px] font-semibold text-brand-900">Переключиться на администратора</p>
-                <p className="text-[12px] text-brand-600">Вернуться к управлению сообществом</p>
+                <p className="text-[14px] font-semibold text-brand-900">{t.switchToAdminView}</p>
+                <p className="text-[12px] text-brand-600">{t.switchToAdminViewHint}</p>
               </div>
             </div>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-brand-400 flex-shrink-0">
@@ -176,27 +173,57 @@ export default function Profile() {
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
-function Card({ color, icon, title, desc, value, onClick }) {
+/**
+ * "Read ▶  −  30  +" — pick a length and start the timer.
+ *
+ * The length lives here rather than in the timer screen so it can be chosen and
+ * changed without leaving the profile, and it travels in the URL so the timer
+ * has no state of its own to get out of step with this.
+ */
+function ReadingLauncher({ readingDays, onStart }) {
+  const [minutes, setMinutes] = useState(READING_MINUTES_DEFAULT);
+  const streak = readingStreak(readingDays);
+
+  const step = (delta) => setMinutes((m) =>
+    Math.min(READING_MINUTES_MAX, Math.max(READING_MINUTES_MIN, m + delta))
+  );
+
   return (
-    <div
-      onClick={onClick}
-      className={
-        "rounded-2xl p-4 cursor-pointer active:scale-[0.98] transition-all " + color
-      }
-    >
-      <div className="text-ink-700 mb-2">{renderIcon(icon)}</div>
-      <h4 className="font-semibold text-[14px] leading-tight">{title}</h4>
-      {desc ? <p className="text-[12px] text-ink-500 mt-1 line-clamp-2">{desc}</p> : null}
-      <p className="text-[20px] font-bold mt-2">{value}</p>
+    <div className="rounded-2xl bg-brand-50 px-3 py-2.5 flex items-center justify-between gap-3">
+      <button
+        onClick={() => onStart(minutes)}
+        className="flex items-center gap-2 min-w-0 active:scale-[0.98] transition"
+      >
+        <span className="text-[20px] font-bold text-brand-700">{t.readAction}</span>
+        <span className="w-8 h-8 rounded-full bg-brand-500 text-white inline-flex items-center justify-center shrink-0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+          </svg>
+        </span>
+        {streak > 0 ? (
+          <span className="text-[12px] text-brand-600 truncate">{t.streakLabel(streak)}</span>
+        ) : null}
+      </button>
+
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={() => step(-READING_MINUTE_STEP)}
+          disabled={minutes <= READING_MINUTES_MIN}
+          className="w-8 h-8 rounded-full bg-brand-500 text-white text-[20px] leading-none inline-flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
+          aria-label={t.decrease}
+        >
+          −
+        </button>
+        <span className="text-[22px] font-bold tabular-nums w-9 text-center">{minutes}</span>
+        <button
+          onClick={() => step(READING_MINUTE_STEP)}
+          disabled={minutes >= READING_MINUTES_MAX}
+          className="w-8 h-8 rounded-full bg-brand-500 text-white text-[20px] leading-none inline-flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
+          aria-label={t.increase}
+        >
+          +
+        </button>
+      </div>
     </div>
   );
-}
-
-
-function renderIcon(icon) {
-  if (icon === "user")     return <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.6" /><path d="M5 20c.6-3.4 3.5-6 7-6s6.4 2.6 7 6" stroke="currentColor" strokeWidth="1.6" /></svg>;
-  if (icon === "calendar") return <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="4" y="6" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.6" /><path d="M4 10h16M8 4v4M16 4v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>;
-  if (icon === "check")    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" strokeWidth="1.6" /><path d="m8 12 3 3 5-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
-  if (icon === "heart")    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.65A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></svg>;
-  return null;
 }

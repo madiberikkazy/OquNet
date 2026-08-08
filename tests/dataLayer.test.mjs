@@ -17,9 +17,12 @@ globalThis.localStorage = {
 const {
   createBook, listBooks, listNewBooks, listBooksHeldBy, listBooksOwnedBy,
   updateBook, getBook, createNotification, listNotifications,
-  createUserDoc, notifyCommunityMembers,
+  createUserDoc, getUserById, notifyCommunityMembers,
+  logReadingSession, listReadingSessions, getCommunityReadingRank,
   NEW_BOOK_WINDOW_DAYS,
 } = await import("../src/firebase/firestore.js");
+
+const { dayKey } = await import("../src/utils/readingProgress.js");
 
 const LS_KEY = "oqunet:db";
 const DAY = 86_400_000;
@@ -270,5 +273,90 @@ describe("community fan-out", () => {
       globalThis.localStorage.setItem = realSetItem;
     }
     assert.equal(writes, 1, "one write for six recipients, not one per recipient");
+  });
+});
+
+// ── Reading sessions ─────────────────────────────────────────────────────────
+// The one write in the data layer that lands in two places at once: an
+// immutable row in `readingSessions`, and a folded aggregate on the reader's own
+// profile. These cover the fold, because it is the half a screen actually reads
+// and the half a bug in would be invisible until a heatmap came out wrong.
+
+describe("reading sessions", () => {
+  async function seedReader(id = "r1") {
+    await createUserDoc({ id, email: `${id}@e.com`, nickname: id });
+    const db = JSON.parse(store.get(LS_KEY));
+    db.users.find((u) => u.id === id).communityId = COMMUNITY;
+    store.set(LS_KEY, JSON.stringify(db));
+    return id;
+  }
+
+  it("writes a row and folds it into the reader's profile", async () => {
+    const userId = await seedReader();
+    const endedAt = Date.now();
+
+    const { session, patch } = await logReadingSession({
+      userId, communityId: COMMUNITY, minutes: 45, endedAt, readingDays: {},
+    });
+
+    assert.equal(session.minutes, 45);
+    assert.equal(session.dayKey, dayKey(new Date(endedAt)));
+    // A session with no explicit start is stamped from its own length, never
+    // after its end.
+    assert.ok(session.startedAt <= session.endedAt);
+
+    assert.equal(patch.readingMinutes, 45);
+    assert.equal(patch.readingDays[session.dayKey], 45);
+
+    const rows = await listReadingSessions({ userId });
+    assert.equal(rows.length, 1);
+    assert.equal((await getUserById(userId)).readingMinutes, 45);
+  });
+
+  it("accumulates two sittings on the same day", async () => {
+    const userId = await seedReader();
+    const first = await logReadingSession({ userId, minutes: 20, readingDays: {} });
+    const second = await logReadingSession({
+      userId, minutes: 25, readingDays: first.patch.readingDays,
+    });
+
+    assert.equal(second.patch.readingDays[second.session.dayKey], 45);
+    assert.equal(second.patch.readingMinutes, 45);
+    assert.equal((await listReadingSessions({ userId })).length, 2);
+  });
+
+  it("drops day entries that have aged out of the window", async () => {
+    const userId = await seedReader();
+    const stale = dayKey(new Date(Date.now() - 500 * 86_400_000));
+
+    const { patch } = await logReadingSession({
+      userId, minutes: 10, readingDays: { [stale]: 90 },
+    });
+
+    assert.equal(patch.readingDays[stale], undefined);
+    assert.equal(patch.readingMinutes, 10, "the total follows the map it is summed from");
+  });
+
+  it("refuses a session that is not a positive length", async () => {
+    const userId = await seedReader();
+    await assert.rejects(() => logReadingSession({ userId, minutes: 0 }));
+    assert.equal((await listReadingSessions({ userId })).length, 0);
+  });
+
+  it("ranks a community by reading minutes, sharing a place on a tie", async () => {
+    for (const [id, minutes] of [["a", 300], ["b", 300], ["c", 120], ["d", 0]]) {
+      await seedReader(id);
+      const db = JSON.parse(store.get(LS_KEY));
+      db.users.find((u) => u.id === id).readingMinutes = minutes;
+      store.set(LS_KEY, JSON.stringify(db));
+    }
+
+    const rank = (id) => getCommunityReadingRank({ communityId: COMMUNITY, userId: id });
+    assert.equal((await rank("a")).place, 1);
+    assert.equal((await rank("b")).place, 1, "a tie shares the place");
+    assert.equal((await rank("c")).place, 3, "and consumes the one after it");
+    assert.equal((await rank("d")).place, 4, "nobody is unranked for reading nothing");
+    assert.equal((await rank("d")).total, 4);
+    assert.equal(await rank("nobody"), null);
   });
 });

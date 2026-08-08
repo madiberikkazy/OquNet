@@ -21,7 +21,11 @@
 
 import { logger } from "../utils/logger.js";
 import { clampStars } from "../utils/rating.js";
+import {
+  addReadingMinutes, clampSessionMinutes, dayKey, totalReadingMinutes,
+} from "../utils/readingProgress.js";
 import { searchPrefixes } from "../utils/search.js";
+import { toMillis } from "../utils/time.js";
 import {
   LIMITS,
   clampLoanDays,
@@ -666,4 +670,69 @@ export function normalizeRating(payload) {
     authorName: clampText(payload.authorName, LIMITS.NAME_MAX),
     photoURL: safeImageUrl(payload.photoURL),
   }, ratingSchema.required);
+}
+
+// ---------- reading sessions ----------
+//
+// One finished run of the reading timer. Immutable once written: the rules deny
+// update and delete outright, because this collection is the durable log the
+// denormalised `readingDays` map on the user document is folded from, and a log
+// you can rewrite is not one.
+//
+// `dayKey` is derived here rather than on the server, and it is the reader's own
+// calendar day — see utils/readingProgress.js for why that matters. It is stored
+// alongside the timestamps rather than computed from them on read so the row and
+// the map can never disagree about which square a sitting belongs in.
+
+export const readingSessionSchema = Object.freeze({
+  collection: "readingSessions",
+  required: Object.freeze(["userId", "dayKey", "minutes", "startedAt", "endedAt"]),
+  defaults: Object.freeze({ communityId: null, bookId: null }),
+  serverOwned: SERVER_OWNED_FIELDS,
+});
+
+export function normalizeNewReadingSession(payload) {
+  requirePayload("readingSessions", payload);
+  const userId = requiredId("readingSessions", "userId", payload.userId);
+
+  const minutes = clampSessionMinutes(payload.minutes);
+  if (!minutes) {
+    throw new SchemaError("readingSessions: minutes must be a positive whole number", {
+      collection: "readingSessions", field: "minutes",
+    });
+  }
+
+  const endedAt = toMillis(payload.endedAt, Date.now());
+  // A run that reports no start is stamped from its own length, so the pair is
+  // always consistent — a session whose `startedAt` sits after its `endedAt`
+  // would quietly break any later recount from this log.
+  const startedAt = toMillis(payload.startedAt, endedAt - minutes * 60_000);
+
+  return assertRequired("readingSessions", {
+    ...readingSessionSchema.defaults,
+    userId,
+    // Carried so a leaderboard can be rebuilt for one community without reading
+    // every member's profile. Null for a reader who belongs to none.
+    communityId: payload.communityId ? str(payload.communityId) : null,
+    bookId: payload.bookId ? str(payload.bookId) : null,
+    minutes,
+    startedAt: Math.min(startedAt, endedAt),
+    endedAt,
+    dayKey: dayKey(new Date(endedAt)),
+  }, readingSessionSchema.required);
+}
+
+/**
+ * The other half of a logged session: the patch that folds it into the reader's
+ * own profile. Kept here, next to the row it mirrors, so the two shapes are
+ * written in one place — and pure, so the localStorage fallback and Firestore
+ * produce the same numbers.
+ */
+export function normalizeReadingProgress({ readingDays, dayKey: key, minutes, endedAt } = {}) {
+  const days = addReadingMinutes(readingDays, key, minutes);
+  return {
+    readingDays: days,
+    readingMinutes: totalReadingMinutes(days),
+    lastReadAt: toMillis(endedAt, Date.now()),
+  };
 }
