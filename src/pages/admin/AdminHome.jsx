@@ -15,6 +15,20 @@ import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 import { Link, useNavigate } from "react-router-dom";
 
+/**
+ * What to show the admin when a post write is refused.
+ *
+ * A SchemaError names the i18n key for the field it refused. Firestore's own
+ * "Missing or insufficient permissions" is the message that matters most here
+ * and the one a user can do least with, so it is translated: it means the rules
+ * in the project do not yet allow what this build is asking for.
+ */
+function postWriteError(err) {
+  if (err?.errorKey && t[err.errorKey]) return t[err.errorKey];
+  if (err?.code === "permission-denied") return t.notAuthorized;
+  return err?.message || t.error;
+}
+
 export default function AdminHome() {
   const { user } = useAuth();
   const { community } = useCommunity();
@@ -63,8 +77,8 @@ export default function AdminHome() {
       setPostBody("");
       setCreateOpen(false);
     } catch (err) {
-      logger.error("adminHome.createPost", err?.message);
-      setPostError(t[err?.errorKey] || err?.message || t.error);
+      logger.error("adminHome.createPost", err?.message, { code: err?.code });
+      setPostError(postWriteError(err));
     } finally {
       setPosting(false);
     }
@@ -74,6 +88,13 @@ export default function AdminHome() {
     setEditing(post);
     setEditBody(post.body || "");
     setPostError("");
+  }
+
+  function openDelete(post) {
+    // Clear whatever the last dialog complained about, so a fresh attempt does
+    // not open under a stale error.
+    setPostError("");
+    setConfirmDelete(post);
   }
 
   async function saveEdit(e) {
@@ -88,8 +109,8 @@ export default function AdminHome() {
       setPosts((list) => list.map((p) => (p.id === editing.id ? { ...p, ...patch } : p)));
       setEditing(null);
     } catch (err) {
-      logger.error("adminHome.updatePost", err?.message, { postId: editing.id });
-      setPostError(t[err?.errorKey] || err?.message || t.error);
+      logger.error("adminHome.updatePost", err?.message, { postId: editing.id, code: err?.code });
+      setPostError(postWriteError(err));
     } finally {
       setSaving(false);
     }
@@ -103,8 +124,10 @@ export default function AdminHome() {
       setPosts((list) => list.filter((p) => p.id !== confirmDelete.id));
       setConfirmDelete(null);
     } catch (err) {
-      logger.error("adminHome.deletePost", err?.message, { postId: confirmDelete.id });
-      setPostError(err?.message || t.error);
+      logger.error("adminHome.deletePost", err?.message, {
+        postId: confirmDelete.id, code: err?.code,
+      });
+      setPostError(postWriteError(err));
     } finally {
       setDeleting(false);
     }
@@ -188,7 +211,7 @@ export default function AdminHome() {
                           </svg>
                         </button>
                         <button
-                          onClick={() => setConfirmDelete(p)}
+                          onClick={() => openDelete(p)}
                           aria-label={t.delete}
                           className="w-8 h-8 rounded-lg bg-badSoft text-bad flex items-center justify-center active:scale-95 transition"
                         >
@@ -253,6 +276,10 @@ export default function AdminHome() {
       >
         <p className="text-[13px] text-ink-700 mb-1 line-clamp-3">{confirmDelete?.body}</p>
         <p className="text-[13px] text-ink-500 leading-relaxed mb-4">{t.deletePostWarning}</p>
+        {/* A refused delete used to fail here in silence: the error was written
+            to state that only the other two modals rendered, so the dialog just
+            sat there. Whatever the server said belongs on the dialog that asked. */}
+        {postError ? <p className="text-bad text-[13px] mb-3">{postError}</p> : null}
         <div className="flex gap-3">
           <button onClick={() => setConfirmDelete(null)} disabled={deleting} className="btn-secondary">
             {t.cancel}
