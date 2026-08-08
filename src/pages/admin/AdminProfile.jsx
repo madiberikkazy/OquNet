@@ -5,18 +5,16 @@ import Avatar from "../../components/Avatar.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { listPostsByCommunity, listUsersByCommunity } from "../../firebase/firestore.js";
+import { listUsersByCommunity } from "../../firebase/firestore.js";
 
 export default function AdminProfile() {
   const { user, switchView } = useAuth();
   const navigate = useNavigate();
   const { community } = useCommunity();
-  const [posts, setPosts] = useState([]);
   const [members, setMembers] = useState([]);
 
   useEffect(() => {
     if (!community?.id) return;
-    listPostsByCommunity(community.id).then(setPosts);
     listUsersByCommunity(community.id).then(setMembers);
   }, [community?.id]);
 
@@ -82,22 +80,6 @@ export default function AdminProfile() {
           <div><p className="font-medium">{community.name}</p><p className="text-[13px] text-ink-500">@{community.nickname}</p></div>
         </Link>
       ) : null}
-
-      <section className="px-4 mt-5">
-        <h3 className="section-title mb-2">Публикации сообщества ({posts.length})</h3>
-        {posts.length === 0 ? (
-          <p className="text-ink-500 text-[13px]">Публикаций ещё нет.</p>
-        ) : (
-          <ul className="space-y-2">
-            {posts.slice(0, 3).map((p) => (
-              <li key={p.id} className="card p-3">
-                {p.title ? <p className="font-medium text-[14px]">{p.title}</p> : null}
-                <p className="text-[13px] text-ink-700 line-clamp-2">{p.body}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
 
       <section className="px-4 mt-5">
         <h3 className="section-title mb-2">Участники ({members.length})</h3>
