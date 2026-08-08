@@ -24,6 +24,8 @@ const Notification       = lazyRoute(() => import("./pages/user/Notification.jsx
 const NotificationDetail = lazyRoute(() => import("./pages/user/NotificationDetail.jsx"));
 const Profile            = lazyRoute(() => import("./pages/user/Profile.jsx"));
 const OwnedBooks         = lazyRoute(() => import("./pages/user/OwnedBooks.jsx"));
+const MyBooks            = lazyRoute(() => import("./pages/user/MyBooks.jsx"));
+const ReadingTimer       = lazyRoute(() => import("./pages/user/ReadingTimer.jsx"));
 const ReadingNow         = lazyRoute(() => import("./pages/user/ReadingNow.jsx"));
 const CompletedBooks     = lazyRoute(() => import("./pages/user/CompletedBooks.jsx"));
 const SavedBooks         = lazyRoute(() => import("./pages/user/SavedBooks.jsx"));
@@ -104,6 +106,10 @@ export default function App() {
             <Route path="/notifications/:id" element={<NotificationDetail />} />
             <Route path="/profile" element={<RoleRoute userElement={<Profile />} adminElement={<AdminProfile />} />} />
             <Route path="/profile/owned"     element={<OwnedBooks />} />
+            {/* "owned" is what the reader is holding; "my-books" is what belongs
+                to them. The profile shows both counters, so both need a list. */}
+            <Route path="/profile/my-books"  element={<MyBooks />} />
+            <Route path="/profile/timer"     element={<ReadingTimer />} />
             <Route path="/profile/reading"   element={<ReadingNow />} />
             <Route path="/profile/completed" element={<CompletedBooks />} />
             <Route path="/profile/saved"     element={<SavedBooks />} />

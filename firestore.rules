@@ -361,6 +361,39 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.userId == uid();
     }
 
+    // ═══ readingSessions ═══
+    //
+    // One immutable row per finished run of the reading timer, and the durable
+    // log the `readingDays` map on a profile is folded from.
+    //
+    // Strictly author-only to read, which is narrower than it looks: the grid
+    // other members see on somebody's profile is drawn from that folded map on
+    // the `users` document, which is already readable. Nothing needs to read
+    // these rows except the person who wrote them, so nothing may.
+    //
+    // Update and delete are denied outright. A log whose past can be edited
+    // cannot be used to recompute the aggregate it backs — which is the only
+    // reason to keep the rows at all.
+
+    match /readingSessions/{sessionId} {
+      allow get, list: if signedIn() && resource.data.userId == uid();
+
+      allow create: if signedIn()
+        && request.resource.data.userId == uid()
+        && request.resource.data.dayKey is string
+        && request.resource.data.minutes is int
+        && request.resource.data.minutes > 0
+        // Mirrors MAX_SESSION_MINUTES in utils/readingProgress.js. A sitting
+        // longer than ten hours is a stuck timer, not a reader.
+        && request.resource.data.minutes <= 600
+        && request.resource.data.startedAt is number
+        && request.resource.data.endedAt is number
+        && request.resource.data.startedAt <= request.resource.data.endedAt
+        && request.resource.data.createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+
     // ═══ requests ═══
     //
     // Join, leave and pickup requests share one collection, discriminated by

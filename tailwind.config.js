@@ -35,6 +35,14 @@ export default {
         statGreen:  "var(--stat-green)",
         statRed:    "var(--stat-red)",
         statPink:   "var(--stat-pink)",
+        // Reading heatmap ramp — index 0 is an empty day.
+        heat: {
+          0: "var(--heat-0)",
+          1: "var(--heat-1)",
+          2: "var(--heat-2)",
+          3: "var(--heat-3)",
+          4: "var(--heat-4)",
+        },
       },
       fontFamily: {
         sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],

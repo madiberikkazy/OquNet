@@ -129,6 +129,15 @@
       ]
     },
     {
+      "_comment": "listReadingSessions — a reader's own sittings, newest first.",
+      "collectionGroup": "readingSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "startedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "_comment": "getLastCompletedBorrowingByBook.",
       "collectionGroup": "borrowings",
       "queryScope": "COLLECTION",

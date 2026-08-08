@@ -212,6 +212,49 @@ const kz = {
   noReadingBook: "Оқып жатқан кітап жоқ",
   openLibraryHint: "Кітапханаді ашып, бір кітап алыңыз.",
   remainingDays: "Қалған күндер",
+  ownerBooksCard: "Менің кітаптарым",
+  ownerBooksEmpty: "Кітап қосылмаған",
+  ownerBooksEmptyHint: "Қоғамдастыққа қосқан кітаптарыңыз осында көрінеді.",
+  memberHeldTitle: "Қазір қолында",
+  memberReadingTitle: "Қазір оқып жатыр",
+  memberOwnedTitle: "Мүшенің кітаптары",
+  communityAdmin: "Қоғамдастық әкімшісі",
+  viewingAsUser: "Пайдаланушы режимі",
+  exit: "Шығу",
+  switchToAdminView: "Әкімші режиміне ауысу",
+  switchToAdminViewHint: "Қоғамдастықты басқаруға оралу",
+  shareProfile: "Профильмен бөлісу",
+  shareProfileText: (name) => `${name} — OquNet-тегі профиль`,
+  linkCopied: "Сілтеме көшірілді",
+  userNotFound: "Пайдаланушы табылмады",
+  userNotFoundHint: "Мүмкін профиль жойылған.",
+  otherCommunityBooksHidden: "Бұл адам басқа қоғамдастықта — кітаптары көрінбейді.",
+  nothingHereYet: "Әзірге ештеңе жоқ",
+  book: "Кітап",
+  activeLoanLabel: "Оқып жатыр",
+  completedLoanLabel: "Оқып бітірген",
+
+  // Reading time — the heatmap, the standing badge and the timer
+  readingHeatmapTitle: "Оқу уақыттары",
+  readingTotalLabel: "Барлығы:",
+  heatmapLess: "Аз",
+  heatmapMore: "Көп",
+  placeShort: "орын",
+  hoursShort: "сағ",
+  minutesShort: "мин",
+  readAction: "Оқу",
+  streakLabel: (days) => `${days} күн қатарынан`,
+  readingTimerTitle: "Оқу",
+  remainingTime: "Қалған уақыт:",
+  readingDone: "Дайын! Уақыт аяқталды",
+  readTodayLabel: "Бүгін оқығаныңыз:",
+  readingSaveFailed: "Оқу уақытын сақтау сәтсіз аяқталды.",
+  start: "Бастау",
+  pause: "Кідірту",
+  stop: "Тоқтату",
+  reset: "Қайта бастау",
+  decrease: "Азайту",
+  increase: "Көбейту",
 
   // Settings — profile editing
   editProfile: "Профилді өзгерту",
@@ -626,6 +669,49 @@ const ru = {
   noReadingBook: "Сейчас вы ничего не читаете",
   openLibraryHint: "Откройте библиотеку и возьмите книгу.",
   remainingDays: "Осталось дней",
+  ownerBooksCard: "Мои книги",
+  ownerBooksEmpty: "Книг не добавлено",
+  ownerBooksEmptyHint: "Книги, которые вы добавили в сообщество, появятся здесь.",
+  memberHeldTitle: "Сейчас на руках",
+  memberReadingTitle: "Читает сейчас",
+  memberOwnedTitle: "Книги участника",
+  communityAdmin: "Администратор сообщества",
+  viewingAsUser: "Режим просмотра пользователя",
+  exit: "Выйти",
+  switchToAdminView: "Переключиться на администратора",
+  switchToAdminViewHint: "Вернуться к управлению сообществом",
+  shareProfile: "Поделиться профилем",
+  shareProfileText: (name) => `${name} — профиль в OquNet`,
+  linkCopied: "Ссылка скопирована",
+  userNotFound: "Пользователь не найден",
+  userNotFoundHint: "Возможно, профиль был удалён.",
+  otherCommunityBooksHidden: "Этот человек в другом сообществе — его книги не видны.",
+  nothingHereYet: "Пока ничего нет",
+  book: "Книга",
+  activeLoanLabel: "Читает сейчас",
+  completedLoanLabel: "Прочитано",
+
+  // Reading time — the heatmap, the standing badge and the timer
+  readingHeatmapTitle: "Время чтения",
+  readingTotalLabel: "Всего:",
+  heatmapLess: "Меньше",
+  heatmapMore: "Больше",
+  placeShort: "место",
+  hoursShort: "ч",
+  minutesShort: "мин",
+  readAction: "Читать",
+  streakLabel: (days) => `${days} дн. подряд`,
+  readingTimerTitle: "Чтение",
+  remainingTime: "Осталось:",
+  readingDone: "Готово! Время вышло",
+  readTodayLabel: "Сегодня прочитано:",
+  readingSaveFailed: "Не удалось сохранить время чтения.",
+  start: "Старт",
+  pause: "Пауза",
+  stop: "Стоп",
+  reset: "Сначала",
+  decrease: "Уменьшить",
+  increase: "Увеличить",
 
   // Settings — profile editing
   editProfile: "Редактировать профиль",
@@ -1040,6 +1126,49 @@ const en = {
   noReadingBook: "Not reading anything right now",
   openLibraryHint: "Open the library and borrow a book.",
   remainingDays: "Days left",
+  ownerBooksCard: "My books",
+  ownerBooksEmpty: "No books added",
+  ownerBooksEmptyHint: "Books you add to the community show up here.",
+  memberHeldTitle: "Currently holding",
+  memberReadingTitle: "Reading now",
+  memberOwnedTitle: "Their books",
+  communityAdmin: "Community administrator",
+  viewingAsUser: "User view mode",
+  exit: "Exit",
+  switchToAdminView: "Switch to administrator",
+  switchToAdminViewHint: "Go back to managing the community",
+  shareProfile: "Share profile",
+  shareProfileText: (name) => `${name} on OquNet`,
+  linkCopied: "Link copied",
+  userNotFound: "User not found",
+  userNotFoundHint: "The profile may have been removed.",
+  otherCommunityBooksHidden: "This person is in another community — their books aren't visible.",
+  nothingHereYet: "Nothing here yet",
+  book: "Book",
+  activeLoanLabel: "Reading now",
+  completedLoanLabel: "Finished",
+
+  // Reading time — the heatmap, the standing badge and the timer
+  readingHeatmapTitle: "Reading time",
+  readingTotalLabel: "Total:",
+  heatmapLess: "Less",
+  heatmapMore: "More",
+  placeShort: "place",
+  hoursShort: "h",
+  minutesShort: "min",
+  readAction: "Read",
+  streakLabel: (days) => `${days} day streak`,
+  readingTimerTitle: "Reading",
+  remainingTime: "Remaining time:",
+  readingDone: "Done! Time is up",
+  readTodayLabel: "Read today:",
+  readingSaveFailed: "Couldn't save your reading time.",
+  start: "Start",
+  pause: "Pause",
+  stop: "Stop",
+  reset: "Restart",
+  decrease: "Decrease",
+  increase: "Increase",
 
   // Settings — profile editing
   editProfile: "Edit profile",
@@ -1265,6 +1394,38 @@ export function getCurrentLang() {
   if (typeof window === "undefined") return DEFAULT_LANG;
   const stored = localStorage.getItem("lang");
   return isSupportedLang(stored) ? stored : DEFAULT_LANG;
+}
+
+// ─── Calendar names ──────────────────────────────────────────────────────────
+//
+// Written out rather than asked of `Intl`. Kazakh is the app's default language
+// and `kk-KZ` is a locale plenty of browsers ship no calendar data for — those
+// fall back to ISO-ish placeholders, so the reading heatmap's month axis came
+// out as "M04 M05 M06". A table is three lines longer and always right.
+//
+// Weekdays start on Monday, matching the heatmap's rows.
+
+const MONTHS_SHORT = Object.freeze({
+  kz: ["Қаң", "Ақп", "Нау", "Сәу", "Мам", "Мау", "Шіл", "Там", "Қыр", "Қаз", "Қар", "Жел"],
+  ru: ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"],
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+});
+
+const WEEKDAYS_NARROW = Object.freeze({
+  kz: ["Д", "С", "С", "Б", "Ж", "С", "Ж"],
+  ru: ["П", "В", "С", "Ч", "П", "С", "В"],
+  en: ["M", "T", "W", "T", "F", "S", "S"],
+});
+
+/** Abbreviated month name, 0-indexed as `Date#getMonth` returns. */
+export function monthShort(index) {
+  const table = MONTHS_SHORT[getCurrentLang()] || MONTHS_SHORT.en;
+  return table[index] ?? "";
+}
+
+/** Weekday initials, Monday first. */
+export function weekdaysNarrow() {
+  return WEEKDAYS_NARROW[getCurrentLang()] || WEEKDAYS_NARROW.en;
 }
 
 // ─── Genre list — stable `value` stored in DB, localised labels ───────────────

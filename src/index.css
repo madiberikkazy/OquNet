@@ -44,6 +44,15 @@
   --stat-green:  #E5F7F0;
   --stat-red:    #FDECEC;
   --stat-pink:   #FDE9F0;
+
+  /* Reading heatmap — level 0 is "no reading", 1–4 are the filled shades.
+     A ramp of the brand hue rather than an unrelated palette, so the grid reads
+     as part of the profile and not as a chart pasted onto it. */
+  --heat-0: #E8EDF7;
+  --heat-1: #C3D3F0;
+  --heat-2: #86A6DF;
+  --heat-3: #4A78C9;
+  --heat-4: #1E3E87;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -70,6 +79,14 @@
   --stat-green:  #1A2E25;
   --stat-red:    #2E1A1A;
   --stat-pink:   #2E1A22;
+
+  /* Reading heatmap — the ramp inverts in the dark: an empty day has to sit
+     just above the card it is on, and intensity has to read as *brighter*. */
+  --heat-0: #1E2A3B;
+  --heat-1: #24406F;
+  --heat-2: #35619F;
+  --heat-3: #5087D4;
+  --heat-4: #8FB6F5;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -127,6 +144,21 @@
     @apply w-10 h-10 inline-flex items-center justify-center rounded-xl transition;
     background: var(--ink-100);
     color:      var(--ink-700);
+  }
+
+  /* The small square buttons beside the name on a profile — share, settings.
+     Smaller than `.icon-btn` on purpose: they sit on a line with a 20px
+     heading and a 40px button would out-weigh the name it belongs to. */
+  .profile-action {
+    @apply w-8 h-8 inline-flex items-center justify-center rounded-lg transition active:scale-95 shrink-0;
+    background: var(--brand-50);
+  }
+
+  /* The two secondary controls flanking the reading timer's play button. */
+  .timer-side-btn {
+    @apply w-14 h-14 inline-flex items-center justify-center rounded-2xl transition active:scale-95;
+    background: var(--ink-100);
+    color: var(--ink-700);
   }
 
   .section-title {

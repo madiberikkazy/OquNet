@@ -14,6 +14,9 @@ export const qk = {
     // list. Sits under `books` so a handoff invalidates it along with
     // everything else that names a holder.
     heldBy: (userId, communityId) => ["books", "heldBy", userId, communityId],
+    // Books that *belong* to a user — a different question from `heldBy`, and
+    // one a lent-out book still answers yes to.
+    ownedBy: (userId, communityId) => ["books", "ownedBy", userId, communityId],
     // Everything the community-exit rules can turn on: the books a user holds
     // plus the books they own (utils/communityExit.js `loadExitBooks`).
     //
@@ -45,5 +48,15 @@ export const qk = {
   },
   profile: {
     stats: (userId, communityId) => ["profile", "stats", userId, communityId],
+    // Everything the "other member" screen shows at once: their shelves plus
+    // the lists behind each counter, fetched together because the counters and
+    // the lists are the same data and must not be able to disagree.
+    member: (userId, viewerCommunityId) => ["profile", "member", userId, viewerCommunityId],
+  },
+  reading: {
+    // Standing inside a community by total reading minutes.
+    rank: (communityId, userId) => ["reading", "rank", communityId, userId],
+    // A reader's own recent timer sittings.
+    sessions: (userId) => ["reading", "sessions", userId],
   },
 };

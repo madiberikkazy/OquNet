@@ -15,8 +15,10 @@ import {
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
   normalizeNewCommunity, normalizeCommunityPatch, normalizePostPatch,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
+  normalizeNewReadingSession, normalizeReadingProgress,
   stripServerOwned,
 } from "./schema.js";
+import { rankByReadingMinutes } from "../utils/readingProgress.js";
 
 // Document shape is schema.js's job, and every write below goes through it.
 // `toMillis` is re-exported so a screen reading a stored timestamp reaches for
@@ -43,6 +45,7 @@ function emptyDb() {
   return {
     users: [], usernames: [], communities: [], books: [], posts: [],
     notifications: [], requests: [], borrowings: [], ratings: [], reviews: [],
+    readingSessions: [],
   };
 }
 function readLS() {
@@ -1277,6 +1280,75 @@ export async function getBooksByIds(bookIds, concurrency = 5) {
   }
 
   return results;
+}
+
+// ---------- Reading sessions ----------
+//
+// See schema.js for the shape and utils/readingProgress.js for why a session is
+// recorded in two places at once. The short version: the row is the log, the map
+// on the user document is the index, and only the map is ever read by a screen.
+
+/**
+ * Record a finished timer run, and fold it into the reader's profile.
+ *
+ * `readingDays` is passed in rather than read back because the caller — the
+ * timer screen — is holding the signed-in profile already, and re-reading it
+ * here would spend a document read to learn something the client just had. The
+ * cost of that shortcut is stated in utils/readingProgress.js: this is a
+ * client-side read-modify-write, so it is the *aggregate* that can lose a
+ * simultaneous write from a second device, never the session row.
+ *
+ * Returns the patch that was applied, so the caller can put the same values
+ * into its own auth state without a refetch.
+ */
+export async function logReadingSession({
+  userId, communityId = null, bookId = null, minutes, startedAt, endedAt, readingDays = {},
+} = {}) {
+  const session = normalizeNewReadingSession({
+    userId, communityId, bookId, minutes, startedAt, endedAt,
+  });
+
+  // The log first. If the profile fold fails after this, the sitting is still on
+  // record and a later write repairs the map; the other order would lose it.
+  await createOne("readingSessions", session);
+
+  const patch = normalizeReadingProgress({
+    readingDays,
+    dayKey: session.dayKey,
+    minutes: session.minutes,
+    endedAt: session.endedAt,
+  });
+  await updateOne("users", userId, patch);
+
+  return { session, patch };
+}
+
+/**
+ * A reader's most recent sittings, newest first. Their own only — the security
+ * rules scope this collection to its author, and the heatmap other people see is
+ * served from the aggregate on the profile instead.
+ */
+export async function listReadingSessions({ userId, pageSize = 20 } = {}) {
+  if (!userId) return [];
+  return getCollection("readingSessions", {
+    where: [["userId", "==", userId]],
+    orderByField: "startedAt",
+    descending: true,
+    pageSize,
+  });
+}
+
+/**
+ * Where a member stands in their community by total reading time.
+ *
+ * One query, because the totals are denormalised onto the profiles this already
+ * has to list. Returns null outside a community, or for a member the list does
+ * not contain — a stale `communityId`, most likely.
+ */
+export async function getCommunityReadingRank({ communityId, userId } = {}) {
+  if (!communityId || !userId) return null;
+  const members = await listUsersByCommunity(communityId);
+  return rankByReadingMinutes(members, userId);
 }
 
 // Reviews are not a separate collection: a review is the optional text a

@@ -22,6 +22,9 @@ export const roleIcon          = "/drawable/role.svg";
 export const cameraIcon        = "/drawable/camera.svg";
 export const settingsIcon      = "/drawable/settings.svg";
 export const heartIcon         = "/drawable/heart.svg";
+/** Profile screen: the community-standing badge and the share-profile action. */
+export const cupIcon           = "/drawable/cup.svg";
+export const shareProfileIcon  = "/drawable/share_profile.svg";
 /** The app mark itself — a full-bleed tile, so it carries its own background. */
 export const logoIcon          = "/drawable/logo.svg";
 
@@ -41,6 +44,8 @@ export const ICONS = Object.freeze({
   camera:        cameraIcon,
   settings:      settingsIcon,
   heart:         heartIcon,
+  cup:           cupIcon,
+  shareProfile:  shareProfileIcon,
   logo:          logoIcon,
 });
 
