@@ -4,9 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import BookCard from "../../components/BookCard.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
-import ProfileHeader from "../../components/ProfileHeader.jsx";
+import ProfileHeader, { CommunityRankChip } from "../../components/ProfileHeader.jsx";
 import ProfileStatCards from "../../components/ProfileStatCards.jsx";
-import ReadingHeatmap from "../../components/ReadingHeatmap.jsx";
+import ReadingWeek from "../../components/ReadingWeek.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getBooksByIds, getCommunity, getCommunityReadingRank, getUserById,
@@ -22,7 +22,7 @@ const EMPTY_LISTS = { held: [], owned: [], reading: [], completed: [], saved: []
  * Another member's profile — the same screen as the reader's own, seen from
  * outside.
  *
- * It shows everything the design puts on a profile: the reading grid, the
+ * It shows everything the design puts on a profile: the week's reading, the
  * standing in the community, and all five shelves. The one structural
  * difference is what a counter does when tapped. On your own profile it opens a
  * screen, because those screens can act on the books — return one, unsave one.
@@ -112,21 +112,21 @@ export default function UserProfile() {
 
   return (
     <MobileShell>
-      <ProfileHeader
-        user={member}
-        community={community}
-        rank={rankQuery.data}
-        onBack={() => navigate(-1)}
-      />
+      <ProfileHeader user={member} onBack={() => navigate(-1)} />
 
-      <div className="px-4 mt-4">
-        <ReadingHeatmap readingDays={member.readingDays || {}} />
+      <div className="px-4 mt-5 flex items-center justify-between gap-3">
+        <h3 className="text-[17px] font-bold truncate">{t.readingSectionTitle}</h3>
+        <CommunityRankChip community={community} rank={rankQuery.data} />
+      </div>
+
+      <div className="px-4 mt-2.5">
+        <ReadingWeek readingDays={member.readingDays || {}} />
       </div>
 
       {sameCommunity ? (
         <>
           <div className="px-4 mt-4">
-            <ProfileStatCards stats={stats} active={selected} onSelect={setSelected} variant="member" />
+            <ProfileStatCards stats={stats} active={selected} onSelect={setSelected} />
           </div>
           <section className="mt-5">
             <h3 className="section-title px-4 mb-1">{t[SECTION_TITLE_KEY[selected]]}</h3>

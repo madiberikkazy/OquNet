@@ -7,8 +7,9 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listReadingSessions, logReadingSession } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import {
+  MIN_SESSION_SECONDS,
   READING_MINUTES_DEFAULT, READING_MINUTES_MAX, READING_MINUTES_MIN,
-  dayKey, splitMinutes,
+  dayKey, formatDuration,
 } from "../../utils/readingProgress.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
@@ -22,9 +23,6 @@ import { t } from "../../utils/i18n.js";
 // screen repaints; the number it paints comes from the wall clock.
 const TICK_MS = 200;
 
-/** Minutes below this are not a reading session, and are not recorded. */
-const MIN_LOGGABLE_MINUTES = 1;
-
 export default function ReadingTimer() {
   const { user, setUser } = useAuth();
   const { community } = useCommunity();
@@ -34,6 +32,11 @@ export default function ReadingTimer() {
 
   const durationMinutes = clampRequestedMinutes(params.get("minutes"));
   const durationMs = durationMinutes * 60_000;
+  // Which book the reader is sitting down with, handed over by the profile so
+  // this screen does not spend a read re-deriving what the caller already knew.
+  // Recorded on the session row and nothing else — it names a book, it does not
+  // grant anything, so an edited URL only mislabels the reader's own log.
+  const activeBookId = params.get("book") || null;
 
   // `startedAt` is when the current running stretch began; `bankedMs` is
   // everything from the stretches before it. Pausing moves one into the other,
@@ -74,8 +77,8 @@ export default function ReadingTimer() {
    */
   const commit = useCallback(async (totalMs) => {
     if (loggedRef.current || !user?.id) return null;
-    const minutes = Math.round(totalMs / 60_000);
-    if (minutes < MIN_LOGGABLE_MINUTES) return null;
+    const seconds = Math.round(totalMs / 1000);
+    if (seconds < MIN_SESSION_SECONDS) return null;
 
     loggedRef.current = true;
     const endedAt = Date.now();
@@ -83,20 +86,24 @@ export default function ReadingTimer() {
       const { patch } = await logReadingSession({
         userId: user.id,
         communityId: community?.id ?? null,
-        minutes,
+        // Which book the time went into, when there is one on loan. The session
+        // log can then answer "how long did this book take"; nothing could
+        // reconstruct it afterwards.
+        bookId: activeBookId ?? null,
+        seconds,
         startedAt: runStartRef.current ?? endedAt - totalMs,
         endedAt,
         readingDays: user.readingDays || {},
       });
-      // The profile's heatmap reads straight off auth state, so it has to learn
-      // the new total here — a refetch would repaint it a second later, and the
-      // screen the reader lands on after Stop is exactly that heatmap.
+      // The profile's weekly chart reads straight off auth state, so it has to
+      // learn the new total here — a refetch would repaint it a second later, and
+      // the screen the reader lands on after Stop is exactly that chart.
       setUser({ ...user, ...patch });
       queryClient.invalidateQueries({ queryKey: qk.reading.sessions(user.id) });
       if (community?.id) {
         queryClient.invalidateQueries({ queryKey: qk.reading.rank(community.id, user.id) });
       }
-      return minutes;
+      return seconds;
     } catch (err) {
       // Let the reader try again rather than swallowing the sitting.
       loggedRef.current = false;
@@ -104,7 +111,7 @@ export default function ReadingTimer() {
       setError(t.readingSaveFailed);
       return null;
     }
-  }, [user, community?.id, setUser, queryClient]);
+  }, [user, community?.id, activeBookId, setUser, queryClient]);
 
   // The run reached its length on its own.
   useEffect(() => {
@@ -160,8 +167,7 @@ export default function ReadingTimer() {
     navigate("/profile");
   }
 
-  const todayMinutes = (user?.readingDays || {})[dayKey()] || 0;
-  const { hours: todayHours, minutes: todayRest } = splitMinutes(todayMinutes);
+  const todaySeconds = (user?.readingDays || {})[dayKey()] || 0;
   const progress = durationMs ? elapsedMs / durationMs : 0;
 
   return (
@@ -221,8 +227,7 @@ export default function ReadingTimer() {
         {error ? <p className="text-[13px] text-bad mt-4 text-center">{error}</p> : null}
 
         <p className="text-[13px] text-ink-500 italic mt-8 text-center">
-          {t.readTodayLabel}{" "}
-          {todayHours ? `${todayHours} ${t.hoursShort} ${todayRest} ${t.minutesShort}` : `${todayRest} ${t.minutesShort}`}
+          {t.readTodayLabel} <span className="tabular-nums">{formatDuration(todaySeconds)}</span>
         </p>
 
         {todaySessions.data?.length ? (
@@ -230,7 +235,7 @@ export default function ReadingTimer() {
             {todaySessions.data.slice(0, 3).map((s) => (
               <li key={s.id} className="flex items-center justify-between py-1.5 text-[13px] border-b border-ink-100 last:border-b-0">
                 <span className="text-ink-500">{s.dayKey}</span>
-                <span className="font-medium">{s.minutes} {t.minutesShort}</span>
+                <span className="font-medium tabular-nums">{formatDuration(s.seconds)}</span>
               </li>
             ))}
           </ul>

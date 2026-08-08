@@ -18,7 +18,7 @@ import {
   normalizeNewReadingSession, normalizeReadingProgress,
   stripServerOwned,
 } from "./schema.js";
-import { rankByReadingMinutes } from "../utils/readingProgress.js";
+import { rankByWeeklyReading } from "../utils/readingProgress.js";
 
 // Document shape is schema.js's job, and every write below goes through it.
 // `toMillis` is re-exported so a screen reading a stored timestamp reaches for
@@ -1302,10 +1302,10 @@ export async function getBooksByIds(bookIds, concurrency = 5) {
  * into its own auth state without a refetch.
  */
 export async function logReadingSession({
-  userId, communityId = null, bookId = null, minutes, startedAt, endedAt, readingDays = {},
+  userId, communityId = null, bookId = null, seconds, startedAt, endedAt, readingDays = {},
 } = {}) {
   const session = normalizeNewReadingSession({
-    userId, communityId, bookId, minutes, startedAt, endedAt,
+    userId, communityId, bookId, seconds, startedAt, endedAt,
   });
 
   // The log first. If the profile fold fails after this, the sitting is still on
@@ -1315,7 +1315,7 @@ export async function logReadingSession({
   const patch = normalizeReadingProgress({
     readingDays,
     dayKey: session.dayKey,
-    minutes: session.minutes,
+    seconds: session.seconds,
     endedAt: session.endedAt,
   });
   await updateOne("users", userId, patch);
@@ -1325,7 +1325,7 @@ export async function logReadingSession({
 
 /**
  * A reader's most recent sittings, newest first. Their own only — the security
- * rules scope this collection to its author, and the heatmap other people see is
+ * rules scope this collection to its author, and the week other people see is
  * served from the aggregate on the profile instead.
  */
 export async function listReadingSessions({ userId, pageSize = 20 } = {}) {
@@ -1339,16 +1339,18 @@ export async function listReadingSessions({ userId, pageSize = 20 } = {}) {
 }
 
 /**
- * Where a member stands in their community by total reading time.
+ * Where a member stands in their community by reading time this week.
  *
- * One query, because the totals are denormalised onto the profiles this already
- * has to list. Returns null outside a community, or for a member the list does
- * not contain — a stale `communityId`, most likely.
+ * One query, because every member's day map is denormalised onto the profile
+ * this already has to list — the ranking is then computed here from the same
+ * seven-day window the profile chart draws, so the badge and the chart can never
+ * disagree. Returns null outside a community, or for a member the list does not
+ * contain — a stale `communityId`, most likely.
  */
 export async function getCommunityReadingRank({ communityId, userId } = {}) {
   if (!communityId || !userId) return null;
   const members = await listUsersByCommunity(communityId);
-  return rankByReadingMinutes(members, userId);
+  return rankByWeeklyReading(members, userId);
 }
 
 // Reviews are not a separate collection: a review is the optional text a

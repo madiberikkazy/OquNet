@@ -22,7 +22,8 @@
 import { logger } from "../utils/logger.js";
 import { clampStars } from "../utils/rating.js";
 import {
-  addReadingMinutes, clampSessionMinutes, dayKey, totalReadingMinutes,
+  MIN_SESSION_SECONDS,
+  addReadingSeconds, clampSessionSeconds, dayKey, totalReadingSeconds,
 } from "../utils/readingProgress.js";
 import { searchPrefixes } from "../utils/search.js";
 import { toMillis } from "../utils/time.js";
@@ -686,7 +687,7 @@ export function normalizeRating(payload) {
 
 export const readingSessionSchema = Object.freeze({
   collection: "readingSessions",
-  required: Object.freeze(["userId", "dayKey", "minutes", "startedAt", "endedAt"]),
+  required: Object.freeze(["userId", "dayKey", "seconds", "startedAt", "endedAt"]),
   defaults: Object.freeze({ communityId: null, bookId: null }),
   serverOwned: SERVER_OWNED_FIELDS,
 });
@@ -695,18 +696,19 @@ export function normalizeNewReadingSession(payload) {
   requirePayload("readingSessions", payload);
   const userId = requiredId("readingSessions", "userId", payload.userId);
 
-  const minutes = clampSessionMinutes(payload.minutes);
-  if (!minutes) {
-    throw new SchemaError("readingSessions: minutes must be a positive whole number", {
-      collection: "readingSessions", field: "minutes",
-    });
+  const seconds = clampSessionSeconds(payload.seconds);
+  if (!seconds) {
+    throw new SchemaError(
+      `readingSessions: seconds must be a whole number of at least ${MIN_SESSION_SECONDS}`,
+      { collection: "readingSessions", field: "seconds" }
+    );
   }
 
   const endedAt = toMillis(payload.endedAt, Date.now());
   // A run that reports no start is stamped from its own length, so the pair is
   // always consistent — a session whose `startedAt` sits after its `endedAt`
   // would quietly break any later recount from this log.
-  const startedAt = toMillis(payload.startedAt, endedAt - minutes * 60_000);
+  const startedAt = toMillis(payload.startedAt, endedAt - seconds * 1000);
 
   return assertRequired("readingSessions", {
     ...readingSessionSchema.defaults,
@@ -714,8 +716,11 @@ export function normalizeNewReadingSession(payload) {
     // Carried so a leaderboard can be rebuilt for one community without reading
     // every member's profile. Null for a reader who belongs to none.
     communityId: payload.communityId ? str(payload.communityId) : null,
+    // Which book the sitting was spent on, when the reader had one on loan. The
+    // profile does not use it yet; the log would be unable to answer "how long
+    // did this book take" without it, and that cannot be backfilled later.
     bookId: payload.bookId ? str(payload.bookId) : null,
-    minutes,
+    seconds,
     startedAt: Math.min(startedAt, endedAt),
     endedAt,
     dayKey: dayKey(new Date(endedAt)),
@@ -728,11 +733,11 @@ export function normalizeNewReadingSession(payload) {
  * written in one place — and pure, so the localStorage fallback and Firestore
  * produce the same numbers.
  */
-export function normalizeReadingProgress({ readingDays, dayKey: key, minutes, endedAt } = {}) {
-  const days = addReadingMinutes(readingDays, key, minutes);
+export function normalizeReadingProgress({ readingDays, dayKey: key, seconds, endedAt } = {}) {
+  const days = addReadingSeconds(readingDays, key, seconds);
   return {
     readingDays: days,
-    readingMinutes: totalReadingMinutes(days),
+    readingSeconds: totalReadingSeconds(days),
     lastReadAt: toMillis(endedAt, Date.now()),
   };
 }

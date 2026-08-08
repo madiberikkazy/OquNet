@@ -2,27 +2,22 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import Avatar from "./Avatar.jsx";
 import AppIcon from "./AppIcon.jsx";
-import { splitMinutes } from "../utils/readingProgress.js";
+import { splitDuration } from "../utils/readingProgress.js";
 import { logger } from "../utils/logger.js";
 import { t } from "../utils/i18n.js";
 
 /**
- * ProfileHeader — the brand banner, the overlapping avatar, the name row and
- * the community/standing badge.
+ * ProfileHeader — the brand banner, the overlapping avatar, and the name row.
  *
  * Shared by the reader's own profile and the one other members see, because the
  * two screens are the same object viewed from different sides: everything that
- * differs between them (the settings button, whether the community is a link)
- * is a prop, and everything that does not is here exactly once.
+ * differs between them (the settings button, the back arrow) is a prop, and
+ * everything that does not is here exactly once.
+ *
+ * The community chip is deliberately NOT here. It belongs beside the reading
+ * section, where the standing it carries means something.
  */
-export default function ProfileHeader({
-  user,
-  community,
-  rank,
-  showSettings = false,
-  onBack,
-  badge,
-}) {
+export default function ProfileHeader({ user, showSettings = false, onBack, badge }) {
   const fullName = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim();
 
   return (
@@ -41,6 +36,19 @@ export default function ProfileHeader({
             </svg>
           </button>
         ) : null}
+
+        {/* Settings sits in the band rather than on the name line: it is the
+            only route to the admin view now, so it gets a corner of its own
+            instead of competing with the reader's name for attention. */}
+        {showSettings ? (
+          <Link
+            to="/settings"
+            aria-label={t.settings}
+            className="absolute right-3 top-3 w-10 h-10 inline-flex items-center justify-center rounded-xl bg-white/15 active:scale-95 transition"
+          >
+            <AppIcon name="settings" size={22} className="brightness-0 invert" />
+          </Link>
+        ) : null}
       </div>
 
       {/* The avatar straddles the band's lower edge. The ring is the page
@@ -54,21 +62,12 @@ export default function ProfileHeader({
         </div>
 
         <div className="flex items-center gap-2 mt-3">
-          <h2 className="font-bold text-xl text-center">{fullName || `@${user?.nickname ?? ""}`}</h2>
+          <h2 className="font-bold text-[22px] text-center">{fullName || `@${user?.nickname ?? ""}`}</h2>
           <ShareProfileButton user={user} />
-          {showSettings ? (
-            <Link to="/settings" className="profile-action" aria-label={t.settings}>
-              <AppIcon name="settings" size={18} />
-            </Link>
-          ) : null}
         </div>
 
         {user?.nickname ? <p className="text-ink-500 text-[14px]">@{user.nickname}</p> : null}
         {badge}
-
-        {community ? (
-          <CommunityBadge community={community} rank={rank} />
-        ) : null}
       </div>
     </header>
   );
@@ -78,31 +77,32 @@ export default function ProfileHeader({
  * The community chip, with the member's standing in it.
  *
  * The standing half is only drawn once there is a rank to draw: a community
- * where nobody has ever run the timer would otherwise give every member an
+ * where nobody has read this week would otherwise give every member an
  * identical "1st place" badge, which says nothing and flatters everyone.
  */
-function CommunityBadge({ community, rank }) {
-  const { hours, minutes } = splitMinutes(rank?.minutes);
+export function CommunityRankChip({ community, rank }) {
+  if (!community) return null;
+  const { hours, minutes } = splitDuration(rank?.seconds);
   const timeLabel = hours ? `${hours} ${t.hoursShort} ${minutes} ${t.minutesShort}` : `${minutes} ${t.minutesShort}`;
 
   return (
     <Link
       to={`/community/${community.id}`}
-      className="mt-2 inline-flex items-center gap-2 rounded-full border-2 border-brand-200 pl-3 pr-2 py-1 active:scale-[0.98] transition max-w-full"
+      className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 pl-3 pr-1.5 py-1 active:scale-[0.98] transition max-w-full shrink-0"
     >
       {/* Ink rather than brand: this text sits on the page background, and the
           brand ramp has no dark-mode variant — `text-brand-700` there is navy
           on near-black. The brand stays on the border and the chip, both of
           which bring their own light background with them. */}
-      <span className="text-[13px] font-medium text-ink-900 truncate">
-        {community.nickname ? `@${community.nickname}` : community.name}
+      <span className="text-[13px] text-ink-900 truncate">
+        {community.nickname ? community.nickname : community.name}
       </span>
       {rank ? (
         <span
-          className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 shrink-0"
+          className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-1.5 py-0.5 shrink-0"
           title={`${t.readingTotalLabel} ${timeLabel}`}
         >
-          <AppIcon name="cup" size={14} />
+          <AppIcon name="cup" size={13} />
           <span className="text-[12px] font-semibold text-brand-700">
             {rank.place} {t.placeShort}
           </span>

@@ -14,9 +14,6 @@ export const qk = {
     // list. Sits under `books` so a handoff invalidates it along with
     // everything else that names a holder.
     heldBy: (userId, communityId) => ["books", "heldBy", userId, communityId],
-    // Books that *belong* to a user — a different question from `heldBy`, and
-    // one a lent-out book still answers yes to.
-    ownedBy: (userId, communityId) => ["books", "ownedBy", userId, communityId],
     // Everything the community-exit rules can turn on: the books a user holds
     // plus the books they own (utils/communityExit.js `loadExitBooks`).
     //

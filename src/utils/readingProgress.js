@@ -1,4 +1,4 @@
-// Reading time: how it is stored, how it is read back, and how it becomes a grid.
+// Reading time: how it is stored, how it is read back, and what it adds up to.
 //
 // ── Two representations, on purpose ──────────────────────────────────────────
 // A finished timer run is written twice. Once as a document in `readingSessions`
@@ -6,14 +6,13 @@
 // correction has to be rebuilt from. And once, folded, into two denormalised
 // fields on the reader's own user document:
 //
-//   readingDays    { "2026-08-08": 45, ... }  minutes per LOCAL calendar day
-//   readingMinutes 1234                       the sum of that map
+//   readingDays    { "2026-08-08": 2700, ... }  SECONDS per local calendar day
+//   readingSeconds 45231                        the sum of that map
 //
-// The fold is what makes the profile cheap. A heatmap of someone else's year is
+// The fold is what makes the profile cheap. A week of someone else's reading is
 // a single document read — the same read the screen already makes to learn
-// their name — instead of a query over hundreds of session rows, and a
-// community leaderboard is one `listUsersByCommunity` instead of a query per
-// member. Neither of those would fit in a client-only app without it.
+// their name — instead of a query over session rows, and a community
+// leaderboard is one `listUsersByCommunity` instead of a query per member.
 //
 // The cost is that the fold is a client-side read-modify-write, so two devices
 // finishing a session in the same second can lose one of them from the map. The
@@ -21,49 +20,97 @@
 // not the record. Making it exact needs a Cloud Function on `readingSessions`
 // writes, which is the right home for it once this project has a backend.
 //
+// ── Seconds, not minutes ─────────────────────────────────────────────────────
+// The profile reports the week as `11:05:56`, so seconds are the stored unit.
+// Rounding each sitting to whole minutes would make that last field decorative
+// and would silently drop every run shorter than thirty seconds.
+//
 // ── Local days, deliberately ─────────────────────────────────────────────────
 // A day key is the reader's own calendar day, not UTC. Somebody reading at
-// 01:00 in Astana would otherwise have it land on the previous square, which is
-// exactly the kind of off-by-one a contribution grid makes obvious.
+// 01:00 in Astana would otherwise have it land on the previous day, which is
+// exactly the kind of off-by-one a seven-bar chart makes obvious.
 
-/** Weeks the profile heatmap shows — roughly four months, as in the design. */
-export const HEATMAP_WEEKS = 18;
+/** The window the profile reports on: seven days ending today. */
+export const WEEK_DAYS = 7;
 
 /**
- * How much history the day map keeps. Comfortably more than the grid shows, so
- * widening the grid later does not need a migration, and bounded so the map
- * cannot grow without limit inside a document that has a 1 MiB ceiling.
+ * How much history the day map keeps. Far more than the week the profile shows,
+ * so a longer view can be added later without a migration, and bounded so the
+ * map cannot grow without limit inside a document with a 1 MiB ceiling.
  */
 export const READING_HISTORY_DAYS = 400;
 
 /** A single sitting cannot sensibly exceed this; the security rules agree. */
-export const MAX_SESSION_MINUTES = 600;
+export const MAX_SESSION_SECONDS = 36_000; // 10 hours
 
-/** The lengths the profile's timer launcher steps between. */
+/** Below this a "session" is a mis-tap, not reading. */
+export const MIN_SESSION_SECONDS = 30;
+
+/**
+ * What a full day looks like on the daily chart: one hour of reading is 100%.
+ *
+ * Fixed rather than derived from the reader's level. A goal that moved as the
+ * reader improved would make yesterday's bar change height overnight, and two
+ * people's charts would stop meaning the same thing — which is the one property
+ * a chart shown next to a leaderboard has to keep. Seven full days at this goal
+ * is 7 hours, which is `Тұрақты` on the ladder below.
+ */
+export const DAILY_GOAL_SECONDS = 3600;
+
+/** The lengths the profile's timer launcher steps between, in minutes. */
 export const READING_MINUTE_STEP = 5;
 export const READING_MINUTES_MIN = 5;
 export const READING_MINUTES_MAX = 240;
 export const READING_MINUTES_DEFAULT = 30;
 
 /**
- * Shade thresholds, in minutes, for the four filled levels.
+ * The reader ladder, by hours read in the trailing week.
  *
- * Fixed rather than relative to the reader's own maximum. A relative scale
- * would repaint the whole grid the moment somebody has one long Sunday, and
- * would make two people's grids mean different things — which is the one thing
- * a grid put side by side with a leaderboard must not do.
+ * `key` is an i18n key rather than a name: the ladder is the same in every
+ * language and the label is not this module's business. Ordered ascending, and
+ * read from the top down — the level someone holds is the highest rung they
+ * have cleared.
  */
-const LEVEL_THRESHOLDS = [15, 30, 60, 120];
+export const READER_LEVELS = Object.freeze([
+  { key: "levelBeginner", hours: 3 },
+  { key: "levelCasual",   hours: 5 },
+  { key: "levelSteady",   hours: 7 },
+  { key: "levelActive",   hours: 10 },
+  { key: "levelAdvanced", hours: 15 },
+].map((l) => Object.freeze({ ...l, seconds: l.hours * 3600 })));
 
-/** 0 for an empty day, else 1–4. */
-export function readingLevel(minutes) {
-  const m = Number(minutes) || 0;
-  if (m <= 0) return 0;
-  let level = 1;
-  for (const threshold of LEVEL_THRESHOLDS) {
-    if (m >= threshold) level += 1;
+/**
+ * Where a week's reading sits on the ladder.
+ *
+ * `index` is -1 for a week that has not cleared the first rung — which is a
+ * real state and not an error, so it gets a shape of its own rather than a null:
+ * `level` is null, `next` is the first rung, and `progress` measures from zero.
+ * The top of the ladder has no `next` and sits at progress 1.
+ */
+export function readerLevel(weekSeconds) {
+  const seconds = Math.max(0, Number(weekSeconds) || 0);
+
+  let index = -1;
+  for (let i = READER_LEVELS.length - 1; i >= 0; i -= 1) {
+    if (seconds >= READER_LEVELS[i].seconds) { index = i; break; }
   }
-  return Math.min(4, level);
+
+  const level = index >= 0 ? READER_LEVELS[index] : null;
+  const next = READER_LEVELS[index + 1] ?? null;
+  const floor = level ? level.seconds : 0;
+  const ceiling = next ? next.seconds : floor;
+  const span = ceiling - floor;
+
+  return {
+    index,
+    level,
+    next,
+    seconds,
+    // At the top there is nothing left to fill toward, so the bar is full.
+    progress: span > 0 ? Math.min(1, Math.max(0, (seconds - floor) / span)) : 1,
+    // What the bar is filling toward — the label that belongs beside it.
+    targetSeconds: next ? next.seconds : floor,
+  };
 }
 
 /** `YYYY-MM-DD` in the reader's own timezone. */
@@ -81,11 +128,11 @@ export function dayKeyToDate(key) {
   return new Date(y, m - 1, d);
 }
 
-/** Only whole positive minutes, capped — anything else is not a session. */
-export function clampSessionMinutes(value) {
-  const m = Math.round(Number(value) || 0);
-  if (!Number.isFinite(m) || m <= 0) return 0;
-  return Math.min(MAX_SESSION_MINUTES, m);
+/** Only whole positive seconds, capped — anything else is not a session. */
+export function clampSessionSeconds(value) {
+  const s = Math.round(Number(value) || 0);
+  if (!Number.isFinite(s) || s < MIN_SESSION_SECONDS) return 0;
+  return Math.min(MAX_SESSION_SECONDS, s);
 }
 
 /** A `readingDays` map with only well-formed, positive, in-window entries. */
@@ -101,26 +148,80 @@ export function sanitizeReadingDays(readingDays, { today = new Date(), days = RE
     // String comparison is date comparison for `YYYY-MM-DD`, which is the whole
     // reason the key is written zero-padded.
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || key < floorKey) continue;
-    const minutes = Math.round(Number(value) || 0);
-    if (minutes > 0) clean[key] = minutes;
+    const seconds = Math.round(Number(value) || 0);
+    if (seconds > 0) clean[key] = seconds;
   }
   return clean;
 }
 
 /**
- * `readingDays` with one day's minutes added. Pure: the caller writes the
+ * `readingDays` with one day's seconds added. Pure: the caller writes the
  * result, so the same function serves the app and the seed script.
  */
-export function addReadingMinutes(readingDays, key, minutes, { today = new Date() } = {}) {
-  const added = clampSessionMinutes(minutes);
+export function addReadingSeconds(readingDays, key, seconds, { today = new Date() } = {}) {
+  const added = clampSessionSeconds(seconds);
   const clean = sanitizeReadingDays(readingDays, { today });
   if (!added || !key) return clean;
   return { ...clean, [key]: (clean[key] || 0) + added };
 }
 
-export function totalReadingMinutes(readingDays) {
+export function totalReadingSeconds(readingDays) {
   if (!readingDays || typeof readingDays !== "object") return 0;
   return Object.values(readingDays).reduce((sum, v) => sum + (Number(v) || 0), 0);
+}
+
+/**
+ * The seven days the profile reports on: today last, six days of history before
+ * it, oldest first.
+ *
+ * A trailing window rather than a calendar week. A Monday-anchored week is one
+ * bar tall every Monday morning and says nothing about how much somebody has
+ * been reading — which is the question the chart is there to answer. So "this
+ * week" always means the last seven days, and every day of it has happened.
+ *
+ * `percent` is that day against `DAILY_GOAL_SECONDS`, capped at 100: a day is
+ * scored on its own, not against the reader's best day or the week's total.
+ */
+export function buildReadingWeek(readingDays, { today = new Date(), days = WEEK_DAYS } = {}) {
+  const map = readingDays && typeof readingDays === "object" ? readingDays : {};
+  const end = new Date(today);
+  end.setHours(0, 0, 0, 0);
+
+  const cells = [];
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const date = new Date(end);
+    date.setDate(date.getDate() - i);
+    const key = dayKey(date);
+    const seconds = Math.max(0, Number(map[key]) || 0);
+    cells.push({
+      key,
+      date,
+      seconds,
+      percent: dayPercent(seconds),
+      // Monday-first index, so a caller can pull a weekday label without
+      // re-deriving `getDay()`'s Sunday-first convention.
+      weekdayIndex: (date.getDay() + 6) % 7,
+      isToday: i === 0,
+    });
+  }
+
+  const totalSeconds = cells.reduce((sum, c) => sum + c.seconds, 0);
+  return {
+    days: cells,
+    totalSeconds,
+    startKey: cells[0]?.key ?? "",
+    endKey: cells[cells.length - 1]?.key ?? "",
+    // The week as a share of seven full days — the one number that summarises
+    // the whole chart.
+    percent: dayPercent(totalSeconds / days),
+    activeDays: cells.filter((c) => c.seconds > 0).length,
+  };
+}
+
+/** One day against the daily goal, 0–100. */
+export function dayPercent(seconds) {
+  const s = Math.max(0, Number(seconds) || 0);
+  return Math.min(100, Math.round((s / DAILY_GOAL_SECONDS) * 100));
 }
 
 /**
@@ -142,82 +243,27 @@ export function readingStreak(readingDays, { today = new Date() } = {}) {
 }
 
 /**
- * The grid the heatmap draws: one column per week, Monday at the top.
+ * Standing inside a community, by reading time in the trailing week.
  *
- * Columns end on the week containing `today`, so the newest square is always in
- * the last column — the reader's most recent day sits where their eye lands.
- * Days after today are still emitted, flagged `future`, because dropping them
- * would leave a ragged last column that reads as missing data rather than as a
- * week that has not happened yet.
- *
- * `monthMarkers` names the column each month starts in, so the caller can label
- * the axis without re-deriving the calendar. Formatting the month is left to
- * the caller: this module has no opinion about language.
- */
-export function buildHeatmap(readingDays, { weeks = HEATMAP_WEEKS, today = new Date() } = {}) {
-  const days = readingDays && typeof readingDays === "object" ? readingDays : {};
-
-  // Monday of the current week. getDay() is 0 for Sunday, so Sunday is 6 days
-  // into its week rather than the start of the next one.
-  const end = new Date(today);
-  end.setHours(0, 0, 0, 0);
-  const mondayOffset = (end.getDay() + 6) % 7;
-  const lastMonday = new Date(end);
-  lastMonday.setDate(lastMonday.getDate() - mondayOffset);
-
-  const firstMonday = new Date(lastMonday);
-  firstMonday.setDate(firstMonday.getDate() - (weeks - 1) * 7);
-
-  const todayKey = dayKey(today);
-  const columns = [];
-  const monthMarkers = [];
-  let lastMonth = null;
-
-  for (let w = 0; w < weeks; w += 1) {
-    const cells = [];
-    for (let d = 0; d < 7; d += 1) {
-      const date = new Date(firstMonday);
-      date.setDate(date.getDate() + w * 7 + d);
-      const key = dayKey(date);
-      const minutes = Number(days[key]) || 0;
-      cells.push({
-        key,
-        date,
-        minutes,
-        level: readingLevel(minutes),
-        future: key > todayKey,
-        isToday: key === todayKey,
-      });
-    }
-    columns.push({ key: cells[0].key, cells });
-
-    // A column belongs to the month its Monday falls in — the same convention
-    // the labels above the grid have to use for them to line up.
-    const month = cells[0].date.getMonth();
-    if (month !== lastMonth) {
-      monthMarkers.push({ column: w, date: cells[0].date });
-      lastMonth = month;
-    }
-  }
-
-  return { columns, monthMarkers, weeks };
-}
-
-/**
- * Standing inside a community, by total reading time.
+ * Scored on the same window the profile shows, so the badge and the chart
+ * beside it are talking about the same thing — an all-time total would rank by
+ * how long somebody has had the app installed.
  *
  * Competition ranking: equal totals share a place and the next distinct total
  * skips the places they consumed, so two people tied at the top are both first
- * and nobody is third. Members who have never run the timer are still ranked —
- * last — because "unranked" and "0 minutes" are the same fact here, and hiding
+ * and nobody is third. Members who have not read this week are still ranked —
+ * last — because "unranked" and "0 seconds" are the same fact here, and hiding
  * it would only make the badge disappear for exactly the people it is meant to
  * nudge.
  */
-export function rankByReadingMinutes(members, userId) {
+export function rankByWeeklyReading(members, userId, { today = new Date() } = {}) {
   const rows = (members || [])
-    .map((m) => ({ id: m?.id, minutes: Number(m?.readingMinutes) || 0 }))
+    .map((m) => ({
+      id: m?.id,
+      seconds: buildReadingWeek(m?.readingDays, { today }).totalSeconds,
+    }))
     .filter((m) => m.id)
-    .sort((a, b) => b.minutes - a.minutes || String(a.id).localeCompare(String(b.id)));
+    .sort((a, b) => b.seconds - a.seconds || String(a.id).localeCompare(String(b.id)));
 
   if (!rows.length) return null;
 
@@ -226,19 +272,31 @@ export function rankByReadingMinutes(members, userId) {
   let previous = null;
   for (const row of rows) {
     seen += 1;
-    if (row.minutes !== previous) {
+    if (row.seconds !== previous) {
       place = seen;
-      previous = row.minutes;
+      previous = row.seconds;
     }
     if (row.id === userId) {
-      return { place, total: rows.length, minutes: row.minutes };
+      return { place, total: rows.length, seconds: row.seconds };
     }
   }
   return null;
 }
 
-/** `1 сағ 20 мин` style parts — the caller supplies the words. */
-export function splitMinutes(totalMinutes) {
-  const m = Math.max(0, Math.round(Number(totalMinutes) || 0));
-  return { hours: Math.floor(m / 60), minutes: m % 60 };
+/** `HH:MM:SS` — the profile's "Оқылған уақыт" readout. */
+export function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+}
+
+/** Whole hours and the leftover minutes — for "1 сағ 20 мин" style labels. */
+export function splitDuration(totalSeconds) {
+  const s = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  return { hours: Math.floor(s / 3600), minutes: Math.floor((s % 3600) / 60) };
+}
+
+/** Hours, rounded for a label that has no room for minutes ("15 сағ"). */
+export function roundHours(totalSeconds) {
+  return Math.round((Math.max(0, Number(totalSeconds) || 0) / 3600) * 10) / 10;
 }

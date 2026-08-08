@@ -15,7 +15,7 @@ import { t } from "../../../utils/i18n.js";
 /** Роль и сообщество — switching view mode, and asking to leave. */
 export default function CommunitySettings() {
   const navigate = useNavigate();
-  const { user, switchView } = useAuth();
+  const { user, switchView, isViewingAsUser } = useAuth();
   const { community } = useCommunity();
 
   // ── Role switch ─────────────────────────────────────────────────────────────
@@ -29,9 +29,14 @@ export default function CommunitySettings() {
     try {
       if (user.role === "admin") {
         // An admin browsing as a user could otherwise strand a borrowed book in
-        // a mode that has no way to return it.
-        const active = await getActiveBorrowingForUser(user.id).catch(() => null);
-        if (active) { setRoleError(t.returnBookFirst); return; }
+        // a mode that has no way to return it. Only checked on the way *into*
+        // the user view — going back to the admin screens is what someone
+        // holding a book has to be able to do, so blocking that direction on the
+        // same condition would trap them in the mode the check is warning about.
+        if (!isViewingAsUser) {
+          const active = await getActiveBorrowingForUser(user.id).catch(() => null);
+          if (active) { setRoleError(t.returnBookFirst); return; }
+        }
         switchView();
         navigate("/", { replace: true });
       } else {
@@ -122,8 +127,17 @@ export default function CommunitySettings() {
         {/* ── Role ─────────────────────────────────────────────────────────── */}
         <section>
           <h2 className="text-[15px] font-semibold mb-3">{t.role}</h2>
+          {/* The label names the direction this button actually moves, which is
+              set by the view the admin is *currently* in, not by their role. It
+              read "switch to user" while already in the user view — harmless
+              when the profile had its own switch, and the only way back once
+              this became the single route to the admin screens. */}
           <button onClick={trySwitchRole} disabled={roleSwitching} className="btn-secondary">
-            {roleSwitching ? "…" : user?.role === "admin" ? t.switchToUser : t.switchToAdmin}
+            {roleSwitching
+              ? "…"
+              : user?.role !== "admin" ? t.switchToAdmin
+              : isViewingAsUser ? t.switchToAdminView
+              : t.switchToUser}
           </button>
           <p className="text-[12px] text-ink-500 mt-2">
             {user?.role === "admin" ? t.adminNote : t.userNote}
