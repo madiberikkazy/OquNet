@@ -22,6 +22,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { invalidateHolderCaches, invalidatePickupRequest } from "../../lib/bookCaches.js";
 import { newPickupCode } from "../../firebase/schema.js";
 import { holderIdOf } from "../../utils/bookHolder.js";
+import { loanDaysForPages, pagesForBook, pagesRangeLabel } from "../../utils/bookPages.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { t, getCurrentLang } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
@@ -76,9 +77,6 @@ export default function PickupBook() {
   const [pickupRequest, setPickupRequest] = useState(null);
   // Step 1 picks the terms and sends the code; step 2 enters it.
   const [step, setStep]                   = useState(1);
-  // loanDays tracks how many days the user wants — the return date is always
-  // computed from NOW at submit, so a slow handoff doesn't eat into the loan.
-  const [loanDays, setLoanDays]           = useState(7);
   const [digits, setDigits]               = useState(["", "", "", ""]);
   const [error, setError]                 = useState("");
   const [sending, setSending]             = useState(false);
@@ -101,14 +99,17 @@ export default function PickupBook() {
   const resendingRef = useRef(false);
   const submittingRef = useRef(false);
 
-  const maxDays = book?.maxDays || 14;
+  // How long this book may be kept. Not a choice any more: the admin picked the
+  // book's page band and the loan follows from it, one day per fifty pages. The
+  // reader is told the period rather than asked for one — a short book is a
+  // short loan, and that is a property of the book, not of the borrower.
+  const loanDays = loanDaysForPages(pagesForBook(book));
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       const b = await getBook(id);
       setBook(b);
-      const bookMaxDays = b?.maxDays || 14;
 
       let borrowing = null;
       if (b?.status === "unavailable") {
@@ -146,7 +147,6 @@ export default function PickupBook() {
       setPickupRequest(req);
       setBlockedBy(blocker);
       setStep(req ? 2 : 1);
-      setLoanDays(Math.max(1, Math.min(req?.loanDays ?? 7, bookMaxDays)));
 
       setLoading(false);
     })();
@@ -345,8 +345,11 @@ export default function PickupBook() {
       const active = await getActiveBorrowingForUser(user.id);
       if (active && active.bookId !== id) { setError(t.pickupReturnOtherBook); return; }
 
-      const days = Math.max(1, Math.min(pickupRequest?.loanDays ?? loanDays, maxDays));
-      const actualReturnTs = addDays(Date.now(), days).getTime();
+      // The book's own allowance, read at submit rather than taken from the
+      // request: a request written before the admin re-banded the book would
+      // otherwise hand out the old period. `loanDays` is derived, so there is
+      // nothing here for a stale form value to override.
+      const actualReturnTs = addDays(Date.now(), loanDays).getTime();
 
       // Taking the book off a live reader closes their loan; collecting a free
       // book has none to close. Either way the holder moves to us and the owner
@@ -469,33 +472,18 @@ export default function PickupBook() {
 
         {step === 1 ? (
           <>
-            {/* Loan length */}
+            {/* Loan length — stated, not chosen. The page band beside it is the
+                reason it is what it is, so the reader can see the rule rather
+                than just its result. */}
             <div className="flex items-center justify-between gap-4">
-              <span className="text-[15px] font-medium">{t.loanDaysLabel}</span>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setLoanDays((d) => Math.max(1, d - 1))}
-                  disabled={loanDays <= 1}
-                  className="w-9 h-9 rounded-full bg-ink-100 text-ink-700 flex items-center justify-center disabled:opacity-40 transition active:scale-95"
-                  aria-label="−"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <path d="M5 12h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  </svg>
-                </button>
-                <span className="w-8 text-center text-[20px] font-semibold tabular-nums">{loanDays}</span>
-                <button
-                  type="button"
-                  onClick={() => setLoanDays((d) => Math.min(maxDays, d + 1))}
-                  disabled={loanDays >= maxDays}
-                  className="w-9 h-9 rounded-full bg-brand-500 text-white flex items-center justify-center disabled:opacity-40 transition active:scale-95"
-                  aria-label="+"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  </svg>
-                </button>
+              <span className="text-[15px] font-medium">{t.loanTermLabel}</span>
+              <div className="text-right">
+                <p className="text-[20px] font-semibold tabular-nums leading-none">
+                  {loanDays} {t.loanDaysUnit}
+                </p>
+                <p className="text-[12px] text-ink-500 mt-1">
+                  {pagesRangeLabel(pagesForBook(book))} {t.pagesUnit}
+                </p>
               </div>
             </div>
 

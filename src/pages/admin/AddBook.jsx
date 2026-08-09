@@ -9,6 +9,7 @@ import { uploadImage } from "../../firebase/storage.js";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { t, GENRES } from "../../utils/i18n.js";
+import { PAGE_BANDS, isPageBand, loanDaysForPages } from "../../utils/bookPages.js";
 import { logger } from "../../utils/logger.js";
 
 export default function AddBook() {
@@ -17,7 +18,7 @@ export default function AddBook() {
   const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
-    name: "", author: "", year: "", givenAt: "", maxDays: 14,
+    name: "", author: "", year: "", givenAt: "", pages: "",
     description: "", ownerId: "", coverUrl: "", genres: [],
   });
   // The cover can come from the device or from a URL. A picked file is held
@@ -55,7 +56,7 @@ export default function AddBook() {
     if (step === 1) {
       if (!form.name.trim() || !form.author.trim()) { setError(t.addBookErrName); return; }
       if (form.genres.length < 1) { setError(t.addBookErrGenre); return; }
-      if (form.maxDays < 3 || form.maxDays > 30) { setError(t.addBookErrMaxDays); return; }
+      if (!isPageBand(form.pages)) { setError(t.addBookErrPages); return; }
     }
     if (step === 2 && !form.ownerId) { setError(t.addBookErrOwner); return; }
     if (step < 3) { setStep(step + 1); return; }
@@ -179,16 +180,31 @@ function Step1({ form, update }) {
             <option value="">{t.year}</option>
             {Array.from({ length: 120 }, (_, i) => 2025 - i).map((y) => (<option key={y} value={y}>{y}</option>))}
           </select>
-          <input
-            type="number"
-            min="3"
-            max="30"
-            value={form.maxDays}
-            onChange={(e) => update("maxDays", Number(e.target.value))}
-            placeholder="3 — 30 күн"
+          {/* Pages, not days. The admin knows roughly how long the book is;
+              how long a reader may keep it follows from that. */}
+          <select
+            value={form.pages}
+            onChange={(e) => update("pages", Number(e.target.value))}
             className="input"
-          />
+          >
+            <option value="">{t.pagesLabel}</option>
+            {PAGE_BANDS.map((b) => (
+              <option key={b.pages} value={b.pages}>
+                {b.from}–{b.pages} {t.pagesUnit}
+              </option>
+            ))}
+          </select>
         </div>
+        {/* The consequence of the choice above, spelled out where it is made —
+            the loan period is never typed in, so this is the only place it can
+            be seen before a reader meets it. */}
+        {form.pages ? (
+          <p className="text-[13px] text-ink-500">
+            {t.loanTermLabel}: <span className="font-semibold text-ink-700">
+              {loanDaysForPages(form.pages)} {t.loanDaysUnit}
+            </span>
+          </p>
+        ) : null}
 
         {/* Genre picker — min 1, max 3 */}
         <div>
