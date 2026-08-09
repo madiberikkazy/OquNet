@@ -7,6 +7,7 @@ import { getBook, updateBook, reassignBookOwner, listUsersByCommunity } from "..
 import { uploadImage } from "../../firebase/storage.js";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { t, GENRES } from "../../utils/i18n.js";
+import { PAGE_BANDS, isPageBand, loanDaysForPages, pagesForBook } from "../../utils/bookPages.js";
 
 export default function EditBook() {
   const { id }        = useParams();
@@ -26,7 +27,7 @@ export default function EditBook() {
   const [originalOwnerId, setOriginalOwnerId] = useState("");
 
   const [form, setForm] = useState({
-    name: "", author: "", year: "", maxDays: 14,
+    name: "", author: "", year: "", pages: "",
     description: "", ownerId: "", coverUrl: "", status: "available", genres: [],
   });
 
@@ -41,7 +42,10 @@ export default function EditBook() {
         name:        book.name        || "",
         author:      book.author      || "",
         year:        book.year        || "",
-        maxDays:     book.maxDays     ?? 14,
+        // Books added before page bands existed have only a loan period, so the
+        // band is read back out of it — the form opens on the band that grants
+        // the allowance the book already has, not on a blank.
+        pages:       pagesForBook(book),
         description: book.description || "",
         ownerId:     book.ownerId     || "",
         coverUrl:    book.coverUrl    || "",
@@ -64,7 +68,7 @@ export default function EditBook() {
       return;
     }
     if (form.genres.length < 1) { setError("Кемінде 1 жанр таңдаңыз"); return; }
-    if (form.maxDays < 3 || form.maxDays > 30) { setError("Мерзім 3-тен 30 күнге дейін болуы тиіс"); return; }
+    if (!isPageBand(form.pages)) { setError(t.addBookErrPages); return; }
     setSaving(true);
     setError("");
     setSuccess(false);
@@ -168,16 +172,28 @@ export default function EditBook() {
               </select>
             </div>
             <div>
-              <label className="text-[13px] text-ink-500 mb-1 block">{t.maxDays}</label>
-              <input
-                type="number" min="3" max="30"
-                value={form.maxDays}
-                onChange={(e) => upd("maxDays", Number(e.target.value))}
-                placeholder="3 — 30 күн"
+              <label className="text-[13px] text-ink-500 mb-1 block">{t.pagesLabel}</label>
+              <select
+                value={form.pages}
+                onChange={(e) => upd("pages", Number(e.target.value))}
                 className="input"
-              />
+              >
+                {PAGE_BANDS.map((b) => (
+                  <option key={b.pages} value={b.pages}>
+                    {b.from}–{b.pages} {t.pagesUnit}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
+
+          {form.pages ? (
+            <p className="text-[13px] text-ink-500">
+              {t.loanTermLabel}: <span className="font-semibold text-ink-700">
+                {loanDaysForPages(form.pages)} {t.loanDaysUnit}
+              </span>
+            </p>
+          ) : null}
 
           <div>
             <label className="text-[13px] text-ink-500 mb-1 block">{t.description}</label>

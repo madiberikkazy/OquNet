@@ -2,6 +2,8 @@
 // Every public form should run user input through one of these so the rest
 // of the app can trust what it receives.
 
+import { clampPages, isPageBand, loanDaysForPages } from "./bookPages.js";
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const NICK_RE = /^[a-z0-9_]{2,24}$/;
 // Allow letters from any script, spaces, hyphens, apostrophes — 1..60 chars.
@@ -20,7 +22,12 @@ export const LIMITS = Object.freeze({
   PASSWORD_MAX: 128,
   YEAR_MIN: 1450,
   YEAR_MAX: new Date().getFullYear() + 1,
-  LOAN_DAYS_MIN: 3,
+  // A loan is no longer typed in — it is derived from the book's length, one
+  // day per fifty pages (utils/bookPages.js). The floor is 1 because the
+  // shortest band earns exactly one day; the ceiling stays at 30, above the 20
+  // the bands can produce, so books priced by hand under the old form remain
+  // valid to read and to edit.
+  LOAN_DAYS_MIN: 1,
   LOAN_DAYS_MAX: 30,
 });
 
@@ -143,12 +150,14 @@ export function validateBookPayload(form) {
   if (!Array.isArray(form?.genres) || form.genres.length < 1) {
     return { ok: false, errorKey: "addBookErrGenre" };
   }
-  if (!isLoanDays(form?.maxDays)) {
-    return { ok: false, errorKey: "addBookErrMaxDays" };
+  if (!isPageBand(form?.pages)) {
+    return { ok: false, errorKey: "addBookErrPages" };
   }
   if (form?.year && !isYear(form.year)) {
     return { ok: false, errorKey: "addBookErrYear" };
   }
+
+  const pages = clampPages(form.pages);
 
   return {
     ok: true,
@@ -158,7 +167,12 @@ export function validateBookPayload(form) {
       description,
       coverUrl,
       genres: form.genres.slice(0, 3),
-      maxDays: clampLoanDays(form.maxDays),
+      pages,
+      // Derived, never asked for: the length of the book is the input, and the
+      // loan is what follows from it. Stored alongside so every screen that
+      // already reads `maxDays` — the countdown, the progress bar, the pickup —
+      // keeps reading one number rather than re-deriving the rule.
+      maxDays: loanDaysForPages(pages),
       year: form?.year ? Number(form.year) : "",
       ownerId: form?.ownerId || "",
     },

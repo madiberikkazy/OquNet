@@ -28,6 +28,10 @@ const {
   buildReadingWeek, dayKey, formatDuration, readerLevel,
 } = await import("../src/utils/readingProgress.js");
 
+const {
+  PAGE_BANDS, loanDaysForPages, pagesForBook,
+} = await import("../src/utils/bookPages.js");
+
 const LS_KEY = "oqunet:db";
 const DAY = 86_400_000;
 const COMMUNITY = "c1";
@@ -49,7 +53,8 @@ async function seedBooks(n) {
       communityId: COMMUNITY,
       ownerId: `u${i % 3}`,
       genres: [i % 2 ? "fiction" : "history"],
-      maxDays: 14,
+      // A page band, not a loan length: `maxDays` is derived from this now.
+      pages: 700,
     });
     // One hour apart, descending with i, so ordering is unambiguous.
     backdate(id, now - i * 3600_000);
@@ -153,6 +158,52 @@ describe("holder and owner queries", () => {
     assert.equal(owned.length, 4);
     for (const b of held) assert.equal(b.holderId, "u1");
     for (const b of owned) assert.equal(b.ownerId, "u1");
+  });
+});
+
+// The loan period is no longer a number anybody types. It is one day per fifty
+// pages of the book, derived on the way in, so the two can never disagree —
+// which is the whole reason `maxDays` is still stored rather than computed at
+// every read.
+describe("loan period follows the page band", () => {
+  const book = (pages) => ({
+    name: "Abai Zholy", author: "Auezov", communityId: COMMUNITY,
+    ownerId: "u1", genres: ["fiction"], pages,
+  });
+
+  it("gives one day per fifty pages, from one band to twenty", async () => {
+    assert.equal(PAGE_BANDS.length, 20);
+    for (const band of [PAGE_BANDS[0], PAGE_BANDS[4], PAGE_BANDS.at(-1)]) {
+      const { id } = await createBook(book(band.pages));
+      const stored = await getBook(id);
+      assert.equal(stored.pages, band.pages);
+      assert.equal(stored.maxDays, band.days, `${band.pages} pages`);
+    }
+    assert.equal(loanDaysForPages(50), 1);
+    assert.equal(loanDaysForPages(1000), 20);
+  });
+
+  it("moves the allowance in the same write as the band", async () => {
+    const { id } = await createBook(book(100));
+    assert.equal((await getBook(id)).maxDays, 2);
+
+    await updateBook(id, { pages: 500 });
+
+    const after = await getBook(id);
+    assert.equal(after.pages, 500);
+    assert.equal(after.maxDays, 10, "maxDays did not follow the new band");
+  });
+
+  it("refuses a book with no band, and one that is not a band", async () => {
+    await assert.rejects(() => createBook(book(undefined)), { errorKey: "addBookErrPages" });
+    await assert.rejects(() => createBook(book(137)), { errorKey: "addBookErrPages" });
+  });
+
+  it("reads a band back off a book that predates the rule", () => {
+    // Priced by hand under the old form: 14 days, no page count. It keeps the
+    // allowance it was given, and the edit form opens on the matching band.
+    assert.equal(pagesForBook({ maxDays: 14 }), 700);
+    assert.equal(pagesForBook({ pages: 300, maxDays: 6 }), 300);
   });
 });
 

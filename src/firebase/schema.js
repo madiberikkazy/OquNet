@@ -27,6 +27,7 @@ import {
 } from "../utils/readingProgress.js";
 import { searchPrefixes } from "../utils/search.js";
 import { toMillis } from "../utils/time.js";
+import { isPageBand, clampPages, loanDaysForPages } from "../utils/bookPages.js";
 import {
   LIMITS,
   clampLoanDays,
@@ -350,13 +351,34 @@ function bookYear(value) {
   return Number(value);
 }
 
+/**
+ * The stored loan period. Derived from `pages` on every write this app makes,
+ * so this is a backstop rather than a field anyone fills in — and it points the
+ * admin at the page band, which is the only thing they can actually change.
+ */
 function bookMaxDays(value) {
   if (!isLoanDays(value)) {
     throw new SchemaError("books: maxDays is out of range", {
-      collection: "books", field: "maxDays", errorKey: "addBookErrMaxDays",
+      collection: "books", field: "maxDays", errorKey: "addBookErrPages",
     });
   }
   return clampLoanDays(value);
+}
+
+/**
+ * How long the book is, as one of the bands the picker offers.
+ *
+ * Refused rather than rounded when it is not a band: a page count that came
+ * from somewhere other than the picker has no business setting a loan period,
+ * and `clampPages` exists for reading old data back, not for accepting new.
+ */
+function bookPages(value) {
+  if (!isPageBand(value)) {
+    throw new SchemaError("books: pages is not one of the bands", {
+      collection: "books", field: "pages", errorKey: "addBookErrPages",
+    });
+  }
+  return clampPages(value);
 }
 
 function bookStatus(value) {
@@ -397,6 +419,7 @@ const BOOK_PATCH_FIELDS = Object.freeze({
   maxDays: bookMaxDays,
   genres: (v) => bookGenres(v),
   genre: (v) => requiredId("books", "genre", v),
+  pages: bookPages,
   status: bookStatus,
   holderId: (v) => requiredId("books", "holderId", v),
   borrowerId: (v) => nullableId("borrowerId", v),
@@ -447,6 +470,9 @@ export function normalizeNewBook(payload) {
     description: safe.description,
     coverUrl: safe.coverUrl,
     year: safe.year,
+    pages: safe.pages,
+    // Derived from `pages` by validateBookPayload, and stored beside it: the
+    // band is the fact about the book, the days are what the loan screens read.
     maxDays: safe.maxDays,
     genres: safe.genres,
     // `genre` is the single-valued field the queries and the rules use; it is
@@ -506,6 +532,10 @@ export function normalizeBookPatch(patch) {
   }
 
   if ("genres" in out) out.genre = out.genres[0];
+  // The loan period is not editable on its own — it is what the page band says
+  // it is. An edit that moves the band moves the allowance in the same write,
+  // so the two can never end up describing different books.
+  if ("pages" in out) out.maxDays = loanDaysForPages(out.pages);
   if (!Object.keys(out).length) {
     throw new SchemaError("books: patch is empty", { collection: "books" });
   }
