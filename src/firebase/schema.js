@@ -542,6 +542,70 @@ export function normalizeBookPatch(patch) {
   return out;
 }
 
+// ---------- join requests ----------
+//
+// Joining costs a book. That was always the rule, but the form only asked for a
+// title and an author, so the admin approving a request was agreeing to
+// something they could not see and then had to type in again themselves. The
+// applicant now fills in the whole book — the same fields, run through the same
+// validator as Add Book — and approval is what puts it on the shelf.
+//
+// It is nested under `book` rather than spread across `bookName`, `bookAuthor`,
+// `bookGenres`… because it is a book: it is handed to `createBook` whole at
+// approval, and a flat set of seven prefixed fields is one rename away from
+// disagreeing with the document it becomes.
+
+/**
+ * The book attached to a request, whatever era the request comes from.
+ *
+ * Requests written before this change carry a title and an author at the top
+ * level and nothing else. They are still pending in somebody's inbox, so they
+ * still have to render and still have to be approvable — the admin just has
+ * more blanks to fill in on the review form.
+ */
+export function requestBook(request) {
+  if (request?.book && typeof request.book === "object") return { ...request.book };
+  return {
+    name: str(request?.bookName),
+    author: str(request?.bookAuthor),
+    description: str(request?.bookDescription),
+    coverUrl: safeImageUrl(request?.bookCoverUrl),
+    genres: [],
+    pages: "",
+    year: "",
+  };
+}
+
+/**
+ * A join request, with the book its applicant is bringing.
+ *
+ * `validateBookPayload` is the same gate Add Book runs through, so a request
+ * that survives this is a request the admin can approve without editing a
+ * thing. `ownerId` is not asked for and not stored: the book belongs to
+ * whoever is applying, and that is `userId`.
+ */
+export function normalizeJoinRequest(payload) {
+  requirePayload("requests", payload);
+
+  const validated = validateBookPayload(payload?.book);
+  if (!validated.ok) {
+    throw new SchemaError(`requests: ${validated.errorKey}`, {
+      collection: "requests", errorKey: validated.errorKey,
+    });
+  }
+  const { ownerId, ...book } = validated.value;
+
+  return {
+    type: "join",
+    status: "pending",
+    userId: requiredId("requests", "userId", payload.userId),
+    communityId: requiredId("requests", "communityId", payload.communityId),
+    userNickname: str(payload.userNickname),
+    userName: str(payload.userName),
+    book,
+  };
+}
+
 // ---------- posts ----------
 //
 // A noticeboard entry. Only the two fields an author can see on screen are

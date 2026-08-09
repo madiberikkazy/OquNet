@@ -1,18 +1,23 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
+import BookFields from "../../components/BookFields.jsx";
+import CoverPicker from "../../components/CoverPicker.jsx";
 import {
   getNotificationById,
   updateNotification,
   updateUser,
   getCommunity,
   cancelJoinRequest,
+  createBook,
   createNotification,
   getRequestById,
   updateJoinRequest,
   updateLeaveRequest,
   toMillis,
 } from "../../firebase/firestore.js";
+import { requestBook } from "../../firebase/schema.js";
+import { uploadImage } from "../../firebase/storage.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.js";
@@ -41,6 +46,13 @@ export default function NotificationDetail() {
   const [request, setRequest] = useState(null);
   const [blocked, setBlocked] = useState("");   // approval refused: books still out
 
+  // The applicant's book, as the admin is about to approve it. Seeded from the
+  // request and editable in place: the admin is the one who has to live with
+  // this book on their shelf, and a typo or a missing genre is not worth
+  // bouncing a whole application over.
+  const [bookForm, setBookForm] = useState(null);
+  const [coverFile, setCoverFile] = useState(null);
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -55,7 +67,10 @@ export default function NotificationDetail() {
           // Only the subject and the community's admin may read it, so a
           // refusal here is ordinary — it just means no decision to offer.
           getRequestById(n.requestId)
-            .then(setRequest)
+            .then((req) => {
+              setRequest(req);
+              if (req?.type === "join") setBookForm(requestBook(req));
+            })
             .catch((err) => logger.error("notificationDetail.request", err?.message, {
               requestId: n.requestId, code: err?.code,
             }));
@@ -71,10 +86,43 @@ export default function NotificationDetail() {
   // make it. The request id travels with the offer — the rules re-read it to
   // tell an accepted invitation from someone helping themselves to a community.
   async function decideJoin(approved) {
+    // A request written before the book travelled with it arrives half empty,
+    // and so does one the admin has just cleared a field on. Approval is the
+    // moment that has to be complete, so it is checked here rather than left to
+    // `createBook` to refuse after the request has already moved.
+    if (approved) {
+      if (!bookForm?.name?.trim() || !bookForm?.author?.trim()) { setError(t.addBookErrName); return; }
+      if ((bookForm.genres || []).length < 1) { setError(t.addBookErrGenre); return; }
+      if (!bookForm.pages) { setError(t.addBookErrPages); return; }
+    }
     setBusy(true);
     setError("");
     try {
-      await updateJoinRequest(request.id, { status: approved ? "approved" : "rejected" });
+      let book = null;
+      if (approved) {
+        // The book goes on the shelf here, as the admin left it, owned by the
+        // applicant. It has to be this way round: creating a book is an admin's
+        // write by the security rules, so it cannot wait for the applicant to
+        // confirm — and there is nothing to confirm about a book they offered.
+        let coverUrl = bookForm.coverUrl;
+        if (coverFile) {
+          coverUrl = await uploadImage(coverFile, `books/${request.communityId}_${Date.now()}`);
+        }
+        book = await createBook({
+          ...bookForm,
+          coverUrl,
+          communityId: request.communityId,
+          ownerId: request.userId,
+        });
+      }
+
+      await updateJoinRequest(request.id, {
+        status: approved ? "approved" : "rejected",
+        // What was approved, not what was submitted — the admin may have
+        // corrected it, and the request is the record of the decision.
+        ...(book ? { book: { ...bookForm, coverUrl: book.coverUrl } } : {}),
+      });
+
       await createNotification(approved ? {
         recipientId: request.userId,
         title: t.joinApprovedTitle,
@@ -84,10 +132,11 @@ export default function NotificationDetail() {
         requestId: request.id,
         communityId: request.communityId,
         communityName: community?.name || "",
-        bookName: request.bookName || "",
-        bookAuthor: request.bookAuthor || "",
-        bookDescription: request.bookDescription || "",
-        bookCoverUrl: request.bookCoverUrl || "",
+        bookName: book.name,
+        bookAuthor: book.author,
+        bookDescription: book.description || "",
+        bookCoverUrl: book.coverUrl || "",
+        bookId: book.id,
         confirmed: "pending",
       } : {
         recipientId: request.userId,
@@ -99,7 +148,9 @@ export default function NotificationDetail() {
       setRequest((prev) => ({ ...prev, status: approved ? "approved" : "rejected" }));
     } catch (err) {
       logger.error("notificationDetail.decideJoin", err?.message, { code: err?.code });
-      setError(err?.message || t.error);
+      // A SchemaError names the i18n key for the field it refused, so a book
+      // the form let through still reads as a field error rather than a stack.
+      setError((err?.errorKey && t[err.errorKey]) || err?.message || t.error);
     } finally {
       setBusy(false);
     }
@@ -312,14 +363,55 @@ export default function NotificationDetail() {
               <p className="font-semibold text-[15px] mt-0.5">
                 {request.userName || `@${request.userNickname || ""}`}
               </p>
-              {/* The book they are bringing in — the price of admission, and
-                  the thing the admin is actually agreeing to. */}
-              {request.bookName ? (
-                <p className="text-[13px] text-ink-500 mt-1">
-                  «{request.bookName}»{request.bookAuthor ? ` — ${request.bookAuthor}` : ""}
-                </p>
+              {request.userNickname && request.userName ? (
+                <p className="text-[13px] text-ink-500">@{request.userNickname}</p>
               ) : null}
             </div>
+
+            {/* ── The book they are bringing in ──
+                Editable while the decision is open: this is the document that
+                becomes a book on approval, and the admin owns what lands on
+                their shelf. Once decided it is history, so it stops being a
+                form and becomes a record of what was agreed. */}
+            {!isLeaveRequest && bookForm ? (
+              request.status === "pending" ? (
+                <div className="card p-4 space-y-4">
+                  <div>
+                    <p className="text-[15px] font-semibold">{t.submittedBook}</p>
+                    <p className="text-[12px] text-ink-500 mt-0.5 leading-relaxed">
+                      {t.submittedBookHint}
+                    </p>
+                  </div>
+                  <CoverPicker
+                    coverUrl={bookForm.coverUrl}
+                    file={coverFile}
+                    onFile={setCoverFile}
+                    onUrlChange={(v) => setBookForm((f) => ({ ...f, coverUrl: v }))}
+                  />
+                  <BookFields
+                    form={bookForm}
+                    onChange={(k, v) => setBookForm((f) => ({ ...f, [k]: v }))}
+                  />
+                </div>
+              ) : (
+                <div className="card p-4 flex items-center gap-3">
+                  {bookForm.coverUrl ? (
+                    <img
+                      src={bookForm.coverUrl}
+                      alt=""
+                      className="w-12 h-16 rounded-lg object-cover bg-ink-100 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-12 h-16 rounded-lg bg-ink-100 shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-[13px] text-ink-500">{t.submittedBook}</p>
+                    <p className="font-semibold text-[15px] truncate">{bookForm.name}</p>
+                    <p className="text-[13px] text-ink-500 truncate">{bookForm.author}</p>
+                  </div>
+                </div>
+              )
+            ) : null}
 
             {blocked ? (
               <div className="rounded-xl bg-badSoft text-bad text-[13px] px-3 py-2 leading-relaxed">
@@ -334,7 +426,9 @@ export default function NotificationDetail() {
                   onClick={() => (isLeaveRequest ? decideLeave(true) : decideJoin(true))}
                   className="flex-1 py-3 rounded-2xl bg-brand-500 text-white text-[14px] font-semibold active:scale-[0.98] transition disabled:opacity-60"
                 >
-                  {busy ? "…" : t.requestApprove}
+                  {/* Approving a join is not only a yes — it puts the book on
+                      the shelf, and the label says so. */}
+                  {busy ? "…" : isLeaveRequest ? t.requestApprove : t.approveAndAddBook}
                 </button>
                 <button
                   disabled={busy}

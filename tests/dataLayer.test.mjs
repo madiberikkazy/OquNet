@@ -19,6 +19,7 @@ const {
   updateBook, getBook, createNotification, listNotifications,
   createUserDoc, getUserById, notifyCommunityMembers,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
+  createJoinRequest, getRequestById,
   openPickupRequest, getPickupRequest, getPendingPickupForUser,
   cancelPickupRequest, fulfillPickupRequest, createBorrowing, PickupBlockedError,
   NEW_BOOK_WINDOW_DAYS,
@@ -31,6 +32,8 @@ const {
 const {
   PAGE_BANDS, loanDaysForPages, pagesForBook,
 } = await import("../src/utils/bookPages.js");
+
+const { requestBook } = await import("../src/firebase/schema.js");
 
 const LS_KEY = "oqunet:db";
 const DAY = 86_400_000;
@@ -204,6 +207,60 @@ describe("loan period follows the page band", () => {
     // allowance it was given, and the edit form opens on the matching band.
     assert.equal(pagesForBook({ maxDays: 14 }), 700);
     assert.equal(pagesForBook({ pages: 300, maxDays: 6 }), 300);
+  });
+});
+
+// Joining costs a book, and the request is where that book now lives in full.
+// The point of these: what the admin approves is already a valid book, so
+// approval is a create and not a second round of data entry.
+describe("join requests carry the whole book", () => {
+  const application = (book) => ({
+    userId: "u9", userNickname: "aigul", userName: "Aigul Serik",
+    communityId: COMMUNITY, book,
+  });
+  const fullBook = {
+    name: "Qahar", author: "Esenberlin", description: "A novel.",
+    genres: ["history"], pages: 450, year: 1969,
+  };
+
+  it("stores the book validated, with the loan period already derived", async () => {
+    const req = await createJoinRequest(application(fullBook));
+    const stored = await getRequestById(req.id);
+
+    assert.equal(stored.type, "join");
+    assert.equal(stored.status, "pending");
+    assert.equal(stored.book.name, "Qahar");
+    assert.equal(stored.book.pages, 450);
+    assert.equal(stored.book.maxDays, 9, "the band's loan period did not travel");
+    assert.deepEqual(stored.book.genres, ["history"]);
+    // Whose book it is, is who is applying — never a field of its own.
+    assert.equal(stored.book.ownerId, undefined);
+    assert.equal(stored.userId, "u9");
+  });
+
+  it("refuses an application whose book would not be a book", async () => {
+    await assert.rejects(
+      () => createJoinRequest(application({ ...fullBook, name: "" })),
+      { errorKey: "addBookErrName" },
+    );
+    await assert.rejects(
+      () => createJoinRequest(application({ ...fullBook, genres: [] })),
+      { errorKey: "addBookErrGenre" },
+    );
+    await assert.rejects(
+      () => createJoinRequest(application({ ...fullBook, pages: undefined })),
+      { errorKey: "addBookErrPages" },
+    );
+  });
+
+  it("reads a request written before the book travelled with it", () => {
+    // Still pending in an admin's inbox: a title, an author, and blanks the
+    // review form now asks them to fill in.
+    const legacy = requestBook({ bookName: "Old", bookAuthor: "Author" });
+    assert.equal(legacy.name, "Old");
+    assert.equal(legacy.author, "Author");
+    assert.deepEqual(legacy.genres, []);
+    assert.equal(legacy.pages, "");
   });
 });
 
