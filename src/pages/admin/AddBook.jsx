@@ -8,8 +8,9 @@ import { listUsersByCommunity, createBook, notifyCommunityMembers } from "../../
 import { uploadImage } from "../../firebase/storage.js";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { t, GENRES } from "../../utils/i18n.js";
-import { PAGE_BANDS, isPageBand, loanDaysForPages } from "../../utils/bookPages.js";
+import { t } from "../../utils/i18n.js";
+import BookFields from "../../components/BookFields.jsx";
+import { isPageBand } from "../../utils/bookPages.js";
 import { logger } from "../../utils/logger.js";
 
 export default function AddBook() {
@@ -158,90 +159,14 @@ export default function AddBook() {
 }
 
 function Step1({ form, update }) {
-  const lang = typeof window !== "undefined" ? localStorage.getItem("lang") || "kz" : "kz";
-  const genres = form.genres || [];
-
-  function toggleGenre(value) {
-    if (genres.includes(value)) {
-      update("genres", genres.filter((g) => g !== value));
-    } else if (genres.length < 3) {
-      update("genres", [...genres, value]);
-    }
-  }
-
   return (
     <div>
       <h2 className="text-xl font-bold mb-3">{t.basicData}</h2>
-      <div className="space-y-3">
-        <input value={form.name} onChange={(e) => update("name", e.target.value)} placeholder={t.name} className="input" />
-        <input value={form.author} onChange={(e) => update("author", e.target.value)} placeholder={t.author} className="input" />
-        <div className="grid grid-cols-2 gap-3">
-          <select value={form.year} onChange={(e) => update("year", e.target.value)} className="input">
-            <option value="">{t.year}</option>
-            {Array.from({ length: 120 }, (_, i) => 2025 - i).map((y) => (<option key={y} value={y}>{y}</option>))}
-          </select>
-          {/* Pages, not days. The admin knows roughly how long the book is;
-              how long a reader may keep it follows from that. */}
-          <select
-            value={form.pages}
-            onChange={(e) => update("pages", Number(e.target.value))}
-            className="input"
-          >
-            <option value="">{t.pagesLabel}</option>
-            {PAGE_BANDS.map((b) => (
-              <option key={b.pages} value={b.pages}>
-                {b.from}–{b.pages} {t.pagesUnit}
-              </option>
-            ))}
-          </select>
-        </div>
-        {/* The consequence of the choice above, spelled out where it is made —
-            the loan period is never typed in, so this is the only place it can
-            be seen before a reader meets it. */}
-        {form.pages ? (
-          <p className="text-[13px] text-ink-500">
-            {t.loanTermLabel}: <span className="font-semibold text-ink-700">
-              {loanDaysForPages(form.pages)} {t.loanDaysUnit}
-            </span>
-          </p>
-        ) : null}
-
-        {/* Genre picker — min 1, max 3 */}
-        <div>
-          <span className="text-[13px] text-ink-500 mb-2 block">
-            {t.genre} ({genres.length}/3)
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {GENRES.map((g) => {
-              const selected = genres.includes(g.value);
-              const disabled = !selected && genres.length >= 3;
-              return (
-                <button
-                  key={g.value}
-                  type="button"
-                  onClick={() => toggleGenre(g.value)}
-                  disabled={disabled}
-                  className={
-                    "px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors " +
-                    (selected
-                      ? "bg-brand-500 text-white"
-                      : disabled
-                        ? "bg-ink-100 text-ink-300 cursor-not-allowed"
-                        : "bg-ink-100 text-ink-700")
-                  }
-                >
-                  {g[lang] ?? g.kz}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <label className="block">
-          <span className="text-[13px] text-ink-500 mb-1 block">{t.description}</span>
-          <textarea value={form.description} onChange={(e) => update("description", e.target.value)} placeholder={t.descriptionPlaceholder} rows="4" className="input" />
-        </label>
-      </div>
+      {/* The same field set the applicant fills in to join, and the same one the
+          admin sees when reviewing that application — one definition, so a book
+          added here and a book arriving with a join request describe the same
+          thing. */}
+      <BookFields form={form} onChange={update} />
     </div>
   );
 }

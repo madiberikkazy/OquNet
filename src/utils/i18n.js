@@ -379,6 +379,10 @@ const kz = {
   requestRejected: "Өтініш қабылданбады",
   requestCancelledByUser: "Өтініш болдырылмады",
   joinRequestSection: "Қосылу өтініші",
+  joinBookIntro: "Қоғамдастыққа кіру үшін бір кітап әкелуіңіз керек. Сол кітаптың толық мәліметтерін жазыңыз — әкімші оны тексеріп, сөреге қосады.",
+  submittedBook: "Ұсынылған кітап",
+  submittedBookHint: "Қажет болса, өзгертіңіз. Мақұлдағанда осы кітап қоғамдастық сөресіне қосылады.",
+  approveAndAddBook: "Мақұлдап, кітапты қосу",
   leaveRequestSection: "Шығу өтініші",
   joinApprovedTitle: "Өтініш қабылданды 🎉",
   joinApprovedBody: (name) =>
@@ -872,6 +876,10 @@ const ru = {
   requestRejected: "Заявка отклонена",
   requestCancelledByUser: "Заявка отменена",
   joinRequestSection: "Заявка на вступление",
+  joinBookIntro: "Чтобы вступить в сообщество, нужно принести одну книгу. Заполните её данные полностью — администратор проверит их и добавит книгу на полку.",
+  submittedBook: "Предложенная книга",
+  submittedBookHint: "При необходимости отредактируйте. После одобрения эта книга попадёт на полку сообщества.",
+  approveAndAddBook: "Одобрить и добавить книгу",
   leaveRequestSection: "Заявка на выход",
   joinApprovedTitle: "Заявка одобрена 🎉",
   joinApprovedBody: (name) =>
@@ -1366,6 +1374,10 @@ const en = {
   requestRejected: "Request declined",
   requestCancelledByUser: "Request cancelled",
   joinRequestSection: "Join request",
+  joinBookIntro: "Joining costs one book. Fill in its details in full — the admin reviews them and puts the book on the shelf.",
+  submittedBook: "Submitted book",
+  submittedBookHint: "Edit anything that needs it. On approval this book goes onto the community shelf.",
+  approveAndAddBook: "Approve and add book",
   leaveRequestSection: "Leave request",
   joinApprovedTitle: "Request approved 🎉",
   joinApprovedBody: (name) =>

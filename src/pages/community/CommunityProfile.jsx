@@ -5,6 +5,9 @@ import Avatar from "../../components/Avatar.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import Modal from "../../components/Modal.jsx";
 import Fab from "../../components/Fab.jsx";
+import BookFields from "../../components/BookFields.jsx";
+import CoverPicker from "../../components/CoverPicker.jsx";
+import { uploadImage } from "../../firebase/storage.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getCommunity, listUsersByCommunity, listPostsByCommunity, listBooks,
@@ -43,9 +46,14 @@ export default function CommunityProfile() {
   const [headerLoading, setHeaderLoading] = useState(true); // only blocks the header
   const [contentLoading, setContentLoading] = useState(true);
 
-  // Join modal
+  // Join modal. The book is the price of admission, so the form asks for all of
+  // it — the same fields the admin fills in on Add Book, because this is the
+  // document they will be approving.
   const [joinOpen, setJoinOpen]     = useState(false);
-  const [bookForm, setBookForm]     = useState({ name: "", author: "", coverUrl: "" });
+  const [bookForm, setBookForm]     = useState({
+    name: "", author: "", year: "", pages: "", genres: [], description: "", coverUrl: "",
+  });
+  const [coverFile, setCoverFile]   = useState(null);
   // Contacts are collected here rather than on the book screens: joining is the
   // moment a user becomes reachable, and every handoff afterwards needs them.
   const [contactForm, setContactForm] = useState({ phone: "", address: "" });
@@ -119,7 +127,12 @@ export default function CommunityProfile() {
   async function handleJoin(e) {
     e.preventDefault();
     setJoinError("");
-    if (!bookForm.name.trim()) { setJoinError("Кітап атауын жазыңыз"); return; }
+    // The book is checked by the same validator Add Book uses — it runs inside
+    // createJoinRequest — so these three are only here to name the field that
+    // is wrong before a round trip does it less kindly.
+    if (!bookForm.name.trim() || !bookForm.author.trim()) { setJoinError(t.addBookErrName); return; }
+    if ((bookForm.genres || []).length < 1) { setJoinError(t.addBookErrGenre); return; }
+    if (!bookForm.pages) { setJoinError(t.addBookErrPages); return; }
 
     // Contacts gate — a member with no phone or address cannot hand a book over.
     const phone = contactForm.phone.trim();
@@ -138,13 +151,19 @@ export default function CommunityProfile() {
         await updateProfile({ phone: phone.slice(0, 20), address });
       }
 
+      // Uploaded here rather than at pick time, for the same reason Add Book
+      // waits: an abandoned application leaves nothing behind.
+      let coverUrl = bookForm.coverUrl;
+      if (coverFile) {
+        coverUrl = await uploadImage(coverFile, `join/${id}_${user.id}_${Date.now()}`);
+      }
+
       const req = await createJoinRequest({
         userId: user.id,
         userNickname: user.nickname,
+        userName: `${user.firstName} ${user.lastName}`.trim(),
         communityId: id,
-        bookName: bookForm.name,
-        bookAuthor: bookForm.author,
-        bookCoverUrl: bookForm.coverUrl,
+        book: { ...bookForm, coverUrl },
       });
 
       // Notify the admin about the request
@@ -173,7 +192,8 @@ export default function CommunityProfile() {
 
       setJoinDone(true);
     } catch (err) {
-      setJoinError(err?.message || "Қате");
+      logger.error("community.join", err?.message, { code: err?.code, communityId: id });
+      setJoinError(writeError(err));
     } finally {
       setJoining(false);
     }
@@ -652,27 +672,21 @@ export default function CommunityProfile() {
             <button onClick={() => setJoinOpen(false)} className="btn-primary">Жабу</button>
           </div>
         ) : (
-          <form onSubmit={handleJoin} className="space-y-3">
+          <form onSubmit={handleJoin} className="space-y-4">
             <p className="text-[13px] text-ink-600 leading-relaxed">
-              Қоғамдастыққа кіру үшін бір кітап қосуыңыз қажет. Қандай кітапты әкелесіз?
+              {t.joinBookIntro}
             </p>
-            <input
-              value={bookForm.name}
-              onChange={(e) => setBookForm({ ...bookForm, name: e.target.value })}
-              placeholder="Кітаптың атауы *"
-              className="input"
+
+            <BookFields
+              form={bookForm}
+              onChange={(k, v) => setBookForm((f) => ({ ...f, [k]: v }))}
             />
-            <input
-              value={bookForm.author}
-              onChange={(e) => setBookForm({ ...bookForm, author: e.target.value })}
-              placeholder="Автор"
-              className="input"
-            />
-            <input
-              value={bookForm.coverUrl}
-              onChange={(e) => setBookForm({ ...bookForm, coverUrl: e.target.value })}
-              placeholder="Мұқаба URL (міндетті емес)"
-              className="input"
+
+            <CoverPicker
+              coverUrl={bookForm.coverUrl}
+              file={coverFile}
+              onFile={setCoverFile}
+              onUrlChange={(v) => setBookForm((f) => ({ ...f, coverUrl: v }))}
             />
 
             <div className="pt-2">

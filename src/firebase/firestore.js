@@ -14,6 +14,7 @@ import {
   bookSearchFields,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
   normalizeNewCommunity, normalizeCommunityPatch, normalizePostPatch,
+  normalizeJoinRequest,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
   normalizeNewReadingSession, normalizeReadingProgress,
   stripServerOwned,
@@ -1075,8 +1076,13 @@ export async function deleteNotification(id) {
 export async function getRequestById(id) { return getOne("requests", id); }
 
 // ---------- Join requests ----------
+//
+// The book travels with the request now, in full. `normalizeJoinRequest` holds
+// it to the same contract Add Book is held to, so what the admin approves is
+// already a valid book — approval hands it to `createBook` and nothing has to
+// be re-typed or re-checked in between.
 export async function createJoinRequest(payload) {
-  return createOne("requests", { type: "join", status: "pending", ...payload });
+  return createOne("requests", normalizeJoinRequest(payload));
 }
 export async function listJoinRequests(communityId) {
   return getCollection("requests", {
