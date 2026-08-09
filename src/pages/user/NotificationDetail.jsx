@@ -63,7 +63,10 @@ export default function NotificationDetail() {
         if (n && !n.read) {
           updateNotification(id, { read: true });
         }
-        if (n && DECIDABLE.has(n.type) && n.requestId) {
+        // The request is needed on both sides of the decision: the admin reads
+        // the book out of it to review, and the applicant reads the approved
+        // book back out of it to create when they accept.
+        if (n && (DECIDABLE.has(n.type) || n.type === "join-approved") && n.requestId) {
           // Only the subject and the community's admin may read it, so a
           // refusal here is ordinary — it just means no decision to offer.
           getRequestById(n.requestId)
@@ -98,29 +101,26 @@ export default function NotificationDetail() {
     setBusy(true);
     setError("");
     try {
+      // Nothing is created here. Approving is the admin saying yes to a book,
+      // not putting it on the shelf: the applicant has one more decision to
+      // make, and a shelf that filled up before they made it would be holding
+      // books belonging to people who never joined. The approved book is
+      // written back onto the request, which is what the applicant's own
+      // "yes" then turns into a real one.
       let book = null;
       if (approved) {
-        // The book goes on the shelf here, as the admin left it, owned by the
-        // applicant. It has to be this way round: creating a book is an admin's
-        // write by the security rules, so it cannot wait for the applicant to
-        // confirm — and there is nothing to confirm about a book they offered.
         let coverUrl = bookForm.coverUrl;
         if (coverFile) {
           coverUrl = await uploadImage(coverFile, `books/${request.communityId}_${Date.now()}`);
         }
-        book = await createBook({
-          ...bookForm,
-          coverUrl,
-          communityId: request.communityId,
-          ownerId: request.userId,
-        });
+        // What was approved, not what was submitted — the admin may have
+        // corrected it, and the request is the record of the decision.
+        book = { ...bookForm, coverUrl };
       }
 
       await updateJoinRequest(request.id, {
         status: approved ? "approved" : "rejected",
-        // What was approved, not what was submitted — the admin may have
-        // corrected it, and the request is the record of the decision.
-        ...(book ? { book: { ...bookForm, coverUrl: book.coverUrl } } : {}),
+        ...(book ? { book } : {}),
       });
 
       await createNotification(approved ? {
@@ -136,7 +136,6 @@ export default function NotificationDetail() {
         bookAuthor: book.author,
         bookDescription: book.description || "",
         bookCoverUrl: book.coverUrl || "",
-        bookId: book.id,
         confirmed: "pending",
       } : {
         recipientId: request.userId,
@@ -208,26 +207,56 @@ export default function NotificationDetail() {
     }
   }
 
+  /**
+   * "Yes, join." — the moment the whole application becomes real.
+   *
+   * Two writes, in this order, and both are the applicant's own:
+   *
+   *   1. Membership. `joinRequestId` is not decoration: joining is a write to
+   *      your own profile, and the only thing that distinguishes an accepted
+   *      invitation from helping yourself to a community is the approved
+   *      request behind it. The rules re-read that request server-side.
+   *   2. The book they promised, created here rather than at approval, so that
+   *      nothing of theirs is on the shelf until they have actually said yes.
+   *      It carries the same request id, for the same reason.
+   */
   async function handleJoinAccept() {
     setBusy(true);
     setError("");
     try {
-      // `joinRequestId` is not decoration: joining is a write to your own user
-      // document, and the only thing that distinguishes an accepted invitation
-      // from helping yourself to a community is the approved request behind it.
-      // The rules re-read that request server-side, so the id has to be part of
-      // the write rather than merely checked here.
       await updateUser(user.id, {
         communityId: notification.communityId,
         joinRequestId: notification.requestId,
       });
+
+      // `request.book` is what the admin approved, corrections included. The
+      // notification's own copy is only a summary, so it is the fallback and
+      // not the source. `bookId` on the notification means an older build
+      // already created this book at approval time — creating it again would
+      // put the same title on the shelf twice.
+      if (!notification.bookId) {
+        const book = requestBook(request || {
+          bookName: notification.bookName,
+          bookAuthor: notification.bookAuthor,
+          bookDescription: notification.bookDescription,
+          bookCoverUrl: notification.bookCoverUrl,
+        });
+        await createBook({
+          ...book,
+          communityId: notification.communityId,
+          ownerId: user.id,
+          joinRequestId: notification.requestId,
+        });
+      }
+
       await updateNotification(id, { confirmed: "accepted", read: true });
       setNotification((prev) => ({ ...prev, confirmed: "accepted", read: true }));
       await refresh();
       const c = await getCommunity(notification.communityId);
       setCommunity(c);
     } catch (err) {
-      setError(err?.message || "Ошибка");
+      logger.error("notificationDetail.joinAccept", err?.message, { code: err?.code });
+      setError((err?.errorKey && t[err.errorKey]) || err?.message || t.error);
     } finally {
       setBusy(false);
     }

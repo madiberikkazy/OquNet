@@ -1158,6 +1158,64 @@ describe("the app's own write sequences still work", () => {
     }));
   });
 
+  it("the joiner brings their book — but only after approval, and only theirs", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "requests", "jr2"), {
+        type: "join", status: "pending", userId: DRIFTER,
+        userNickname: "drifter", communityId: C1,
+        book: { name: "Qahar", author: "Esenberlin", genres: ["history"], pages: 450, maxDays: 9 },
+      });
+    });
+
+    const entryFee = (overrides = {}) => ({
+      name: "Qahar", author: "Esenberlin", communityId: C1,
+      ownerId: DRIFTER, holderId: DRIFTER, status: "available",
+      genre: "history", joinRequestId: "jr2", createdAt: serverTimestamp(),
+      ...overrides,
+    });
+
+    // Still pending: nothing may reach the shelf yet.
+    await assertFails(setDoc(doc(as(DRIFTER), "books", "fee-early"), entryFee()));
+
+    await assertSucceeds(updateDoc(doc(as(ADMIN_A), "requests", "jr2"), { status: "approved" }));
+
+    // Approved — and the applicant creates it themselves, before or as they join.
+    await assertSucceeds(setDoc(doc(as(DRIFTER), "books", "fee"), entryFee()));
+    await assertSucceeds(updateDoc(doc(as(DRIFTER), "users", DRIFTER), {
+      communityId: C1, joinRequestId: "jr2",
+    }));
+
+    // The approval buys exactly one book, for its owner, in its community.
+    await assertFails(setDoc(doc(as(DRIFTER), "books", "fee-other-owner"), entryFee({
+      ownerId: MEMBER_A, holderId: MEMBER_A,
+    })));
+    await assertFails(setDoc(doc(as(DRIFTER), "books", "fee-other-community"), entryFee({
+      communityId: C2,
+    })));
+    await assertFails(setDoc(doc(as(DRIFTER), "books", "fee-unbacked"), entryFee({
+      joinRequestId: "no-such-request",
+    })));
+    // And nobody else may ride on somebody else's approved application.
+    await assertFails(setDoc(doc(as(MEMBER_A2), "books", "fee-hijack"), entryFee()));
+  });
+
+  it("an applicant cannot approve their own request", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "requests", "jr3"), {
+        type: "join", status: "pending", userId: DRIFTER,
+        userNickname: "drifter", communityId: C1,
+      });
+    });
+
+    // The verdict belongs to the admin. Two other rules read this status back
+    // and trust it, so a self-stamped "approved" would be a way into any
+    // community — and a book on its shelf — with no admin involved.
+    await assertFails(updateDoc(doc(as(DRIFTER), "requests", "jr3"), { status: "approved" }));
+    await assertFails(updateDoc(doc(as(DRIFTER), "requests", "jr3"), { status: "rejected" }));
+    // Withdrawing it is still theirs.
+    await assertSucceeds(updateDoc(doc(as(DRIFTER), "requests", "jr3"), { status: "cancelled" }));
+  });
+
   it("AdminMembers: eject a member", async () => {
     await assertSucceeds(updateDoc(doc(as(ADMIN_A), "users", MEMBER_A), { communityId: null }));
   });

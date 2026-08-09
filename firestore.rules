@@ -69,6 +69,24 @@ service cloud.firestore {
         && me().role == 'admin' && me().communityId == cid;
     }
 
+    // An approved join request, named by id, belonging to the caller and to the
+    // community they are naming.
+    //
+    // Two writes turn on this and they are deliberately the same check: the new
+    // member's own membership, and the book they promised in the application.
+    // Both are writes the applicant makes for themselves, and the request is the
+    // only thing that says an admin agreed to either.
+    function approvedJoinFor(requestId, cid) {
+      return exists(/databases/$(database)/documents/requests/$(requestId))
+        && joinRequestOf(requestId).userId == uid()
+        && joinRequestOf(requestId).communityId == cid
+        && joinRequestOf(requestId).type == 'join'
+        && joinRequestOf(requestId).status == 'approved';
+    }
+    function joinRequestOf(requestId) {
+      return get(/databases/$(database)/documents/requests/$(requestId)).data;
+    }
+
     // ═══ Diff helpers (update rules only — `resource` is null on create) ═══
 
     function changed() {
@@ -155,14 +173,7 @@ service cloud.firestore {
 
     function joinWasApproved(cid) {
       return 'joinRequestId' in request.resource.data
-        && exists(/databases/$(database)/documents/requests/$(request.resource.data.joinRequestId))
-        && joinRequestOf(request.resource.data.joinRequestId).userId == uid()
-        && joinRequestOf(request.resource.data.joinRequestId).communityId == cid
-        && joinRequestOf(request.resource.data.joinRequestId).type == 'join'
-        && joinRequestOf(request.resource.data.joinRequestId).status == 'approved';
-    }
-    function joinRequestOf(requestId) {
-      return get(/databases/$(database)/documents/requests/$(requestId)).data;
+        && approvedJoinFor(request.resource.data.joinRequestId, cid);
     }
 
     // Removing someone from your community — and nothing else about them.
@@ -232,7 +243,8 @@ service cloud.firestore {
       allow get, list: if signedIn()
         && resource.data.communityId == myCommunity();
 
-      allow create: if isAdminOf(request.resource.data.communityId)
+      allow create: if (isAdminOf(request.resource.data.communityId)
+                        || joinerBringsTheirBook())
         && request.resource.data.keys().hasAll(
              ['name', 'author', 'communityId', 'ownerId',
               'holderId', 'status', 'genre', 'createdAt'])
@@ -253,6 +265,24 @@ service cloud.firestore {
       // (LeaveCommunity); the admin curates the shelf (AdminBooks).
       allow delete: if isAdminOf(resource.data.communityId)
         || (isMemberOf(resource.data.communityId) && resource.data.ownerId == uid());
+    }
+
+    // The entry fee, paid at the moment it is owed.
+    //
+    // Joining costs a book, and the admin approved a specific one — but the
+    // book must not exist before the applicant has said yes, or a shelf ends up
+    // holding books belonging to people who never joined. So the applicant
+    // creates it themselves, in the same breath as their membership, and this
+    // is what makes that safe: the book is theirs (`ownerId`), it names the
+    // application it came in with, and that application has to be an approved
+    // join of theirs into this very community. Everything else about the
+    // document is held to the same checks an admin's book is held to.
+    function joinerBringsTheirBook() {
+      return signedIn()
+        && request.resource.data.ownerId == uid()
+        && 'joinRequestId' in request.resource.data
+        && approvedJoinFor(request.resource.data.joinRequestId,
+                           request.resource.data.communityId);
     }
 
     function bookAdminEdit() {
@@ -430,15 +460,29 @@ service cloud.firestore {
               && request.resource.data.communityId is string)
         );
 
-      // The subject cancels or refreshes their own request; the community admin
-      // approves or rejects it. Neither may re-point it at someone else.
+      // The subject cancels or drives their own request; the community admin
+      // decides it. Neither may re-point it at someone else.
       allow update: if signedIn()
         && frozen(['type', 'userId', 'requesterId', 'communityId', 'bookId'].toSet())
         && (
-             resource.data.get('userId', '') == uid()
-          || resource.data.get('requesterId', '') == uid()
-          || isAdminOf(resource.data.get('communityId', ''))
+             isAdminOf(resource.data.get('communityId', ''))
+          || (requestSubject() && !decidesOwnRequest())
         );
+
+      function requestSubject() {
+        return resource.data.get('userId', '') == uid()
+            || resource.data.get('requesterId', '') == uid();
+      }
+
+      // A verdict is not the applicant's to write. Two other rules read this
+      // status back and trust it — the membership write and the book a joiner
+      // brings — so a subject who could stamp their own request 'approved'
+      // would be a way into any community without an admin ever seeing it.
+      // Cancelling, and the pickup lane's own 'fulfilled', stay theirs.
+      function decidesOwnRequest() {
+        return request.resource.data.status == 'approved'
+            || request.resource.data.status == 'rejected';
+      }
 
       allow delete: if false;
     }
