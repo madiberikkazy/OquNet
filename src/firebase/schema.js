@@ -487,6 +487,12 @@ export function normalizeNewBook(payload) {
     // is a book nobody can find by name. Derived here, at the only point a
     // book is born, so that can never be a state a document is in.
     ...bookSearchFields(safe),
+    // Provenance, and the only reason the security rules let a brand-new member
+    // create a book at all: this names the approved application the book came
+    // in with. Absent on every book an admin adds themselves.
+    ...(payload.joinRequestId
+      ? { joinRequestId: requiredId("books", "joinRequestId", payload.joinRequestId) }
+      : {}),
   };
 
   // Fresh books carry zeroed rating counters from birth: getRatingSummaries
