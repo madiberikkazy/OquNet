@@ -6,6 +6,7 @@ import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import Modal from "../../components/Modal.jsx";
 import Fab from "../../components/Fab.jsx";
 import BookFields from "../../components/BookFields.jsx";
+import Leaderboard from "../../components/Leaderboard.jsx";
 import CoverPicker from "../../components/CoverPicker.jsx";
 import { uploadImage } from "../../firebase/storage.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
@@ -523,43 +524,24 @@ export default function CommunityProfile() {
               )
             )}
 
-            {/* Members tab */}
+            {/* Members tab — the community's reading leaderboard.
+                The list is still the member list: every row opens that member,
+                and the admin's remove button rides along on it. It is simply
+                ordered by who has actually been reading, which is the one thing
+                a community of readers can rank itself by. */}
             {!contentLoading && tab === "members" && (
-              members.length === 0 ? (
-                <p className="text-center text-ink-400 text-[14px] py-10">Мүше жоқ.</p>
-              ) : (
-                <ul className="divide-y divide-ink-100">
-                  {members.map((m) => (
-                    <li key={m.id} className="flex items-center gap-2">
-                      <Link
-                        to={`/users/${m.id}`}
-                        className="flex items-center gap-3 flex-1 min-w-0 py-3 active:bg-ink-100/40 transition rounded-xl px-1"
-                      >
-                        <Avatar src={m.photoURL} name={`${m.firstName} ${m.lastName}`} size={40} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-[15px] truncate">{m.firstName} {m.lastName}</p>
-                            {m.id === community.ownerId && (
-                              <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">Админ</span>
-                            )}
-                          </div>
-                          <p className="text-[13px] text-ink-500">@{m.nickname}</p>
-                        </div>
-                        {!canManage ? (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
-                            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          </svg>
-                        ) : null}
-                      </Link>
-                      {/* The admin cannot eject themselves — leaving their own
-                          community is a different decision, made elsewhere. */}
-                      {canManage && m.id !== community.ownerId ? (
-                        <RowActions onDelete={() => askRemove("member", m)} />
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )
+              <Leaderboard
+                members={members}
+                currentUserId={user?.id}
+                ownerId={community.ownerId}
+                renderRowAction={(m) =>
+                  // The admin cannot eject themselves — leaving their own
+                  // community is a different decision, made elsewhere.
+                  canManage && m.id !== community.ownerId ? (
+                    <RowActions onDelete={() => askRemove("member", m)} />
+                  ) : null
+                }
+              />
             )}
           </div>
         </>
