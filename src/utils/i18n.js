@@ -249,6 +249,7 @@ const kz = {
   hoursShort: "сағ",
   minutesShort: "мин",
   // Community leaderboard
+  searchMembers: "Мүшелерді іздеу...",
   periodWeek: "Апталық",
   periodMonth: "Айлық",
   periodAllTime: "Барлық уақыт",
@@ -752,6 +753,7 @@ const ru = {
   hoursShort: "ч",
   minutesShort: "мин",
   // Community leaderboard
+  searchMembers: "Поиск участников...",
   periodWeek: "Неделя",
   periodMonth: "Месяц",
   periodAllTime: "Всё время",
@@ -1256,6 +1258,7 @@ const en = {
   hoursShort: "h",
   minutesShort: "min",
   // Community leaderboard
+  searchMembers: "Search members...",
   periodWeek: "Week",
   periodMonth: "Month",
   periodAllTime: "All time",
