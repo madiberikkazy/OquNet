@@ -30,6 +30,7 @@ export function readingMinutes(seconds) {
 
 export default function Leaderboard({ members, currentUserId, ownerId, renderRowAction }) {
   const [period, setPeriod] = useState("week");
+  const [query, setQuery] = useState("");
   // Read the whole period off the table rather than reaching for `.days` with a
   // `??` fallback: all-time's window *is* null, so a nullish fallback quietly
   // turned it back into a week and the third tab showed the first tab's numbers.
@@ -40,10 +41,28 @@ export default function Leaderboard({ members, currentUserId, ownerId, renderRow
     [members, days]
   );
 
-  // The podium takes the first three *places*, not the first three rows: a tie
-  // for first puts two people on the top step, which is what the ranking says.
-  const podium = rows.filter((r) => r.place <= 3);
-  const rest = rows.filter((r) => r.place > 3);
+  const needle = query.trim().toLowerCase();
+  const visible = useMemo(() => {
+    if (!needle) return rows;
+    return rows.filter(({ member }) =>
+      `${member.firstName || ""} ${member.lastName || ""} ${member.nickname || ""}`
+        .toLowerCase()
+        .includes(needle)
+    );
+  }, [rows, needle]);
+
+  // Only readers who actually read in this window get a step. Three members on
+  // zero minutes are all genuinely tied for first, and crowning one of them —
+  // "🏆 1 · 0 мин" — says the opposite of what the board is for. With nobody
+  // reading yet there is no podium at all, just the roll.
+  //
+  // Taken by position, never by place: a tie puts two people on the same place,
+  // and looking steps up by place number dropped everyone who shared one.
+  const podium = needle ? [] : visible.filter((r) => r.seconds > 0).slice(0, 3);
+  const podiumIds = new Set(podium.map((r) => r.member.id));
+  // Everyone the podium did not take — which, when searching or when nobody has
+  // read, is simply everyone. No member can fall between the two lists.
+  const rest = visible.filter((r) => !podiumIds.has(r.member.id));
 
   if (!rows.length) {
     return <p className="text-center text-ink-400 text-[14px] py-10">{t.noMembers}</p>;
@@ -51,11 +70,7 @@ export default function Leaderboard({ members, currentUserId, ownerId, renderRow
 
   // Second, first, third — the middle step is the tallest, so first sits in the
   // centre and the eye lands there before it reads any name.
-  const ordered = [
-    podium.find((r) => r.place === 2),
-    podium.find((r) => r.place === 1),
-    podium.find((r) => r.place === 3),
-  ];
+  const ordered = [podium[1], podium[0], podium[2]];
 
   return (
     <div>
@@ -75,7 +90,36 @@ export default function Leaderboard({ members, currentUserId, ownerId, renderRow
         ))}
       </div>
 
+      {/* Find one person in a community that outgrew a single screen. It sits
+          above the board rather than inside the roll because it filters both:
+          a search narrows the standings, so the podium steps aside and the
+          matches come back as a plain ranked list. */}
+      <div className="relative mt-3">
+        <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-300" width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+          <path d="m21 21-4.3-4.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t.searchMembers}
+          className="w-full bg-ink-100 rounded-2xl pl-9 pr-9 py-2.5 text-[14px] placeholder-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-200"
+        />
+        {query ? (
+          <button
+            onClick={() => setQuery("")}
+            aria-label={t.cancel}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-ink-200 text-ink-600 flex items-center justify-center"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        ) : null}
+      </div>
+
       {/* Podium */}
+      {podium.length > 0 ? (
       <div className="mt-5 flex items-end justify-center gap-3">
         {ordered.map((row, i) =>
           row ? (
@@ -90,11 +134,11 @@ export default function Leaderboard({ members, currentUserId, ownerId, renderRow
           )
         )}
       </div>
+      ) : null}
 
-      {/* Everyone below the podium, in order. The top three are not repeated
-          here — they are already the tallest thing on the screen. */}
+      {/* Everyone the podium did not take, in order. */}
       {rest.length > 0 ? (
-        <ul className="mt-6 space-y-2">
+        <ul className={"space-y-2 " + (podium.length ? "mt-6" : "mt-4")}>
           {rest.map((row) => (
             <li key={row.member.id}>
               <Row
@@ -106,7 +150,9 @@ export default function Leaderboard({ members, currentUserId, ownerId, renderRow
             </li>
           ))}
         </ul>
-      ) : null}
+      ) : (
+        <p className="text-center text-ink-400 text-[14px] py-10">{t.noResults}</p>
+      )}
     </div>
   );
 }
