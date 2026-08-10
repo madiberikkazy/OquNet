@@ -1199,6 +1199,48 @@ describe("the app's own write sequences still work", () => {
     await assertFails(setDoc(doc(as(MEMBER_A2), "books", "fee-hijack"), entryFee()));
   });
 
+  it("accepts the entry-fee book exactly as the client writes it", async () => {
+    // The payload here is the real one — everything normalizeNewBook puts on a
+    // book, not a minimal stand-in — because the create rule checks `hasAll`
+    // and a handful of field values, and the fields it does *not* name still
+    // have to be allowed through.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "requests", "jr4"), {
+        type: "join", status: "approved", userId: DRIFTER,
+        userNickname: "drifter", userName: "Drifter", communityId: C1,
+        book: { name: "Jabayy alma", author: "Muratbekov", genres: ["fiction"], pages: 300, maxDays: 6 },
+      });
+    });
+
+    const db = as(DRIFTER);
+    // The two writes the accept button makes, in the order it makes them.
+    await assertSucceeds(updateDoc(doc(db, "users", DRIFTER), {
+      communityId: C1, joinRequestId: "jr4",
+    }));
+    await assertSucceeds(setDoc(doc(db, "books", "fee-full"), {
+      name: "Jabayy alma",
+      author: "Muratbekov",
+      description: "",
+      coverUrl: "",
+      year: 1975,
+      pages: 300,
+      maxDays: 6,
+      genres: ["fiction"],
+      genre: "fiction",
+      communityId: C1,
+      ownerId: DRIFTER,
+      holderId: DRIFTER,
+      status: "available",
+      borrowerId: null,
+      rating: 0,
+      ratingSum: 0,
+      ratingCount: 0,
+      searchPrefixes: ["j", "ja", "jab"],
+      joinRequestId: "jr4",
+      createdAt: serverTimestamp(),
+    }));
+  });
+
   it("an applicant cannot approve their own request", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), "requests", "jr3"), {
