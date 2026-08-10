@@ -242,6 +242,63 @@ export function readingStreak(readingDays, { today = new Date() } = {}) {
   return streak;
 }
 
+/** The windows the leaderboard offers, in days. `null` means the whole map. */
+export const RANK_WINDOWS = Object.freeze({ week: WEEK_DAYS, month: 30, all: null });
+
+/**
+ * Reading time inside a trailing window, in seconds.
+ *
+ * A trailing window rather than a calendar one, for the same reason the chart
+ * uses trailing days: "this month" anchored to the 1st says almost nothing on
+ * the 2nd. `days: null` sums the whole map, which is as close to all-time as
+ * this data goes — `sanitizeReadingDays` keeps 400 days of it.
+ */
+export function windowReadingSeconds(readingDays, { today = new Date(), days = WEEK_DAYS } = {}) {
+  if (!days) return totalReadingSeconds(readingDays);
+  const map = readingDays && typeof readingDays === "object" ? readingDays : {};
+  const end = new Date(today);
+  end.setHours(0, 0, 0, 0);
+
+  let total = 0;
+  for (let i = 0; i < days; i += 1) {
+    const date = new Date(end);
+    date.setDate(date.getDate() - i);
+    total += Math.max(0, Number(map[dayKey(date)]) || 0);
+  }
+  return total;
+}
+
+/**
+ * The whole community, ordered by reading time in a window — the leaderboard.
+ *
+ * Computed from the member list the screen already has: every reader's day map
+ * is denormalised onto their profile, so a full ranking costs the one query
+ * that fetched the members and nothing more.
+ *
+ * Competition ranking, the same as the badge: equal totals share a place and
+ * the next distinct total skips the places they consumed. Members who have not
+ * read in the window still appear, last, because a leaderboard that hides them
+ * hides exactly the people it exists to nudge.
+ */
+export function rankMembersByReading(members, { today = new Date(), days = WEEK_DAYS } = {}) {
+  const rows = (members || [])
+    .filter((m) => m?.id)
+    .map((m) => ({ member: m, seconds: windowReadingSeconds(m.readingDays, { today, days }) }))
+    .sort((a, b) => b.seconds - a.seconds || String(a.member.id).localeCompare(String(b.member.id)));
+
+  let place = 0;
+  let seen = 0;
+  let previous = null;
+  return rows.map((row) => {
+    seen += 1;
+    if (row.seconds !== previous) {
+      place = seen;
+      previous = row.seconds;
+    }
+    return { ...row, place };
+  });
+}
+
 /**
  * Standing inside a community, by reading time in the trailing week.
  *
@@ -257,30 +314,10 @@ export function readingStreak(readingDays, { today = new Date() } = {}) {
  * nudge.
  */
 export function rankByWeeklyReading(members, userId, { today = new Date() } = {}) {
-  const rows = (members || [])
-    .map((m) => ({
-      id: m?.id,
-      seconds: buildReadingWeek(m?.readingDays, { today }).totalSeconds,
-    }))
-    .filter((m) => m.id)
-    .sort((a, b) => b.seconds - a.seconds || String(a.id).localeCompare(String(b.id)));
-
-  if (!rows.length) return null;
-
-  let place = 0;
-  let seen = 0;
-  let previous = null;
-  for (const row of rows) {
-    seen += 1;
-    if (row.seconds !== previous) {
-      place = seen;
-      previous = row.seconds;
-    }
-    if (row.id === userId) {
-      return { place, total: rows.length, seconds: row.seconds };
-    }
-  }
-  return null;
+  const rows = rankMembersByReading(members, { today, days: WEEK_DAYS });
+  const mine = rows.find((r) => r.member.id === userId);
+  if (!mine) return null;
+  return { place: mine.place, total: rows.length, seconds: mine.seconds };
 }
 
 /** `HH:MM:SS` — the profile's "Оқылған уақыт" readout. */
