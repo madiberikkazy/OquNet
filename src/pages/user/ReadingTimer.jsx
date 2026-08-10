@@ -11,6 +11,7 @@ import {
   READING_MINUTES_DEFAULT, READING_MINUTES_MAX, READING_MINUTES_MIN,
   dayKey, formatDuration,
 } from "../../utils/readingProgress.js";
+import { playTimerSound, primeTimerSound, stopTimerSound } from "../../utils/notificationService.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 
@@ -50,9 +51,12 @@ export default function ReadingTimer() {
   // When the whole run began — the session's `startedAt`, which is not the same
   // as the current stretch's and survives every pause.
   const runStartRef = useRef(null);
-  // A run is logged exactly once, whether it ends by finishing, by Stop, or by
-  // the reader leaving the screen.
-  const loggedRef = useRef(false);
+  // How much of this run has already been written down, and where the next
+  // unwritten stretch starts. A run is no longer logged once at the end: it is
+  // banked as it goes, and these two are what keep repeated commits from
+  // double-counting or losing the gap between them.
+  const committedMsRef = useRef(0);
+  const segmentStartRef = useRef(null);
 
   const running = startedAt != null;
   const elapsedMs = Math.min(durationMs, bankedMs + (running ? Math.max(0, nowMs - startedAt) : 0));
@@ -71,17 +75,32 @@ export default function ReadingTimer() {
   });
 
   /**
-   * Write the run down. Everything that ends a session funnels through here so
-   * there is one place that decides what counts, and one guard against a run
-   * being recorded twice.
+   * Bank whatever has been read but not yet written down.
+   *
+   * Called on every way out of a run — finishing, Stop, leaving the screen, and
+   * the app being hidden — and safe to call as often as any of those happen,
+   * because it writes the *delta* since the last successful write rather than
+   * the run so far. Reading for an hour and then having the phone killed used
+   * to lose the hour: nothing was recorded until the reader came back to this
+   * screen and ended the run themselves, and a backgrounded tab that never
+   * returns never does.
+   *
+   * The floor is the server's, not a preference: the security rules refuse a
+   * session row under `MIN_SESSION_SECONDS`, so a smaller delta is held back
+   * rather than sent to be rejected. It is not lost — it stays uncommitted and
+   * rides along with the next stretch. Only a final tail under half a minute
+   * goes unrecorded, which is the same rule a short run has always been held to.
    */
   const commit = useCallback(async (totalMs) => {
-    if (loggedRef.current || !user?.id) return null;
-    const seconds = Math.round(totalMs / 1000);
+    if (!user?.id) return null;
+    const seconds = Math.floor((totalMs - committedMsRef.current) / 1000);
     if (seconds < MIN_SESSION_SECONDS) return null;
 
-    loggedRef.current = true;
+    // Reserve the stretch before the await, so a second caller landing while
+    // this one is in flight cannot claim the same seconds.
+    committedMsRef.current += seconds * 1000;
     const endedAt = Date.now();
+    const startedAt = segmentStartRef.current ?? runStartRef.current ?? endedAt - seconds * 1000;
     try {
       const { patch } = await logReadingSession({
         userId: user.id,
@@ -91,10 +110,11 @@ export default function ReadingTimer() {
         // reconstruct it afterwards.
         bookId: activeBookId ?? null,
         seconds,
-        startedAt: runStartRef.current ?? endedAt - totalMs,
+        startedAt,
         endedAt,
         readingDays: user.readingDays || {},
       });
+      segmentStartRef.current = endedAt;
       // The profile's weekly chart reads straight off auth state, so it has to
       // learn the new total here — a refetch would repaint it a second later, and
       // the screen the reader lands on after Stop is exactly that chart.
@@ -105,8 +125,9 @@ export default function ReadingTimer() {
       }
       return seconds;
     } catch (err) {
-      // Let the reader try again rather than swallowing the sitting.
-      loggedRef.current = false;
+      // Hand the seconds back so the next commit tries them again rather than
+      // swallowing the sitting.
+      committedMsRef.current -= seconds * 1000;
       logger.error("reading.commit", err?.message, { code: err?.code });
       setError(t.readingSaveFailed);
       return null;
@@ -119,8 +140,12 @@ export default function ReadingTimer() {
     setBankedMs(durationMs);
     setStartedAt(null);
     setFinished(true);
+    playTimerSound();
     commit(durationMs);
   }, [running, remainingMs, durationMs, commit]);
+
+  // Whatever is still playing stops when the reader leaves.
+  useEffect(() => () => stopTimerSound(), []);
 
   // Leaving mid-run records what was read rather than discarding it. Reading for
   // twenty minutes and then hitting Back is not a reason to lose twenty minutes.
@@ -137,6 +162,27 @@ export default function ReadingTimer() {
     save(ms);
   }, []);
 
+  // The screen going away is not the same as the app going away, and on a phone
+  // the second one is the common case: the reader locks the screen, or switches
+  // apps and the system reclaims the tab. No unmount runs for that, so without
+  // this the whole sitting was lost. `visibilitychange` is the signal that
+  // actually fires on mobile — `beforeunload` largely does not — and `pagehide`
+  // covers the tab being closed outright. Both are safe to fire repeatedly now
+  // that a commit only writes what is new.
+  useEffect(() => {
+    const bank = () => {
+      const { elapsedMs: ms, commit: save } = exitRef.current;
+      save(ms);
+    };
+    const onVisibility = () => { if (document.visibilityState === "hidden") bank(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", bank);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", bank);
+    };
+  }, []);
+
   function toggle() {
     setError("");
     if (running) {
@@ -145,22 +191,29 @@ export default function ReadingTimer() {
       return;
     }
     if (finished) return;
+    // Fetch the tune now, inside the tap. A phone grants audio to a gesture,
+    // and there is no gesture left when the run ends by itself.
+    primeTimerSound();
     const now = Date.now();
     if (runStartRef.current == null) runStartRef.current = now;
+    if (segmentStartRef.current == null) segmentStartRef.current = now;
     setNowMs(now);
     setStartedAt(now);
   }
 
   function reset() {
+    stopTimerSound();
     setStartedAt(null);
     setBankedMs(0);
     setFinished(false);
     setError("");
     runStartRef.current = null;
-    loggedRef.current = false;
+    segmentStartRef.current = null;
+    committedMsRef.current = 0;
   }
 
   async function stop() {
+    stopTimerSound();
     setStartedAt(null);
     setBankedMs(elapsedMs);
     await commit(elapsedMs);
