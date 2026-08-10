@@ -50,6 +50,10 @@ export function NotificationProvider({ children }) {
         sendNotification(fresh.title, {
           body: fresh.body,
           tag: `notification-${fresh.id}`,
+          // Where a tap should land. sw.js reads this in `notificationclick`,
+          // focuses the app if it is already open, and navigates here — so the
+          // notification opens the thing it is about rather than the home feed.
+          data: { url: `/notifications/${fresh.id}` },
         });
       }
     }
