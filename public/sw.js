@@ -8,12 +8,17 @@
 // splash until the caches were renamed. Renaming makes the activate handler
 // below drop every v2 entry.
 //
+// Bumped to v4: `isAssetRequest` used to match any path ending in .js, so the
+// dev server's un-hashed module URLs were cached first and served stale
+// forever. Renaming drops whatever the old rule captured; the check below is
+// now narrow enough that it cannot happen again.
+//
 // Rule of thumb: bump these whenever index.html or manifest.json changes in a
 // way users have to see. Hashed JS/CSS take care of themselves.
-const CACHE_NAME = 'oqunet-v3';
-const ASSET_CACHE = 'oqunet-assets-v3';
-const API_CACHE = 'oqunet-api-v3';
-const IMAGE_CACHE = 'oqunet-images-v3';
+const CACHE_NAME = 'oqunet-v4';
+const ASSET_CACHE = 'oqunet-assets-v4';
+const API_CACHE = 'oqunet-api-v4';
+const IMAGE_CACHE = 'oqunet-images-v4';
 
 // Assets to cache on install (app shell).
 // Deliberately no JS/CSS here: their filenames are content-hashed and change
@@ -119,16 +124,22 @@ function isApiRequest(request) {
   return API_PATTERNS.some((pattern) => url.pathname.includes(pattern));
 }
 
-// Check if request is for static assets
+// Check if request is for a content-hashed build asset.
+//
+// Cache-first is safe here for exactly one reason: the content hash is in the
+// filename, so a given URL's bytes never change. That justification does not
+// extend to everything that merely ends in `.js` — the dev server serves every
+// module under a stable URL (/src/utils/i18n.js, /node_modules/.vite/deps/...),
+// and those were being matched too. Once cached, an edited module kept being
+// served from the old entry indefinitely: the code on disk had changed, the app
+// had not, and nothing said so. Anything outside the build output now takes the
+// network-first path instead.
 function isAssetRequest(request) {
   const url = new URL(request.url);
   return (
-    url.pathname.endsWith('.js') ||
-    url.pathname.endsWith('.css') ||
-    url.pathname.endsWith('.woff') ||
-    url.pathname.endsWith('.woff2') ||
-    url.pathname.endsWith('.ttf') ||
-    url.pathname.endsWith('.eot')
+    url.origin === self.location.origin &&
+    url.pathname.startsWith('/assets/') &&
+    /\.(js|css|woff2?|ttf|eot)$/.test(url.pathname)
   );
 }
 

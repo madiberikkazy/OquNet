@@ -278,14 +278,29 @@ export default function NotificationDetail() {
     }
   }
 
+  /**
+   * "No, thanks." — and the approval has to die with it.
+   *
+   * An approved request is not a record, it is a live authorisation: the rules
+   * read its status back to let this user write their own membership and put
+   * their entry-fee book on the shelf. Marking only the notification left that
+   * standing, so a declined invitation was still redeemable afterwards.
+   * Withdrawing the request is what actually revokes it — and the subject
+   * withdrawing their own request is a write the rules allow.
+   */
   async function handleJoinDecline() {
     setBusy(true);
     setError("");
     try {
+      if (notification.requestId) {
+        await cancelJoinRequest(notification.requestId);
+        setRequest((prev) => (prev ? { ...prev, status: "cancelled" } : prev));
+      }
       await updateNotification(id, { confirmed: "declined", read: true });
       setNotification((prev) => ({ ...prev, confirmed: "declined", read: true }));
     } catch (err) {
-      setError(err?.message || "Ошибка");
+      logger.error("notificationDetail.joinDecline", err?.message, { code: err?.code });
+      setError((err?.errorKey && t[err.errorKey]) || err?.message || t.error);
     } finally {
       setBusy(false);
     }
