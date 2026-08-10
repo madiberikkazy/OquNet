@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useLang } from "./contexts/LanguageContext.jsx";
-import NotificationToast from "./components/NotificationToast.jsx";
 import OfflineIndicator from "./components/OfflineIndicator.jsx";
 import { t } from "./utils/i18n.js";
 import { lazyRoute } from "./utils/lazyRoute.js";
@@ -69,7 +68,6 @@ export default function App() {
   return (
     <>
       <OfflineIndicator />
-      <NotificationToast />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/auth/register" element={<Register />} />

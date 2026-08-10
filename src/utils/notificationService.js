@@ -154,11 +154,30 @@ export async function requestNotificationPermission() {
   return false;
 }
 
-// Show browser notification
+// The app icon, as the manifest names it. This used to point at '/index.html',
+// which is a document and not an image — so every notification that did get
+// shown was drawn with the browser's generic fallback.
+const NOTIFICATION_ICON = '/drawable/logo.svg';
+
+/**
+ * Show a notification in the phone's own notification system.
+ *
+ * It goes through the service worker registration rather than
+ * `new Notification()`, and that is not a preference — it is the only thing
+ * that works where this app actually runs. Chrome on Android throws
+ * "Illegal constructor" for the page-level constructor, and an installed iOS
+ * PWA has no page-level Notification to construct at all. A notification the
+ * service worker owns also outlives the tab, and taps land in the
+ * `notificationclick` handler in sw.js, which focuses the app and opens
+ * `data.url`.
+ *
+ * The bare constructor stays as the desktop fallback for a browser with
+ * notification support but no service worker (an unregistered dev page).
+ */
 export async function showBrowserNotification(title, options = {}) {
   try {
     const prefs = loadNotificationPreferences();
-    
+
     if (!prefs.browserNotificationsEnabled || !prefs.notificationsEnabled) {
       return;
     }
@@ -168,30 +187,28 @@ export async function showBrowserNotification(title, options = {}) {
       return;
     }
 
-    if (Notification.permission === 'granted') {
-      const notification = new Notification(title, {
-        icon: '/index.html', // You can customize this
-        badge: '/index.html',
-        ...options,
-      });
-
-      // Auto-close after 5 seconds
-      setTimeout(() => notification.close(), 5000);
-
-      return notification;
-    } else if (Notification.permission !== 'denied') {
-      // Request permission first
-      const permission = await requestNotificationPermission();
-      if (permission) {
-        const notification = new Notification(title, {
-          icon: '/index.html',
-          badge: '/index.html',
-          ...options,
-        });
-        setTimeout(() => notification.close(), 5000);
-        return notification;
-      }
+    if (Notification.permission !== 'granted') {
+      // Never ask from here. A permission prompt has to answer a question the
+      // user just asked, and this fires on a background poll — the settings
+      // screen is where they ask for it.
+      return;
     }
+
+    const payload = {
+      icon: NOTIFICATION_ICON,
+      badge: NOTIFICATION_ICON,
+      ...options,
+    };
+
+    const registration = await navigator.serviceWorker?.getRegistration?.();
+    if (registration?.showNotification) {
+      await registration.showNotification(title, payload);
+      return;
+    }
+
+    const notification = new Notification(title, payload);
+    setTimeout(() => notification.close(), 5000);
+    return notification;
   } catch (err) {
     console.error('Error showing browser notification:', err);
   }
