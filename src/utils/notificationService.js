@@ -130,6 +130,66 @@ export function playNotificationSound(soundKey = 'bell') {
   }
 }
 
+/**
+ * The tune that plays when a reading run reaches its length.
+ *
+ * A real file rather than a synthesised beep: this one is a small reward at the
+ * end of a sitting, not an alert. It lives in `public/drawable/`, so it is
+ * served as-is and is not part of any bundle.
+ *
+ * Held as one element and rewound rather than constructed per play, because a
+ * new Audio on a phone is a fresh autoplay decision every time. `prime()` is
+ * called from the Start button — a real user gesture — which is what buys the
+ * permission to play later, when the timer finishes and no gesture is anywhere
+ * near. A missing or unplayable file resolves quietly: a silent finish is a
+ * blemish, a thrown error mid-commit is a lost session.
+ */
+const TIMER_SOUND_URL = '/drawable/timer_music.mp3';
+let timerAudio = null;
+
+function timerSound() {
+  if (typeof Audio === 'undefined') return null;
+  if (!timerAudio) {
+    timerAudio = new Audio(TIMER_SOUND_URL);
+    timerAudio.preload = 'auto';
+  }
+  return timerAudio;
+}
+
+/** Load the tune while the reader is still touching the screen. */
+export function primeTimerSound() {
+  try {
+    timerSound()?.load();
+  } catch (err) {
+    console.warn('[OquNet] Could not prime the timer sound:', err?.message ?? err);
+  }
+}
+
+export async function playTimerSound() {
+  try {
+    const prefs = loadNotificationPreferences();
+    if (!prefs.soundEnabled) return;
+
+    const audio = timerSound();
+    if (!audio) return;
+    audio.currentTime = 0;
+    await audio.play();
+  } catch (err) {
+    console.warn('[OquNet] Timer sound did not play:', err?.message ?? err);
+  }
+}
+
+/** Cut the tune short — the reader has moved on. */
+export function stopTimerSound() {
+  try {
+    if (!timerAudio) return;
+    timerAudio.pause();
+    timerAudio.currentTime = 0;
+  } catch {
+    // Nothing to do: the element is already in whatever state it is in.
+  }
+}
+
 // Request browser notification permission
 export async function requestNotificationPermission() {
   if (!('Notification' in window)) {
