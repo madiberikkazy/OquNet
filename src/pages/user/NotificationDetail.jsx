@@ -28,6 +28,21 @@ import { t } from "../../utils/i18n.js";
 // telling them something. Both name the request they are about.
 const DECIDABLE = new Set(["join-request", "leave-request"]);
 
+/**
+ * What to show when a write on this screen is refused.
+ *
+ * A SchemaError names the i18n key for the field it refused. Firestore's own
+ * "Missing or insufficient permissions" is the one worth translating: it is
+ * raw English in the middle of a Kazakh screen, and it means the rules in the
+ * project do not allow what this build is asking for — which for the accept
+ * button means the deployed ruleset predates the entry-fee book.
+ */
+function writeError(err) {
+  if (err?.errorKey && t[err.errorKey]) return t[err.errorKey];
+  if (err?.code === "permission-denied") return t.notAuthorized;
+  return err?.message || t.error;
+}
+
 export default function NotificationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -149,7 +164,7 @@ export default function NotificationDetail() {
       logger.error("notificationDetail.decideJoin", err?.message, { code: err?.code });
       // A SchemaError names the i18n key for the field it refused, so a book
       // the form let through still reads as a field error rather than a stack.
-      setError((err?.errorKey && t[err.errorKey]) || err?.message || t.error);
+      setError(writeError(err));
     } finally {
       setBusy(false);
     }
@@ -256,7 +271,7 @@ export default function NotificationDetail() {
       setCommunity(c);
     } catch (err) {
       logger.error("notificationDetail.joinAccept", err?.message, { code: err?.code });
-      setError((err?.errorKey && t[err.errorKey]) || err?.message || t.error);
+      setError(writeError(err));
     } finally {
       setBusy(false);
     }
@@ -300,7 +315,7 @@ export default function NotificationDetail() {
       setNotification((prev) => ({ ...prev, confirmed: "declined", read: true }));
     } catch (err) {
       logger.error("notificationDetail.joinDecline", err?.message, { code: err?.code });
-      setError((err?.errorKey && t[err.errorKey]) || err?.message || t.error);
+      setError(writeError(err));
     } finally {
       setBusy(false);
     }
