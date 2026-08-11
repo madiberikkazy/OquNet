@@ -304,14 +304,23 @@ describe("books: holder transitions", () => {
     }));
   });
 
-  it("a non-holder may NOT release the book", async () => {
+  it("a bystander may NOT release somebody else's read", async () => {
+    // The guarantee this protects: a member's open book page cannot write
+    // another member's holder. The *owner* is a separate case — see the return
+    // lanes below, where taking your own book back is the whole point — so the
+    // reader here is ADMIN_A, leaving MEMBER_A2 neither owner nor holder.
+    // (ADMIN_A could write it either way: an admin may edit their community's
+    // books outright, which is bookAdminEdit's business, not a handoff's.)
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
-        status: "unavailable", borrowerId: MEMBER_A2, holderId: MEMBER_A2,
+        status: "unavailable", borrowerId: ADMIN_A, holderId: ADMIN_A,
       });
     });
-    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
-      status: "available", borrowerId: null, holderId: MEMBER_A,
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: ADMIN_A,
+    }));
+    await assertFails(updateDoc(doc(as(MEMBER_B), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: ADMIN_A,
     }));
   });
 
@@ -328,6 +337,109 @@ describe("books: holder transitions", () => {
 
   it("a member may NOT invent an arbitrary status", async () => {
     await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), { status: "lost" }));
+  });
+});
+
+// The three lanes a member on their way out of a community needs: taking their
+// own copy off the shelf while they arrange to collect it, putting it back if
+// they change their mind, and receiving it. See utils/bookReturn.js.
+describe("books: an owner collecting their own copy", () => {
+  /** Park BOOK_1 on MEMBER_A2's shelf, free (the usual case) or on loan. */
+  async function withHolder({ onLoan = false } = {}) {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
+        status: onLoan ? "unavailable" : "available",
+        borrowerId: onLoan ? MEMBER_A2 : null,
+        holderId: MEMBER_A2,
+      });
+    });
+  }
+
+  it("the owner may reserve their copy, leaving it where it is", async () => {
+    await withHolder();
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null,
+    }));
+  });
+
+  it("nobody else may reserve it", async () => {
+    // ADMIN_A is left out on purpose: an admin may edit any book in their own
+    // community (bookAdminEdit), which is a different power from this one.
+    await withHolder();
+    for (const uid of [MEMBER_A2, MEMBER_B, DRIFTER]) {
+      await assertFails(updateDoc(doc(as(uid), "books", BOOK_1), {
+        status: "unavailable", borrowerId: null,
+      }));
+    }
+  });
+
+  it("a reservation may not smuggle the book somewhere else", async () => {
+    await withHolder();
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null, holderId: MEMBER_A,
+    }));
+  });
+
+  it("the owner may not reserve a copy that is already in their hands", async () => {
+    // BOOK_1 starts out owned and held by MEMBER_A. Marking it occupied would
+    // only hide a book the community is owed.
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null,
+    }));
+  });
+
+  it("the owner may put a reserved copy back on the shelf", async () => {
+    await withHolder();
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
+        status: "unavailable", borrowerId: null,
+      });
+    });
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "available", borrowerId: null,
+    }));
+  });
+
+  it("but may NOT declare a book somebody is reading to be free", async () => {
+    await withHolder({ onLoan: true });
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "available", borrowerId: null,
+    }));
+  });
+
+  it("the owner may take the copy back — free or mid-loan", async () => {
+    await withHolder();
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A,
+    }));
+
+    await withHolder({ onLoan: true });
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A,
+    }));
+  });
+
+  it("nobody may use that lane to take a book they do not own", async () => {
+    // The copy sits with ADMIN_A, so MEMBER_A2 is a plain member who neither
+    // owns nor holds it — the case this lane must not open up.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
+        status: "available", borrowerId: null, holderId: ADMIN_A,
+      });
+    });
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A2,
+    }));
+    await assertFails(updateDoc(doc(as(MEMBER_B), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_B,
+    }));
+  });
+
+  it("no lane lets the owner keep ownership out of the write", async () => {
+    await withHolder();
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A, ownerId: MEMBER_A2,
+    }));
   });
 });
 
@@ -738,6 +850,62 @@ describe("requests", () => {
   it("a user may NOT list somebody else's pickup requests", async () => {
     await assertFails(getDocs(query(
       collection(as(MEMBER_A), "requests"), where("requesterId", "==", MEMBER_A2))));
+  });
+
+  // ── returns: a book's owner asking for it back ──
+  const returnPayload = (over = {}) => ({
+    type: "return", status: "pending", bookId: BOOK_1, communityId: C1,
+    requesterId: MEMBER_A, requesterName: "F L", holderId: MEMBER_A2,
+    bookName: "Abai Joly", returnCode: "1234", reservedBook: true,
+    createdAt: serverTimestamp(),
+    ...over,
+  });
+
+  it("an owner may ask for their book back", async () => {
+    await assertSucceeds(setDoc(doc(as(MEMBER_A), "requests", "rr1"), returnPayload()));
+  });
+
+  it("nobody may open a return in somebody else's name", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A2), "requests", "rr1"), returnPayload()));
+  });
+
+  it("a return may not name the requester as its own holder", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "requests", "rr1"),
+      returnPayload({ holderId: MEMBER_A })));
+  });
+
+  it("a return may not be opened into another community", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "requests", "rr1"),
+      returnPayload({ communityId: C2 })));
+  });
+
+  it("a member may ask whether a copy in their community is going home", async () => {
+    // The gate on the pickup screen. It reads somebody else's request, which is
+    // why the query has to be scoped by community for the rules to accept it.
+    await assertSucceeds(getDocs(query(
+      collection(as(MEMBER_A2), "requests"),
+      where("communityId", "==", C1),
+      where("type", "==", "return"), where("status", "==", "pending"),
+      where("bookId", "==", BOOK_1))));
+  });
+
+  it("but not in a community they do not belong to", async () => {
+    await assertFails(getDocs(query(
+      collection(as(MEMBER_B), "requests"),
+      where("communityId", "==", C1),
+      where("type", "==", "return"), where("status", "==", "pending"))));
+  });
+
+  it("the owner may cancel or complete their own return, but not re-point it", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "requests", "rr1"), returnPayload({
+        createdAt: Date.now(),
+      }));
+    });
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "requests", "rr1"), { status: "cancelled" }));
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "requests", "rr1"), { returnCode: "4321" }));
+    await assertFails(updateDoc(doc(as(MEMBER_A), "requests", "rr1"), { bookId: BOOK_2 }));
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "requests", "rr1"), { status: "cancelled" }));
   });
 });
 

@@ -7,6 +7,7 @@ import {
   getActiveBorrowingByBook,
   getActiveBorrowingForUser,
   getPendingPickupForUser,
+  getPendingReturnForBook,
   getPickupRequest,
   openPickupRequest,
   PickupBlockedError,
@@ -56,7 +57,11 @@ function formatLongDate(ts) {
 }
 /** Why a reader cannot start this pickup, in words. */
 export function blockMessage(reason) {
-  return reason === "other-pickup" ? t.pickupOtherPending : t.pickupReturnOtherBook;
+  if (reason === "other-pickup") return t.pickupOtherPending;
+  // Not this reader's fault and not their errand: the copy is on its way back
+  // to the person who owns it, who is on their way out of the community.
+  if (reason === "returning") return t.bookBeingReturned;
+  return t.pickupReturnOtherBook;
 }
 
 function isExpired(request) {
@@ -121,9 +126,17 @@ export default function PickupBook() {
       const holderId = holderIdOf(b);
       if (holderId) setCurrentHolder(await getUserById(holderId));
 
+      // Is the owner already on their way to collect this copy? Asked before
+      // anything is offered, because a reader who walks across town for a book
+      // that is going home to its owner has been failed by this screen, not by
+      // the write that eventually refuses them.
+      const returning = await getPendingReturnForBook({
+        bookId: id, communityId: b?.communityId,
+      }).catch(() => null);
+
       let req = null;
-      let blocker = null;
-      if (user?.id) {
+      let blocker = returning ? { reason: "returning", bookId: null } : null;
+      if (user?.id && !returning) {
         req = await getPickupRequest(id, user.id);
         // Reopening a stale request would hand out a code nobody remembers.
         if (req && isExpired(req)) {
@@ -344,6 +357,18 @@ export default function PickupBook() {
     try {
       const active = await getActiveBorrowingForUser(user.id);
       if (active && active.bookId !== id) { setError(t.pickupReturnOtherBook); return; }
+
+      // Re-asked at the moment of the write, not only on arrival: a request
+      // opened days ago is a code this reader still has, and the owner may have
+      // started collecting the book in between.
+      const returning = await getPendingReturnForBook({
+        bookId: id, communityId: book.communityId,
+      }).catch(() => null);
+      if (returning) {
+        setBlockedBy({ reason: "returning", bookId: null });
+        setError(t.bookBeingReturned);
+        return;
+      }
 
       // The book's own allowance, read at submit rather than taken from the
       // request: a request written before the admin re-banded the book would

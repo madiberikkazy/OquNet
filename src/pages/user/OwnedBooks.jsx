@@ -10,6 +10,7 @@ import { listBooksHeldBy, returnBookToOwner, createNotification } from "../../fi
 import { qk } from "../../lib/queryKeys.js";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { isReadingByUser } from "../../utils/communityExit.js";
+import { isReservedForReturn } from "../../utils/bookReturn.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
 
@@ -130,7 +131,12 @@ export default function OwnedBooks() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-[15px] truncate">{book.name}</p>
                     <p className="text-[13px] text-ink-500 truncate">{book.author}</p>
-                    <div className="mt-1"><BookStatusBadge status={book.status} /></div>
+                    <div className="mt-1">
+                      <BookStatusBadge
+                        status={book.status}
+                        reserved={isReservedForReturn(book)}
+                      />
+                    </div>
                   </div>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
                     <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -140,6 +146,9 @@ export default function OwnedBooks() {
                 {/* Only somebody else's copy can go home. An active read is not
                     returnable here: finishing the book is its own step, and the
                     exit rules check for it before they check for held books. */}
+                {/* A copy whose owner is collecting it says so, and keeps the
+                    same button: handing it back here is the same handover the
+                    code confirms, done from the other side. */}
                 {isOwn ? (
                   <p className="mt-2 px-1 text-[12px] text-ink-400">{t.yourBookHint}</p>
                 ) : isReading ? (

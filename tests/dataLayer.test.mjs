@@ -22,6 +22,9 @@ const {
   createJoinRequest, getRequestById,
   openPickupRequest, getPickupRequest, getPendingPickupForUser,
   cancelPickupRequest, fulfillPickupRequest, createBorrowing, PickupBlockedError,
+  openReturnRequest, getReturnRequest, getPendingReturnForBook,
+  listPendingReturnsForUser, cancelReturnRequest, expireReturnRequest,
+  completeReturnToOwner, transferBookHolder, getActiveBorrowingByBook,
   NEW_BOOK_WINDOW_DAYS,
 } = await import("../src/firebase/firestore.js");
 
@@ -651,3 +654,160 @@ async function getCollection_requests() {
   const db = JSON.parse(store.get(LS_KEY));
   return (db.requests || []).filter((r) => r.type === "pickup" && r.status === "pending");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Getting a book back — the handshake a member runs for every copy of theirs
+// that is out before they can leave the community.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("return requests", () => {
+  const OWNER = "owner-1";
+  const HOLDER = "holder-1";
+
+  /** A book of OWNER's, sitting free on HOLDER's shelf. */
+  async function bookWithHolder({ onLoan = false } = {}) {
+    const { id } = await createBook({
+      name: "Wild Apple", author: "Muratbekov", communityId: COMMUNITY,
+      ownerId: OWNER, genres: ["fiction"], pages: 300,
+    });
+    await transferBookHolder({
+      bookId: id, toUserId: HOLDER,
+      borrowing: onLoan ? { bookName: "Wild Apple", communityId: COMMUNITY } : null,
+    });
+    if (!onLoan) {
+      // Finished reading: still on their shelf, free for the next reader.
+      await updateBook(id, { status: "available", borrowerId: null, holderId: HOLDER });
+    }
+    return id;
+  }
+
+  const open = (bookId) =>
+    openReturnRequest({
+      bookId, requesterId: OWNER, communityId: COMMUNITY, requesterName: "O Wner",
+    });
+
+  it("opens once, and reopening reuses the code already handed out", async () => {
+    const bookId = await bookWithHolder();
+
+    const first = await open(bookId);
+    assert.equal(first.created, true);
+    assert.equal(first.request.holderId, HOLDER, "the request names who to collect from");
+    assert.match(first.request.returnCode, /^\d{4}$/);
+
+    const second = await open(bookId);
+    assert.equal(second.created, false, "a second call must not open a second request");
+    assert.equal(second.request.returnCode, first.request.returnCode,
+      "rotating the code here would strand the digits the holder was already told");
+  });
+
+  it("takes a free copy off the shelf, and puts it back when cancelled", async () => {
+    const bookId = await bookWithHolder();
+
+    const { request } = await open(bookId);
+    assert.equal(request.reservedBook, true);
+    const reserved = await getBook(bookId);
+    assert.equal(reserved.status, "unavailable", "nobody else may start collecting it");
+    assert.equal(reserved.borrowerId, null, "reserved is not the same as being read");
+    assert.equal(reserved.holderId, HOLDER, "it has not moved — they still have it");
+
+    await cancelReturnRequest(request.id);
+    const freed = await getBook(bookId);
+    assert.equal(freed.status, "available");
+    assert.equal(freed.holderId, HOLDER);
+    assert.equal(await getReturnRequest(bookId, OWNER), null);
+  });
+
+  it("does not pretend a book on loan is free when the request lapses", async () => {
+    const bookId = await bookWithHolder({ onLoan: true });
+
+    const { request } = await open(bookId);
+    assert.equal(request.reservedBook, false, "an active loan was already occupied");
+
+    await expireReturnRequest(request.id);
+    const after = await getBook(bookId);
+    assert.equal(after.status, "unavailable", "the reader still has it — it is not on the shelf");
+    assert.equal(after.borrowerId, HOLDER);
+  });
+
+  it("brings the book home and closes any live loan", async () => {
+    const bookId = await bookWithHolder({ onLoan: true });
+    const { request } = await open(bookId);
+
+    const result = await completeReturnToOwner({
+      bookId, ownerId: OWNER, requestId: request.id,
+    });
+    assert.equal(result.alreadyHome, false);
+    assert.ok(result.closedBorrowing, "the reader's loan cannot outlive the copy");
+    assert.equal(await getActiveBorrowingByBook(bookId), null);
+
+    const home = await getBook(bookId);
+    assert.equal(home.holderId, OWNER);
+    assert.equal(home.status, "available");
+    assert.equal(home.borrowerId, null);
+    assert.equal(await getReturnRequest(bookId, OWNER), null, "the request is spent");
+  });
+
+  it("closes the paperwork when the holder handed the book back themselves", async () => {
+    const bookId = await bookWithHolder();
+    const { request } = await open(bookId);
+
+    // The holder returns it from their own shelf, with no code involved.
+    await updateBook(bookId, { status: "available", borrowerId: null, holderId: OWNER });
+
+    const result = await completeReturnToOwner({
+      bookId, ownerId: OWNER, requestId: request.id,
+    });
+    assert.equal(result.alreadyHome, true);
+    assert.equal(await getReturnRequest(bookId, OWNER), null);
+  });
+
+  it("refuses to open or complete a return for somebody else's book", async () => {
+    const bookId = await bookWithHolder();
+
+    await assert.rejects(
+      () => openReturnRequest({ bookId, requesterId: "stranger", communityId: COMMUNITY }),
+      /only the owner/
+    );
+    await assert.rejects(
+      () => completeReturnToOwner({ bookId, ownerId: "stranger" }),
+      /only the owner/
+    );
+  });
+
+  it("has nothing to open for a book already with its owner", async () => {
+    const { id } = await createBook({
+      name: "At Home", author: "Auezov", communityId: COMMUNITY,
+      ownerId: OWNER, genres: ["fiction"], pages: 300,
+    });
+    const result = await open(id);
+    assert.equal(result.created, false);
+    assert.equal(result.request, null, "a request against nobody is not an errand");
+  });
+
+  it("blocks a reader from collecting a copy that is going home", async () => {
+    const bookId = await bookWithHolder();
+    await open(bookId);
+
+    await assert.rejects(
+      () => openPickupRequest({
+        bookId, bookName: "Wild Apple", requesterId: "reader-9", requesterName: "R", loanDays: 7,
+      }),
+      (err) => {
+        assert.ok(err instanceof PickupBlockedError);
+        assert.equal(err.reason, "returning");
+        return true;
+      }
+    );
+  });
+
+  it("lets a member ask for several of their books back at once", async () => {
+    // Unlike a pickup: leaving means collecting every copy, and serialising
+    // that would mean three days per book.
+    const first = await bookWithHolder();
+    const second = await bookWithHolder();
+
+    assert.equal((await open(first)).created, true);
+    assert.equal((await open(second)).created, true);
+    assert.equal((await listPendingReturnsForUser(OWNER)).length, 2);
+    assert.ok(await getPendingReturnForBook({ bookId: second, communityId: COMMUNITY }));
+  });
+});

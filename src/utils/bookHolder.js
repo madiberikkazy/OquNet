@@ -22,9 +22,19 @@ export function holderIdOf(book) {
  * The reader who has the book *on loan* right now, or null when it isn't out.
  * Narrower than the holder: someone who has finished a book still holds it, but
  * is no longer its reader — the book can be requested from them.
+ *
+ * "Unavailable" alone is not enough to answer this, and used to be. A book its
+ * owner has reserved on the way out of the community is unavailable too — it is
+ * off the shelf so nobody starts collecting it — and there is nobody reading
+ * it. `borrowerId` is the field that separates the two: a loan writes it, a
+ * reservation deliberately leaves it null (see firestore.js
+ * `reserveBookForReturn`). Books written before that field existed have no
+ * `borrowerId` key at all, and for those the holder is still the best answer.
  */
 export function readerHolderIdOf(book) {
-  return book?.status === "unavailable" ? holderIdOf(book) : null;
+  if (book?.status !== "unavailable") return null;
+  if (book?.borrowerId === undefined) return holderIdOf(book);
+  return book.borrowerId ?? null;
 }
 
 /** True when `userId` is the person the book is currently with. */

@@ -14,7 +14,7 @@ import {
   bookSearchFields,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
   normalizeNewCommunity, normalizeCommunityPatch, normalizePostPatch,
-  normalizeJoinRequest,
+  normalizeJoinRequest, normalizeReturnRequest, newPickupCode,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
   normalizeNewReadingSession, normalizeReadingProgress,
   stripServerOwned,
@@ -1133,7 +1133,10 @@ export class PickupBlockedError extends Error {
   constructor(reason, { bookId = null } = {}) {
     super(`pickup blocked: ${reason}`);
     this.name = "PickupBlockedError";
-    /** "other-pickup" — a request is open elsewhere; "other-loan" — a book is out. */
+    /**
+     * "other-pickup" — a request is open elsewhere; "other-loan" — a book of
+     * theirs is out; "returning" — this copy is on its way home to its owner.
+     */
     this.reason = reason;
     /** The book that is in the way, so a caller can link to it. */
     this.bookId = bookId;
@@ -1198,6 +1201,16 @@ export async function openPickupRequest(payload) {
     throw new PickupBlockedError("other-loan", { bookId: loan.bookId });
   }
 
+  // A copy its owner is collecting is not a copy anybody else may start
+  // collecting. The reservation already hides it from the shelf, but a reader
+  // who kept the book page open, or reached it from a saved list, still has a
+  // button — so the rule lives here, where every route to a new pickup passes.
+  const book = await getBook(bookId);
+  const returning = await getPendingReturnForBook({
+    bookId, communityId: book?.communityId,
+  });
+  if (returning) throw new PickupBlockedError("returning", { bookId });
+
   const request = await createPickupRequest(payload);
   return { request, created: true };
 }
@@ -1237,6 +1250,263 @@ export async function cancelPickupRequest(id) {
 /** Mark a pickup request as fulfilled (book successfully received). */
 export async function fulfillPickupRequest(id) {
   return updateOne("requests", id, { status: "fulfilled" });
+}
+
+// ---------- Return requests ----------
+//
+// A pickup run backwards: the *owner* of a book asks whoever has it to bring it
+// home, because they are leaving the community and cannot go while a copy of
+// theirs is out (utils/communityExit.js). Stored in the same collection with
+// `type: "return"`; the shape lives in schema.js.
+//
+// Three invariants, all enforced here rather than on the screen that happens to
+// be open — a screen can be re-entered, double-tapped or restored from cache:
+//
+//   1. At most ONE pending return per (book, owner). `openReturnRequest` is
+//      idempotent and reports whether it created anything, so the code is sent
+//      exactly once per request.
+//   2. Opening a return takes the book off the shelf, and only a request that
+//      did that may put it back. `reservedBook` on the request is the record of
+//      which of the two happened.
+//   3. The book moves only in `completeReturnToOwner`, and only into its
+//      owner's hands. There is no lane here that hands it to a third party.
+//
+// Unlike a pickup there is no one-errand-at-a-time rule. A member leaving may
+// have several copies out with several people, and every one of them has to
+// come back before they can go — serialising that would mean nine days to
+// collect three books.
+
+/** Every query below names the community, because the `requests` list rule
+ * only accepts a query it can scope: a member may list their own community's
+ * requests or their own. "Which book is being returned" is the first of those,
+ * and it is the question the pickup screen has to be able to ask. */
+export async function createReturnRequest(payload) {
+  return createOne("requests", normalizeReturnRequest(payload));
+}
+
+/** The owner's open return on one book, or null. */
+export async function getReturnRequest(bookId, requesterId) {
+  if (!bookId || !requesterId) return null;
+  const rows = await getCollection("requests", {
+    where: [
+      ["requesterId", "==", requesterId],
+      ["type", "==", "return"],
+      ["status", "==", "pending"],
+      ["bookId", "==", bookId],
+    ],
+    pageSize: 1,
+  });
+  return rows[0] || null;
+}
+
+/**
+ * Any open return on a book, whoever opened it — the question a reader's pickup
+ * screen has to ask before offering to collect a copy that is on its way home.
+ *
+ * Scoped by community because the rules require it (see above), which is also
+ * the only scope in which the answer means anything: a book and the person
+ * collecting it are always in the same community.
+ */
+export async function getPendingReturnForBook({ bookId, communityId } = {}) {
+  if (!bookId || !communityId) return null;
+  const rows = await getCollection("requests", {
+    where: [
+      ["communityId", "==", communityId],
+      ["type", "==", "return"],
+      ["status", "==", "pending"],
+      ["bookId", "==", bookId],
+    ],
+    pageSize: 1,
+  });
+  return rows[0] || null;
+}
+
+/** Every return this member has open, on any book — the leave screen's list. */
+export async function listPendingReturnsForUser(requesterId) {
+  if (!requesterId) return [];
+  return getCollection("requests", {
+    where: [
+      ["requesterId", "==", requesterId],
+      ["type", "==", "return"],
+      ["status", "==", "pending"],
+    ],
+  });
+}
+
+export async function updateReturnRequest(id, patch) {
+  return updateOne("requests", id, patch);
+}
+
+/**
+ * Take a book out of circulation while its owner arranges to collect it.
+ *
+ * The book becomes "unavailable" — occupied, in the holder's hands, not
+ * borrowable — but `borrowerId` stays null, because nobody is reading it. That
+ * pair is what tells a reservation from a loan everywhere else in the app (see
+ * utils/bookReturn.js `isOnLoan`), and it is why the reservation does not have
+ * to invent a status of its own that every list and badge would have to learn.
+ */
+export async function reserveBookForReturn(bookId) {
+  return updateBook(bookId, { status: "unavailable", borrowerId: null });
+}
+
+/**
+ * Put a reserved book back on the shelf, when the return is cancelled or lapses.
+ *
+ * Refuses to touch a book somebody is actually reading: a return opened against
+ * a live loan never reserved anything, and "releasing" it would tell the
+ * community a book that is out on loan is free to collect.
+ */
+export async function releaseBookReservation(bookId) {
+  const book = await getBook(bookId);
+  if (!book) return null;
+  if (book.status === "available") return book;
+  if (book.borrowerId) return book;
+  const patch = { status: "available", borrowerId: null };
+  await updateBook(bookId, patch);
+  return { ...book, ...patch };
+}
+
+/**
+ * Open a return — or hand back the one that is already open.
+ *
+ * Order matters and is not an accident. The request is written *first* and the
+ * book is reserved second: a reservation with no request pointing at it is a
+ * book stuck occupied with nothing in the app able to explain why or clear it,
+ * whereas a request whose reservation failed is merely a request the next call
+ * can reserve again. `reservedBook` is decided before the create, from the
+ * status the book has right now, so the two writes cannot disagree about
+ * whether this request is what took the book off the shelf.
+ *
+ * @returns `{ request, created, book }` — when `created` is false the code has
+ *   already been sent and the caller must NOT send it again.
+ */
+export async function openReturnRequest({
+  bookId, requesterId, communityId, requesterName = "", returnCode = null,
+} = {}) {
+  if (!bookId || !requesterId) {
+    throw new Error("openReturnRequest: bookId and requesterId are required");
+  }
+
+  const book = await getBook(bookId);
+  if (!book) throw new Error("openReturnRequest: book not found");
+  if (book.ownerId !== requesterId) {
+    throw new Error("openReturnRequest: only the owner may ask for a book back");
+  }
+  const holderId = holderIdOf(book);
+  if (!holderId || holderId === requesterId) {
+    // Already home. Not an error — the caller's goal is met, and saying so
+    // beats opening a request against nobody.
+    return { request: null, created: false, book };
+  }
+
+  const existing = await getReturnRequest(bookId, requesterId);
+  if (existing) return { request: existing, created: false, book };
+
+  // A book already out on loan is already occupied; reserving is only for the
+  // copy that is sitting free on somebody's shelf, which is the one a third
+  // reader could otherwise start collecting mid-return.
+  const reservedBook = book.status === "available";
+
+  const request = await createReturnRequest({
+    bookId,
+    communityId: communityId || book.communityId,
+    requesterId,
+    requesterName,
+    holderId,
+    bookName: book.name,
+    returnCode: returnCode || newPickupCode(),
+    reservedBook,
+  });
+
+  if (reservedBook) {
+    try {
+      await reserveBookForReturn(bookId);
+    } catch (err) {
+      // The request stands; the book is simply still on the shelf. Worth
+      // knowing about, not worth failing an otherwise-opened request over.
+      logger.error("firestore.openReturnRequest.reserve", err?.message, { bookId, code: err?.code });
+    }
+  }
+
+  return { request, created: true, book };
+}
+
+/**
+ * Close a return without the book moving — cancelled by its owner, or lapsed
+ * after three days. Either way the book goes back on the shelf if this request
+ * is what took it off.
+ *
+ * The request is stamped before the book is freed, not after. If only the first
+ * write lands, the leave screen finds a book that is unavailable with no
+ * request behind it and can put it back; if only the second did, the community
+ * would see a bookable copy that the app still believes is spoken for.
+ */
+export async function closeReturnRequest(id, status = "cancelled") {
+  if (!id) throw new Error("closeReturnRequest: missing id");
+  const request = await getOne("requests", id);
+  await updateReturnRequest(id, { status });
+  if (request?.reservedBook && request.bookId) {
+    await releaseBookReservation(request.bookId);
+  }
+  return { ...request, status };
+}
+
+/** The owner changed their mind, or is starting over with a fresh code. */
+export async function cancelReturnRequest(id) {
+  return closeReturnRequest(id, "cancelled");
+}
+
+/** Three days went by. Kept apart from a cancellation so the history says which. */
+export async function expireReturnRequest(id) {
+  return closeReturnRequest(id, "expired");
+}
+
+/**
+ * The handover happened: the owner has the copy back in their hands.
+ *
+ * This is the only place a return moves a book, and it moves it to exactly one
+ * destination — the owner named on the book itself, never the caller's idea of
+ * who that is. Three things settle here, in this order:
+ *
+ *   1. any live loan is closed. The reader has physically handed the book over,
+ *      so their borrowing is finished whether or not they finished the book —
+ *      the alternative is a loan that outlives the copy it is about;
+ *   2. the book goes home: available again, with its owner, borrowed by nobody;
+ *   3. the request is marked fulfilled, so nothing tries to expire or cancel it
+ *      afterwards.
+ *
+ * A book that is already home is not an error. Holders can hand a copy back
+ * from their own shelf without a code (`returnBookToOwner`), and when they do,
+ * this call simply closes the paperwork.
+ *
+ * @returns `{ book, closedBorrowing, alreadyHome }`
+ */
+export async function completeReturnToOwner({ bookId, ownerId, requestId = null } = {}) {
+  if (!bookId) throw new Error("completeReturnToOwner: missing bookId");
+  if (!ownerId) throw new Error("completeReturnToOwner: missing ownerId");
+
+  const book = await getBook(bookId);
+  if (!book) throw new Error("completeReturnToOwner: book not found");
+  if (book.ownerId !== ownerId) {
+    throw new Error("completeReturnToOwner: only the owner may take the book back");
+  }
+
+  if (holderIdOf(book) === ownerId) {
+    if (requestId) await updateReturnRequest(requestId, { status: "fulfilled" });
+    return { book, closedBorrowing: null, alreadyHome: true };
+  }
+
+  const active = await getActiveBorrowingByBook(bookId);
+  if (active) {
+    await updateBorrowing(active.id, { status: "completed", returnDate: Date.now() });
+  }
+
+  const patch = { status: "available", borrowerId: null, holderId: ownerId };
+  await updateBook(bookId, patch);
+  if (requestId) await updateReturnRequest(requestId, { status: "fulfilled" });
+
+  return { book: { ...book, ...patch }, closedBorrowing: active, alreadyHome: false };
 }
 
 // ---------- Borrowings ----------
