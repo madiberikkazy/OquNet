@@ -28,6 +28,40 @@ export const shareProfileIcon  = "/drawable/share_profile.svg";
 /** The app mark itself — a full-bleed tile, so it carries its own background. */
 export const logoIcon          = "/drawable/logo.svg";
 
+// ─── Bottom navigation ────────────────────────────────────────────────────────
+//
+// Two files per tab rather than one tinted by CSS. An <img> cannot be recoloured
+// from the outside, and that is the trade this makes on purpose: the artwork
+// owns its own colours, so a selected tab can differ from an unselected one by
+// more than a hue — a filled shape, a heavier weight, a different glyph
+// entirely — and none of it needs a code change. Overwrite the file, reload.
+
+export const NAV_ICONS = Object.freeze({
+  home: {
+    active:   "/drawable/home_active.svg",
+    inactive: "/drawable/home_inactive.svg",
+  },
+  books: {
+    active:   "/drawable/books_active.svg",
+    inactive: "/drawable/books_inactive.svg",
+  },
+  notification: {
+    active:   "/drawable/notification_active.svg",
+    inactive: "/drawable/notification_inactive.svg",
+  },
+  profile: {
+    active:   "/drawable/profile_active.svg",
+    inactive: "/drawable/profile_inactive.svg",
+  },
+});
+
+/** The file for one tab in one state. */
+export function navIconSrc(name, active) {
+  const pair = NAV_ICONS[name];
+  if (!pair) return "";
+  return active ? pair.active : pair.inactive;
+}
+
 /** Lookup table so a row can name its icon with a plain string. */
 export const ICONS = Object.freeze({
   profile:       profileIcon,
