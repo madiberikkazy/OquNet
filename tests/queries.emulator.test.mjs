@@ -287,3 +287,58 @@ describe("notification fan-out batching", () => {
     assert.equal(snap.docs[0].data().read, false);
   });
 });
+
+// The four-equality-clause shapes the return handshake queries with. Firestore
+// serves these by merging the single-field indexes it maintains anyway — the
+// point of asserting it here is that none of them needs an entry in
+// firestore.indexes.json, which is the thing reading the code cannot settle.
+describe("return request query shapes", () => {
+  const OWNER = "owner-1";
+  const BOOK = "book-r1";
+
+  before(async () => {
+    await setDoc(doc(db, "requests", "ret-1"), {
+      type: "return", status: "pending", bookId: BOOK, communityId: COMMUNITY,
+      requesterId: OWNER, holderId: "holder-1", returnCode: "1234",
+      reservedBook: true, createdAt: serverTimestamp(),
+    });
+    await setDoc(doc(db, "requests", "ret-2"), {
+      type: "return", status: "fulfilled", bookId: "book-r2", communityId: COMMUNITY,
+      requesterId: OWNER, holderId: "holder-2", returnCode: "5678",
+      reservedBook: false, createdAt: serverTimestamp(),
+    });
+  });
+
+  it("finds one owner's open return on one book", async () => {
+    const snap = await getDocs(query(
+      collection(db, "requests"),
+      where("requesterId", "==", OWNER),
+      where("type", "==", "return"),
+      where("status", "==", "pending"),
+      where("bookId", "==", BOOK),
+    ));
+    assert.equal(snap.size, 1);
+    assert.equal(snap.docs[0].id, "ret-1");
+  });
+
+  it("answers 'is this copy going home?' scoped by community", async () => {
+    const snap = await getDocs(query(
+      collection(db, "requests"),
+      where("communityId", "==", COMMUNITY),
+      where("type", "==", "return"),
+      where("status", "==", "pending"),
+      where("bookId", "==", BOOK),
+    ));
+    assert.equal(snap.size, 1);
+  });
+
+  it("lists every return one member has open, and only the open ones", async () => {
+    const snap = await getDocs(query(
+      collection(db, "requests"),
+      where("requesterId", "==", OWNER),
+      where("type", "==", "return"),
+      where("status", "==", "pending"),
+    ));
+    assert.deepEqual(snap.docs.map((d) => d.id), ["ret-1"]);
+  });
+});

@@ -47,6 +47,14 @@ export const qk = {
     /** "Does this reader have a pickup open anywhere?" — the one-at-a-time gate. */
     pendingForUser: (userId) => ["pickupRequest", "pendingForUser", userId],
   },
+  returnRequest: {
+    /** One owner's open return on one book — the code screen's own record. */
+    byBookAndUser: (bookId, userId) => ["returnRequest", bookId, userId],
+    /** "Is somebody already collecting this copy?" — the pickup screen's gate. */
+    forBook: (bookId) => ["returnRequest", "forBook", bookId],
+    /** Every return this member has open — one row per book on the leave screen. */
+    pendingForUser: (userId) => ["returnRequest", "pendingForUser", userId],
+  },
   profile: {
     stats: (userId, communityId) => ["profile", "stats", userId, communityId],
     // Everything the "other member" screen shows at once: their shelves plus

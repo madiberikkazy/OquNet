@@ -3,39 +3,57 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
+import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
   getCommunity,
   getActiveBorrowingForUser,
+  getUserById,
   createNotification,
-  updateUser,
-  deleteBook,
+  listPendingReturnsForUser,
+  openReturnRequest,
+  cancelReturnRequest,
+  expireReturnRequest,
+  completeReturnToOwner,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
+import { invalidateReturnRequest, invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { t } from "../../utils/i18n.js";
 import { logger } from "../../utils/logger.js";
-import { holderIdOf, isHeldBy } from "../../utils/bookHolder.js";
-import { newPickupCode } from "../../firebase/schema.js";
+import { holderIdOf } from "../../utils/bookHolder.js";
 import {
-  EXIT_BLOCK, evaluateExit, exitBlockMessage, checkCommunityExit, loadExitBooks,
+  RETURN_STATE, needsSweep, returnStateFor, returnStateMessage,
+} from "../../utils/bookReturn.js";
+import {
+  EXIT_BLOCK, evaluateExit, exitBlockMessage, loadExitBooks,
 } from "../../utils/communityExit.js";
-
-// A book is "with the leaving user" when they are its holder. Being free to
-// borrow is not enough: a book someone finished reading is still on *their*
-// shelf until the next reader collects it.
-const isBookWithUser = (book, userId) => isHeldBy(book, userId);
+import { useLeaveCommunity } from "../../utils/useLeaveCommunity.js";
 
 // A stable identity, so `allBooks` does not change on every render while the
 // query is still loading and retrigger the memos below it.
 const EMPTY_BOOKS = [];
+const EMPTY_RETURNS = [];
 
+/**
+ * Step one of leaving: collecting the books you own.
+ *
+ * The screen is a list of the member's own books and, for each one that is with
+ * somebody else, everything they need to go and get it — who has it, how to
+ * reach them, and the button that sends that person a four-digit code. The code
+ * itself is entered on the next screen, once the book is physically in hand.
+ *
+ * Nothing here decides *whether* they may leave: that verdict comes from
+ * `evaluateExit` and is re-read from the server at the moment of the write. All
+ * this screen owns is the errand list.
+ */
 export default function LeaveCommunity() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, setUser } = useAuth();
-  const { setCommunity } = useCommunity();
+  const { user } = useAuth();
+
+  const [error, setError] = useState("");
+  const [busyBookId, setBusyBookId] = useState(null);
 
   const communityQuery = useQuery({
     queryKey: ["community", id],
@@ -51,6 +69,8 @@ export default function LeaveCommunity() {
     queryKey: qk.books.forExit(user?.id, id),
     queryFn: () => loadExitBooks({ userId: user.id, communityId: id }),
     enabled: !!id && !!user?.id,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Rule 1 is about the loan, not the book: a member is "reading" exactly while
@@ -64,7 +84,17 @@ export default function LeaveCommunity() {
     refetchOnMount: "always",
   });
 
+  // Every return this member has open, in one query rather than one per book.
+  const returnsQuery = useQuery({
+    queryKey: qk.returnRequest.pendingForUser(user?.id),
+    queryFn: () => listPendingReturnsForUser(user.id),
+    enabled: !!user?.id,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
   const allBooks = booksQuery.data ?? EMPTY_BOOKS;
+  const returns = returnsQuery.data ?? EMPTY_RETURNS;
 
   // A filter over a set already scoped to this user by query — a handful of
   // rows, not a shelf.
@@ -73,40 +103,47 @@ export default function LeaveCommunity() {
     [allBooks, user?.id]
   );
 
-  // Selection scopes which books get a "please return" nudge. The leave itself
-  // is gated on *every* owned book being with the user — anything else would
-  // orphan books mid-loan when the owner walks away.
-  const [selected, setSelected] = useState(() => new Set());
-  const [requestSent, setRequestSent] = useState(() => new Set());
-  const [error, setError] = useState("");
+  const returnByBook = useMemo(() => {
+    const map = new Map();
+    for (const r of returns) if (r.bookId) map.set(r.bookId, r);
+    return map;
+  }, [returns]);
 
-  useSelectionInit(myBooks, setSelected, user?.id);
-
-  function toggle(bookId) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(bookId)) next.delete(bookId);
-      else next.add(bookId);
-      return next;
-    });
-  }
-
-  const selectedBooks = useMemo(
-    () => myBooks.filter((b) => selected.has(b.id)),
-    [myBooks, selected]
-  );
-  const outstanding = useMemo(
+  // One row per owned book, with the state of its handshake already resolved,
+  // so the list below renders a verdict rather than working one out per branch.
+  const rows = useMemo(
     () =>
-      selectedBooks.filter(
-        (b) => !isBookWithUser(b, user?.id) && !requestSent.has(b.id)
-      ),
-    [selectedBooks, user?.id, requestSent]
+      myBooks.map((book) => ({
+        book,
+        ...returnStateFor({
+          book,
+          request: returnByBook.get(book.id) ?? null,
+          userId: user?.id,
+        }),
+      })),
+    [myBooks, returnByBook, user?.id]
   );
+
+  const away = useMemo(() => rows.filter((row) => row.state !== RETURN_STATE.HOME), [rows]);
+
+  // Whoever is holding each of those copies. Fetched by id — the list is the
+  // handful of people this member has to go and meet, not the community.
+  const holderIds = useMemo(
+    () => [...new Set(away.map((row) => row.holderId).filter(Boolean))].sort(),
+    [away]
+  );
+  const holdersQuery = useQuery({
+    queryKey: ["users", "holders", holderIds.join(",")],
+    queryFn: async () => {
+      const people = await Promise.all(holderIds.map((uid) => getUserById(uid).catch(() => null)));
+      return Object.fromEntries(holderIds.map((uid, i) => [uid, people[i]]));
+    },
+    enabled: holderIds.length > 0,
+  });
+  const holders = holdersQuery.data ?? {};
 
   // The gate. Every condition and their order live in `evaluateExit`; this
-  // screen only renders the verdict. Note it is computed over *every* book this
-  // user holds or owns, not just the ticked ones — unticking a book that is
-  // still out cannot buy a way past the rules.
+  // screen only renders the verdict.
   const exit = useMemo(
     () =>
       evaluateExit({
@@ -116,119 +153,225 @@ export default function LeaveCommunity() {
       }),
     [activeBorrowingQuery.data, allBooks, user?.id]
   );
-  const gateReady = !booksQuery.isPending && !activeBorrowingQuery.isPending;
+  const gateReady =
+    !booksQuery.isPending && !activeBorrowingQuery.isPending && !returnsQuery.isPending;
   const canLeaveNow = gateReady && exit.canLeave;
 
-  const sendReturnRequests = useMutation({
-    mutationFn: async (books) => {
-      const sent = [];
-      for (const book of books) {
-        try {
-          const holderId = holderIdOf(book);
-          if (!holderId || holderId === user.id) {
-            sent.push(book.id);
-            continue;
-          }
-          const code = newPickupCode();
+  function refreshAll() {
+    invalidateReturnRequest();
+    queryClient.invalidateQueries({ queryKey: qk.books.forExit(user?.id, id) });
+  }
+
+  /**
+   * Send the code — the whole of step one, for one book.
+   *
+   * A request that lapsed or went stale is closed first rather than reused: its
+   * code is with somebody who has stopped expecting it (or never had the book),
+   * and re-sending the same digits would be asking two different people for the
+   * same handover.
+   */
+  const sendCode = useMutation({
+    mutationFn: async (row) => {
+      const { book, request, state } = row;
+
+      if (needsSweep(state) && request?.id) {
+        await (state === RETURN_STATE.EXPIRED
+          ? expireReturnRequest(request.id)
+          : cancelReturnRequest(request.id));
+      }
+
+      const { request: opened, created } = await openReturnRequest({
+        bookId: book.id,
+        requesterId: user.id,
+        communityId: id,
+        requesterName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
+      });
+
+      // Already home — somebody handed it back from their own shelf while this
+      // screen was open. Nothing to send, and the list will say so on refresh.
+      if (!opened) return { bookId: book.id, sent: false };
+
+      // The code is announced exactly once per request, and that is structural:
+      // `created` can only be true for the call that wrote the request.
+      if (created) {
+        const holderId = opened.holderId || holderIdOf(book);
+        if (holderId && holderId !== user.id) {
           await createNotification({
             recipientId: holderId,
             title: t.returnRequestNotifTitle,
             body: t.returnRequestNotifBody(
               `${user.firstName} ${user.lastName}`,
               book.name,
-              code
+              opened.returnCode
             ),
             read: false,
             type: "return-request",
             bookId: book.id,
             bookName: book.name,
-            returnCode: code,
+            // Both names, on purpose: `pickupCode` is what makes the big code
+            // widget render on the notification screen, `returnCode` is what
+            // this flow's own screens read.
+            pickupCode: opened.returnCode,
+            returnCode: opened.returnCode,
             requesterId: user.id,
           });
-          sent.push(book.id);
-        } catch (err) {
-          logger.error("leave.sendReturn", err?.message, { bookId: book.id });
         }
       }
-      return sent;
+      return { bookId: book.id, sent: true };
     },
-    onSuccess: (sentIds) => {
-      setRequestSent((prev) => {
-        const next = new Set(prev);
-        for (const id of sentIds) next.add(id);
-        return next;
-      });
+    onSuccess: ({ bookId, sent }) => {
+      refreshAll();
+      if (sent) navigate(`/community/${id}/leave/return/${bookId}`);
     },
-    onError: (err) => setError(err?.message || t.error),
+    onError: (err) => {
+      logger.error("leave.sendReturnCode", err?.message, { code: err?.code });
+      setError(err?.message || t.error);
+    },
+    onSettled: () => setBusyBookId(null),
   });
 
-  // Leave: (1) remove every owned book from the community, (2) drop
-  // membership, (3) sync local state so the profile re-renders without waiting
-  // on a round-trip. We delete first so the writes still pass any
-  // "must-be-a-member" security rules that might exist.
-  const leaveMutation = useMutation({
-    mutationFn: async () => {
-      // Re-check against the server immediately before the writes. The verdict
-      // above is drawn from queries that may be a few seconds old, and the
-      // whole point of the rules is that they hold at the moment of the exit.
-      const verdict = await checkCommunityExit({ userId: user.id, communityId: id });
-      if (!verdict.canLeave) {
-        const err = new Error(exitBlockMessage(verdict.blockedBy));
-        err.blockedBy = verdict.blockedBy;
-        throw err;
+  /** Call it off: the request dies and the copy goes back on the shelf. */
+  const cancelReturn = useMutation({
+    mutationFn: async (row) => {
+      const { book, request } = row;
+      if (!request?.id) return null;
+      await cancelReturnRequest(request.id);
+      const holderId = request.holderId || holderIdOf(book);
+      if (holderId && holderId !== user.id) {
+        await createNotification({
+          recipientId: holderId,
+          title: t.returnCancelledNotifTitle,
+          body: t.returnCancelledNotifBody(
+            `${user.firstName} ${user.lastName}`,
+            book.name
+          ),
+          read: false,
+          type: "return-cancelled",
+          bookId: book.id,
+          bookName: book.name,
+        });
       }
-      await Promise.all(myBooks.map((b) => deleteBook(b.id).catch((err) => {
-        logger.error("leave.deleteBook", err?.message, { bookId: b.id });
-      })));
-      await updateUser(user.id, { communityId: null });
+      return book.id;
     },
-    onSuccess: () => {
-      // Immediate local propagation. AuthContext's setUser + CommunityContext's
-      // setCommunity both write to state that other screens read from; without
-      // this, the profile would keep showing the old community until the
-      // effect chain caught up (which was the bug).
-      setUser({ ...user, communityId: null });
-      setCommunity(null);
-
-      queryClient.removeQueries({ queryKey: ["community", id] });
-      queryClient.invalidateQueries({ queryKey: qk.books.all });
-      queryClient.invalidateQueries({ queryKey: qk.profile.stats(user.id) });
-
-      navigate("/community/join", { replace: true });
+    onSuccess: (bookId) => {
+      if (bookId) invalidateHolderCaches(bookId);
+      refreshAll();
     },
-    onError: (err) => setError(err?.message || t.error),
+    onError: (err) => {
+      logger.error("leave.cancelReturn", err?.message, { code: err?.code });
+      setError(err?.message || t.error);
+    },
+    onSettled: () => setBusyBookId(null),
   });
 
-  // The exit button, in the order the rules are written: an active read blocks
-  // first, then held books, then the owner's own copies that are still out.
-  // Only the last of the three has an action attached — the other two are
-  // cleared elsewhere, by the member themselves.
-  function handlePrimary() {
-    setError("");
-    if (!gateReady) return;
+  /**
+   * Close a request that has stopped meaning anything — three days went by, or
+   * the copy moved on to a reader the code was never sent to. Both end the same
+   * way: the request is closed, the book goes back on the shelf if this request
+   * is what took it off, and the owner can start again with a fresh code.
+   */
+  const resetRequest = useMutation({
+    mutationFn: async (row) => {
+      if (!row.request?.id) return null;
+      await (row.state === RETURN_STATE.EXPIRED
+        ? expireReturnRequest(row.request.id)
+        : cancelReturnRequest(row.request.id));
+      return row.book.id;
+    },
+    onSuccess: (bookId) => {
+      if (bookId) invalidateHolderCaches(bookId);
+      refreshAll();
+    },
+    onError: (err) => logger.error("leave.resetReturn", err?.message, { code: err?.code }),
+    onSettled: () => setBusyBookId(null),
+  });
 
-    if (exit.blockedBy === EXIT_BLOCK.READING) {
-      setError(exitBlockMessage(EXIT_BLOCK.READING));
-      return;
+  /**
+   * The three tidy-ups nobody should have to press a button for.
+   *
+   *   1. Three days went by. The request is spent — this is where "the process
+   *      cancels itself after three days" actually happens, because there is no
+   *      server to do it on a timer: the owner's own screen closes it the next
+   *      time they look, which frees the copy and lets them start again. The
+   *      holder is told, so a code they were given stops meaning anything at a
+   *      moment they can see rather than silently.
+   *   2. The copy moved on to somebody the code was never sent to.
+   *   3. The book came home some other way — its holder handed it back from
+   *      their own shelf (`returnBookToOwner`, on the "books you have now"
+   *      screen), so the code was for a handover that already happened. Closing
+   *      it stops the row saying "waiting" about a book sitting in front of them.
+   *
+   * An effect rather than a button, because there is nothing to ask: these are
+   * the owner's own requests, about their own books, and none of the three
+   * changes anything anyone could still act on. The ref keeps it to one attempt
+   * per request even though `rows` is rebuilt on every refetch.
+   *
+   * It does mean an owner who never opens the app again leaves a copy reserved.
+   * That is the honest limit of a client-only sweep, and the fix is the same
+   * scheduled function the rest of this project is waiting on.
+   */
+  const settledRef = useRef(new Set());
+  useEffect(() => {
+    if (!user?.id) return;
+    for (const row of rows) {
+      const request = returnByBook.get(row.book.id);
+      if (!request?.id || settledRef.current.has(request.id)) continue;
+
+      const expired = row.state === RETURN_STATE.EXPIRED;
+      // A stale request goes the same way, and for a sharper reason: the copy
+      // has moved on to a reader the code was never sent to, and until this row
+      // is closed it is a pending return that stops *anyone* collecting the
+      // book — a request nobody can act on holding a book nobody can borrow.
+      const stale = row.state === RETURN_STATE.STALE;
+      if (!expired && !stale && row.state !== RETURN_STATE.HOME) continue;
+      settledRef.current.add(request.id);
+
+      const settle = stale
+        ? cancelReturnRequest(request.id)
+        : expired
+        ? expireReturnRequest(request.id).then(async () => {
+            const holderId = request.holderId;
+            if (holderId && holderId !== user.id) {
+              await createNotification({
+                recipientId: holderId,
+                title: t.returnCancelledNotifTitle,
+                body: t.returnExpiredNotifBody(
+                  `${user.firstName} ${user.lastName}`, row.book.name
+                ),
+                read: false,
+                type: "return-expired",
+                bookId: row.book.id,
+                bookName: row.book.name,
+              });
+            }
+            invalidateHolderCaches(row.book.id);
+          })
+        : completeReturnToOwner({
+            bookId: row.book.id, ownerId: user.id, requestId: request.id,
+          });
+
+      settle
+        .then(() => invalidateReturnRequest())
+        .catch((err) => logger.error("leave.settle", err?.message, { code: err?.code }));
     }
-    if (exit.blockedBy === EXIT_BLOCK.HELD) {
-      setError(exitBlockMessage(EXIT_BLOCK.HELD));
-      return;
-    }
-    if (exit.canLeave) {
-      leaveMutation.mutate();
-      return;
-    }
-    if (outstanding.length > 0) {
-      sendReturnRequests.mutate(outstanding);
-    }
+  }, [rows, returnByBook, user?.id]);
+
+  // The exit itself lives in `useLeaveCommunity` — this screen and the one that
+  // confirms the last book both walk through the same door.
+  const leaveMutation = useLeaveCommunity(id);
+
+  function run(mutation, row) {
+    setError("");
+    setBusyBookId(row.book.id);
+    mutation.mutate(row);
   }
 
   const community = communityQuery.data;
-  const someOutOnLoan = myBooks.some((b) => !isBookWithUser(b, user?.id));
   const blockedByReading = exit.blockedBy === EXIT_BLOCK.READING;
   const blockedByHeld = exit.blockedBy === EXIT_BLOCK.HELD;
   const mandatoryBlocked = blockedByReading || blockedByHeld;
+  const anyBusy =
+    sendCode.isPending || cancelReturn.isPending || resetRequest.isPending;
 
   return (
     <MobileShell>
@@ -253,9 +396,7 @@ export default function LeaveCommunity() {
           are mutually exclusive by construction: reading is checked first. */}
       {blockedByReading && (
         <div className="mx-4 mt-4 rounded-2xl bg-badSoft px-4 py-3">
-          <p className="text-[13px] text-bad leading-relaxed">
-            {t.exitBlockedReading}
-          </p>
+          <p className="text-[13px] text-bad leading-relaxed">{t.exitBlockedReading}</p>
           <button
             onClick={() => navigate("/profile/reading")}
             className="mt-2 text-[13px] font-semibold text-bad underline underline-offset-2"
@@ -267,9 +408,7 @@ export default function LeaveCommunity() {
 
       {blockedByHeld && (
         <div className="mx-4 mt-4 rounded-2xl bg-badSoft px-4 py-3">
-          <p className="text-[13px] text-bad leading-relaxed">
-            {t.exitBlockedHeld}
-          </p>
+          <p className="text-[13px] text-bad leading-relaxed">{t.exitBlockedHeld}</p>
           <p className="text-[12px] text-bad/80 mt-1">
             {t.exitHeldCount(exit.heldFromOthers.length)}
           </p>
@@ -284,57 +423,34 @@ export default function LeaveCommunity() {
 
       {booksQuery.isLoading ? (
         <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
-      ) : myBooks.length === 0 ? (
+      ) : rows.length === 0 ? (
         <p className="px-6 py-10 text-center text-ink-500">{t.leaveNoBooks}</p>
       ) : (
-        <ul className="mt-4 divide-y divide-ink-100">
-          {myBooks.map((book) => {
-            const withUser = isBookWithUser(book, user?.id);
-            const sent = requestSent.has(book.id);
-            const checked = selected.has(book.id);
-            return (
-              <li key={book.id} className="px-4 py-3">
-                <label className="flex items-start gap-3 active:opacity-70">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggle(book.id)}
-                    className="mt-1 w-5 h-5 accent-brand-500"
-                    disabled={withUser}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-[15px] truncate">{book.name}</p>
-                    <p className="text-[13px] text-ink-500 truncate">{book.author}</p>
-                    <div className="mt-1">
-                      {withUser ? (
-                        <span className="pill bg-ok/10 text-ok text-[12px]">
-                          {t.bookWithYou}
-                        </span>
-                      ) : sent ? (
-                        <span className="pill bg-warnSoft text-warn text-[12px]">
-                          {t.returnRequestSent}
-                        </span>
-                      ) : (
-                        <span className="pill bg-ink-100 text-ink-700 text-[12px]">
-                          {t.bookOutOnLoan}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </label>
-              </li>
-            );
-          })}
+        <ul className="mt-4 px-4 space-y-3">
+          {rows.map((row) => (
+            <BookRow
+              key={row.book.id}
+              row={row}
+              holder={holders[row.holderId] ?? null}
+              busy={busyBookId === row.book.id || anyBusy}
+              onSendCode={() => run(sendCode, row)}
+              onCancel={() => run(cancelReturn, row)}
+              onReset={() => run(resetRequest, row)}
+              onEnterCode={() =>
+                navigate(`/community/${id}/leave/return/${row.book.id}`)
+              }
+            />
+          ))}
         </ul>
       )}
 
-      {/* Status band: still waiting for at least one book. Suppressed while a
+      {/* Status band: still waiting on at least one copy. Suppressed while a
           mandatory rule is blocking — that banner is the actionable one. */}
-      {!mandatoryBlocked && someOutOnLoan && outstanding.length === 0 && (
+      {!mandatoryBlocked && away.length > 0 && (
         <div className="mx-4 mt-5 rounded-2xl bg-warnSoft px-4 py-3">
           <p className="font-semibold text-[14px] text-warn">{t.waitingReturnsTitle}</p>
           <p className="text-[13px] text-ink-700 mt-1 leading-relaxed">
-            {t.waitingReturnsBody}
+            {t.returnRemaining(away.length)}
           </p>
         </div>
       )}
@@ -345,57 +461,146 @@ export default function LeaveCommunity() {
         </div>
       ) : null}
 
-      {/* Primary action. While a mandatory rule blocks the exit the button is
-          simply unavailable — there is no second path and nothing to confirm. */}
+      {/* The exit itself. It is only ever offered when every rule is clear —
+          there is no second path and nothing to confirm past this button. */}
       <div className="px-4 mt-6 mb-6">
         <button
-          onClick={handlePrimary}
-          disabled={
-            !gateReady ||
-            mandatoryBlocked ||
-            sendReturnRequests.isPending ||
-            leaveMutation.isPending ||
-            (!canLeaveNow && outstanding.length === 0)
-          }
+          onClick={() => {
+            setError("");
+            leaveMutation.mutate(undefined, {
+              onError: (err) => setError(err?.message || t.error),
+            });
+          }}
+          disabled={!canLeaveNow || leaveMutation.isPending || anyBusy}
           className="btn-primary"
         >
-          {leaveMutation.isPending || sendReturnRequests.isPending
-            ? "…"
-            : canLeaveNow
-              ? t.leaveNow
-              : mandatoryBlocked
-                ? t.leaveNow
-                : outstanding.length > 0
-                  ? t.sendReturnRequest
-                  : t.waitingReturnsTitle}
+          {leaveMutation.isPending ? "…" : t.leaveNow}
         </button>
         <p className="text-[12px] text-ink-500 mt-2 text-center">
           {mandatoryBlocked
             ? exitBlockMessage(exit.blockedBy)
             : canLeaveNow
-              ? t.confirmLeave
-              : outstanding.length > 0
-                ? `${outstanding.length} · ${t.sendReturnRequest}`
-                : t.waitingReturnsBody}
+              ? t.returnAllHome
+              : t.waitingReturnsBody}
         </p>
       </div>
     </MobileShell>
   );
 }
 
-// One-time seed of the checked set once the book list arrives. We only tick
-// the books that actually need action (out on loan and not yet held by user)
-// — those with-you rows are display-only and stay unchecked.
-function useSelectionInit(books, setSelected, userId) {
-  const initializedRef = useRef(false);
-  useEffect(() => {
-    if (initializedRef.current) return;
-    if (books.length === 0) return;
-    initializedRef.current = true;
-    setSelected(
-      new Set(
-        books.filter((b) => !isBookWithUser(b, userId)).map((b) => b.id)
-      )
-    );
-  }, [books, setSelected, userId]);
+/**
+ * One book, and whatever it currently needs from its owner.
+ *
+ * The five states come from `returnStateFor`, and each one has exactly one
+ * primary action — which is the point of deriving them centrally: the row does
+ * not decide anything, it renders a decision.
+ */
+function BookRow({ row, holder, busy, onSendCode, onCancel, onEnterCode, onReset }) {
+  const { book, state, onLoan } = row;
+  const home = state === RETURN_STATE.HOME;
+  const pending = state === RETURN_STATE.PENDING;
+  const stale = needsSweep(state);
+
+  const holderName = holder
+    ? `${holder.firstName || ""} ${holder.lastName || ""}`.trim() || `@${holder.nickname}`
+    : null;
+
+  return (
+    <li className="card p-4">
+      <div className="flex items-start gap-3">
+        {book.coverUrl ? (
+          <img
+            src={book.coverUrl}
+            alt=""
+            className="w-11 h-16 rounded-lg object-cover bg-ink-100 shrink-0"
+          />
+        ) : (
+          <div className="w-11 h-16 rounded-lg bg-ink-100 shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-[15px] truncate">{book.name}</p>
+          <p className="text-[13px] text-ink-500 truncate">{book.author}</p>
+          <div className="mt-1.5">
+            {home ? (
+              <span className="pill bg-ok/10 text-ok text-[12px]">{t.bookWithYou}</span>
+            ) : pending ? (
+              <span className="pill bg-warnSoft text-warn text-[12px]">{t.returnRequestSent}</span>
+            ) : (
+              <span className="pill bg-ink-100 text-ink-700 text-[12px]">
+                {onLoan ? t.unavailableStatus : t.bookOutOnLoan}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {home ? null : (
+        <>
+          {/* Who to go and see. The address and phone are the whole point of
+              this screen: the handover happens in person, and the app's only
+              job is to say where. */}
+          <div className="mt-3 rounded-2xl bg-ink-100/60 px-3.5 py-3">
+            <p className="text-[12px] text-ink-500 mb-2">{t.whoHasBookNow}</p>
+            {holder ? (
+              <div className="flex items-center gap-3">
+                <Avatar src={holder.photoURL} name={holderName} size={36} />
+                <div className="min-w-0">
+                  <p className="font-medium text-[14px] truncate">{holderName}</p>
+                  <p className="text-[12px] text-ink-500 truncate">@{holder.nickname}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-[13px] text-bad">{t.returnHolderMissing}</p>
+            )}
+            {holder ? (
+              <dl className="mt-2.5 space-y-1.5">
+                <ContactRow label={t.phone} value={holder.phone || t.contactNotSet} />
+                <ContactRow label={t.address} value={holder.address || t.contactNotSet} />
+              </dl>
+            ) : null}
+          </div>
+
+          <p className="mt-2.5 text-[12px] text-ink-500 leading-snug">
+            {returnStateMessage(state, { onLoan })}
+          </p>
+          {pending && row.request?.reservedBook ? (
+            <p className="mt-1 text-[12px] text-ink-500 leading-snug">{t.returnReservedNote}</p>
+          ) : null}
+
+          <div className="mt-3 space-y-2">
+            {pending ? (
+              <>
+                <button onClick={onEnterCode} disabled={busy} className="btn-primary">
+                  {t.returnEnterCodeCta}
+                </button>
+                <button onClick={onCancel} disabled={busy} className="btn-secondary">
+                  {busy ? "…" : t.returnCancelRequest}
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={onSendCode} disabled={busy} className="btn-primary">
+                  {busy ? "…" : t.sendCode}
+                </button>
+                {stale ? (
+                  <button onClick={onReset} disabled={busy} className="btn-secondary">
+                    {t.returnCancelRequest}
+                  </button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </li>
+  );
+}
+
+function ContactRow({ label, value }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <dt className="text-[13px] text-ink-500 shrink-0">{label}</dt>
+      <dd className="text-[13px] font-medium text-right break-words">{value}</dd>
+    </div>
+  );
 }

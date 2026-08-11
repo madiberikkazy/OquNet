@@ -301,12 +301,13 @@ service cloud.firestore {
         && request.resource.data.ratingCount >= 0;
     }
 
-    // The only three transitions the app makes. Note what is missing from the
-    // key set: `ownerId` cannot ride along on a handoff even by accident.
+    // The only transitions the app makes. Note what is missing from the key
+    // set: `ownerId` cannot ride along on a handoff even by accident.
     function bookHandoff() {
       return isMemberOf(resource.data.communityId)
         && touchesOnly(['status', 'borrowerId', 'holderId'].toSet())
-        && (takesBook() || releasesBook() || sendsBookHome());
+        && (takesBook() || releasesBook() || sendsBookHome()
+            || reservesForReturn() || releasesReservation() || ownerReclaims());
     }
 
     // Mirrors utils/bookHolder.js — a book with no holderId is with its owner.
@@ -337,6 +338,60 @@ service cloud.firestore {
         && request.resource.data.status == 'available'
         && request.resource.data.borrowerId == null
         && request.resource.data.holderId == resource.data.ownerId;
+    }
+
+    // ── The owner's three lanes: asking for their own copy back ──────────────
+    //
+    // These exist for the member on their way out of a community, who cannot
+    // leave while a book of theirs is with somebody else (utils/communityExit.js)
+    // and so must be able to get it back without depending on that person to
+    // press a button.
+    //
+    // All three are the owner acting on their own book, and none of them can
+    // hand it to a third party: two write `holderId` not at all, and the one
+    // that does can only write the caller's own uid — which for these lanes is
+    // by definition the owner.
+
+    // reserveBookForReturn — the copy comes off the shelf while its owner
+    // arranges to collect it, so nobody starts a pickup on a book that is
+    // already on its way home. The holder does not change: they still have it.
+    // `borrowerId` stays null, and that is what distinguishes this from a loan.
+    function reservesForReturn() {
+      return resource.data.ownerId == uid()
+        // Only a copy that is somewhere else. An owner holding their own book
+        // has nothing to collect, and marking it occupied would only hide a
+        // book the community is owed from the shelf.
+        && currentHolder() != uid()
+        && resource.data.status == 'available'
+        && request.resource.data.status == 'unavailable'
+        && request.resource.data.borrowerId == null
+        && frozen(['holderId'].toSet());
+    }
+
+    // releaseBookReservation — the mirror image: the return was cancelled or
+    // lapsed after three days, so the copy goes back on the shelf. Only a book
+    // nobody is reading can be freed this way; `borrowerId == null` on the
+    // *stored* document is what says the reservation was a reservation and not
+    // somebody's live loan.
+    function releasesReservation() {
+      return resource.data.ownerId == uid()
+        && resource.data.borrowerId == null
+        && request.resource.data.status == 'available'
+        && request.resource.data.borrowerId == null
+        && frozen(['holderId'].toSet());
+    }
+
+    // completeReturnToOwner — the handover happened and the copy is back in its
+    // owner's hands. Deliberately not conditional on a request document: an
+    // owner is entitled to their own book, the four-digit code is a handshake
+    // between two people rather than an authorisation the server can check
+    // (see limit 2 at the top of this file), and the exit rules oblige them to
+    // collect every copy before they may leave.
+    function ownerReclaims() {
+      return resource.data.ownerId == uid()
+        && request.resource.data.status == 'available'
+        && request.resource.data.borrowerId == null
+        && request.resource.data.holderId == uid();
     }
 
     // ═══ borrowings ═══
@@ -428,9 +483,16 @@ service cloud.firestore {
 
     // ═══ requests ═══
     //
-    // Join, leave and pickup requests share one collection, discriminated by
-    // `type`. Join and leave name their subject in `userId`; pickup names it in
-    // `requesterId` and carries no communityId at all.
+    // Join, leave, pickup and return requests share one collection,
+    // discriminated by `type`. Join and leave name their subject in `userId`;
+    // pickup names it in `requesterId` and carries no communityId at all.
+    //
+    // A return names `requesterId` (the book's owner, collecting it) and does
+    // carry `communityId`, because it is the one request type a *third* party
+    // has to be able to look up: before offering to collect a book, the pickup
+    // screen asks whether its owner is already on the way to fetch it. That
+    // makes its `returnCode` readable by the community, which is the same
+    // handshake-not-secret it already was on a borrowing — see limit (2).
 
     match /requests/{requestId} {
       allow get: if signedIn() && (
@@ -454,6 +516,17 @@ service cloud.firestore {
              (request.resource.data.type == 'pickup'
               && request.resource.data.requesterId == uid()
               && request.resource.data.bookId is string)
+             // A return is a pickup run backwards — the owner of a book asking
+             // whoever has it to bring it home. It names the community as well
+             // as the book, because the pickup screen has to be able to ask
+             // "is this copy already on its way home?", and a `list` rule can
+             // only accept a query it can scope.
+          || (request.resource.data.type == 'return'
+              && request.resource.data.requesterId == uid()
+              && request.resource.data.bookId is string
+              && request.resource.data.holderId is string
+              && request.resource.data.holderId != uid()
+              && request.resource.data.communityId == myCommunity())
           || ((request.resource.data.type == 'join'
                || request.resource.data.type == 'leave')
               && request.resource.data.userId == uid()

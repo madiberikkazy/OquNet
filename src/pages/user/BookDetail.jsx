@@ -20,6 +20,7 @@ import { t, genreLabel } from "../../utils/i18n.js";
 import { aggregateFromRatings, reviewsFromRatings, formatRating, DEFAULT_RATING } from "../../utils/rating.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { holderIdOf, readerHolderIdOf } from "../../utils/bookHolder.js";
+import { isReservedForReturn } from "../../utils/bookReturn.js";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { logger } from "../../utils/logger.js";
 
@@ -386,7 +387,11 @@ export default function BookDetail() {
           <h1 className="text-2xl font-bold leading-tight">{book.name}</h1>
           <p className="text-[15px] text-ink-500 mt-1">{book.author}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <BookStatusBadge status={book.status} daysLeft={daysLeft} />
+            <BookStatusBadge
+              status={book.status}
+              daysLeft={daysLeft}
+              reserved={isReservedForReturn(book)}
+            />
             {book.genre ? (
               <span className="pill bg-ink-100 text-ink-700 text-[12px]">
                 {genreLabel(book.genre)}

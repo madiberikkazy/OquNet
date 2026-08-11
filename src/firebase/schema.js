@@ -612,6 +612,73 @@ export function normalizeJoinRequest(payload) {
   };
 }
 
+// ---------- return requests ----------
+//
+// The mirror image of a pickup: a pickup is a reader asking for somebody else's
+// book, a return is an *owner* asking for their own book back — the errand a
+// member has to run for every copy of theirs that is out before they can leave
+// the community (see utils/communityExit.js).
+//
+// It lives in the same collection with `type: "return"` and, like a pickup, is
+// keyed by (bookId, requesterId): one open request per book per owner, and the
+// data layer's `openReturnRequest` is what enforces that.
+//
+// Two fields are worth explaining:
+//
+//   `holderId`     — who the copy has to come back from, stamped at the moment
+//                    the request opens. It is not re-derived later: if the book
+//                    moves on to somebody else in the meantime, that is a
+//                    different handoff and this request is stale, which is
+//                    exactly what the screen needs to be able to notice.
+//   `reservedBook` — whether opening this request is what took the book off the
+//                    shelf. Only then may cancelling put it back: a book that
+//                    was already out on loan when the owner asked for it must
+//                    not be marked "available" by a cancellation.
+//
+// `communityId` is carried so the `requests` list rule has something a member's
+// query can be scoped by — it is how the pickup screen asks "is this book being
+// returned to its owner?" without being able to read every request in the
+// database.
+
+export const returnRequestSchema = Object.freeze({
+  collection: "requests",
+  required: Object.freeze([
+    "type", "status", "bookId", "requesterId", "holderId", "communityId", "returnCode",
+  ]),
+  defaults: Object.freeze({ bookName: "", requesterName: "", reservedBook: false }),
+  serverOwned: SERVER_OWNED_FIELDS,
+});
+
+export function normalizeReturnRequest(payload) {
+  requirePayload("requests", payload);
+
+  const requesterId = requiredId("requests", "requesterId", payload.requesterId);
+  const holderId = requiredId("requests", "holderId", payload.holderId);
+  if (requesterId === holderId) {
+    throw new SchemaError("requests: a return needs a holder other than the owner", {
+      collection: "requests", field: "holderId",
+    });
+  }
+
+  return assertRequired("requests", {
+    ...returnRequestSchema.defaults,
+    type: "return",
+    // Every return is born pending; the rules accept no other opening status.
+    status: "pending",
+    bookId: requiredId("requests", "bookId", payload.bookId),
+    communityId: requiredId("requests", "communityId", payload.communityId),
+    requesterId,
+    holderId,
+    bookName: clampText(payload.bookName, LIMITS.NAME_MAX),
+    requesterName: clampText(payload.requesterName, LIMITS.NAME_MAX),
+    // The four digits the holder reads out at the handover. Minted here when the
+    // caller does not bring one, for the same reason a loan mints its own: a
+    // request without a code is a handover that cannot be confirmed.
+    returnCode: str(payload.returnCode) || newPickupCode(),
+    reservedBook: Boolean(payload.reservedBook),
+  }, returnRequestSchema.required);
+}
+
 // ---------- posts ----------
 //
 // A noticeboard entry. Only the two fields an author can see on screen are

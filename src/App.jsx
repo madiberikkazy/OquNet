@@ -51,6 +51,8 @@ const JoinCommunity      = lazyRoute(() => import("./pages/community/JoinCommuni
 const CommunityProfile   = lazyRoute(() => import("./pages/community/CommunityProfile.jsx"));
 const EditCommunity      = lazyRoute(() => import("./pages/community/EditCommunity.jsx"));
 const LeaveCommunity     = lazyRoute(() => import("./pages/community/LeaveCommunity.jsx"));
+// Step two of leaving: the code that brings one of the member's books home.
+const ReturnBook         = lazyRoute(() => import("./pages/community/ReturnBook.jsx"));
 const UserProfile        = lazyRoute(() => import("./pages/community/UserProfile.jsx"));
 
 // Matches ProtectedRoute's loading state so a gated route doesn't visibly
@@ -118,6 +120,7 @@ export default function App() {
             {/* Owner-only in practice — the screen bounces anyone else. */}
             <Route path="/community/:id/edit" element={<EditCommunity />} />
             <Route path="/community/:id/leave" element={<LeaveCommunity />} />
+            <Route path="/community/:id/leave/return/:bookId" element={<ReturnBook />} />
             <Route path="/users/:id" element={<UserProfile />} />
           </Route>
 

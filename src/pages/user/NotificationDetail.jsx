@@ -395,7 +395,7 @@ export default function NotificationDetail() {
         {/* ── Code widget — shown for any notification that carries a pickupCode ── */}
         {hasCode ? (
           <div className="card p-5 flex flex-col items-center gap-3">
-            <p className="text-[13px] text-ink-500 font-medium">Код передачи книги</p>
+            <p className="text-[13px] text-ink-500 font-medium">{t.codeWidgetTitle}</p>
             <div className="flex gap-3">
               {String(notification.pickupCode).split("").map((digit, i) => (
                 <div
@@ -406,8 +406,13 @@ export default function NotificationDetail() {
                 </div>
               ))}
             </div>
+            {/* Same four digits, two different errands: a pickup hands the
+                book on to the next reader, a return hands it back to the
+                person it belongs to. The note says which. */}
             <p className="text-[12px] text-ink-500 text-center">
-              Назовите этот код новому читателю, когда физически передадите книгу.
+              {notification.type === "return-request"
+                ? t.codeWidgetNoteOwner
+                : t.codeWidgetNoteReader}
             </p>
           </div>
         ) : null}

@@ -32,6 +32,16 @@ export function invalidatePickupRequest() {
   queryClient.invalidateQueries({ queryKey: ["pickupRequest"], refetchType: "all" });
 }
 
+/**
+ * The same, for the returns an owner has open. Opening, cancelling, expiring or
+ * completing one changes three answers at once — this book's own request, the
+ * "is this copy going home?" gate every other member's pickup screen reads, and
+ * the leave screen's list of what is still out — so the whole prefix goes.
+ */
+export function invalidateReturnRequest() {
+  queryClient.invalidateQueries({ queryKey: ["returnRequest"], refetchType: "all" });
+}
+
 export function invalidateHolderCaches(bookId) {
   const refetchType = "all";
   queryClient.invalidateQueries({ queryKey: qk.books.all, refetchType });
@@ -41,6 +51,9 @@ export function invalidateHolderCaches(bookId) {
   // offering "continue getting this book", and every other book keeps refusing
   // a new request because this reader looks like they still have one open.
   invalidatePickupRequest();
+  // A book that has just changed hands is a book no return can still be waiting
+  // on — including the one that moved it.
+  invalidateReturnRequest();
   // The "books you have now" list lives under `qk.books.heldBy`, so the
   // `qk.books.all` prefix above already covers it — both the list and the
   // profile counter that mirrors it refresh from this one call.
