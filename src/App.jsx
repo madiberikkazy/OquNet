@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useLang } from "./contexts/LanguageContext.jsx";
 import OfflineIndicator from "./components/OfflineIndicator.jsx";
+import SystemBars from "./components/SystemBars.jsx";
 import { t } from "./utils/i18n.js";
 import { lazyRoute } from "./utils/lazyRoute.js";
 
@@ -69,6 +70,10 @@ export default function App() {
   useLang(); // re-render entire tree whenever language changes so all t.key proxies update
   return (
     <>
+      {/* Paints the OS strips above and below the app the colour of whatever
+          the current screen puts against them. Inside the router, because the
+          answer changes with the route. */}
+      <SystemBars />
       <OfflineIndicator />
       <Suspense fallback={<RouteFallback />}>
         <Routes>

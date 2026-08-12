@@ -27,7 +27,11 @@ export default function BottomNav() {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-surface border-t border-ink-100/60">
+    // No divider above the bar. A hairline there reads as a seam between the
+    // app and the phone's own navigation strip below it — the two are meant to
+    // look like one block, which is also why this background runs on into
+    // `env(safe-area-inset-bottom)`.
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-surface">
       <ul className="grid grid-cols-4 py-2 w-full mx-auto sm:max-w-xl lg:max-w-2xl" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
         {items.map((it) => (
           <li key={it.to}>
