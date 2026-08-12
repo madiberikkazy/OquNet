@@ -4,10 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
     <!-- Painted by the OS around the app: the Android status bar, and the tab
-         strip in a browser. It has to be the page background, not the brand
-         colour, or a white app sits under a blue bar. Kept in sync with the
-         in-app theme toggle by ThemeContext; the inline script below sets it
-         before first paint. -->
+         strip in a browser. The value here is only the first frame — from the
+         moment the app mounts, src/components/SystemBars.jsx rewrites it on
+         every screen with the colour actually painted against the top edge, so
+         a blue banner gets a blue bar and a plain page gets the page. The
+         inline script below sets the right starting point for the saved
+         theme. -->
     <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="Share books with your community. Borrow, lend, and discover new reading experiences." />
     <meta name="keywords" content="books, sharing, community, library, reading" />
@@ -43,14 +45,18 @@
     <!-- Anti-flash: apply saved theme before first paint to avoid white flash.
          The system bars are set here too — Android reads theme-color and the
          page's color-scheme at load, so leaving them to React would show a
-         white status bar for one frame on a dark launch. -->
+         white status bar for one frame on a dark launch. The navigation bar
+         follows the root element's background for the same reason; both are
+         handed over to SystemBars.jsx as soon as it mounts. -->
     <script>
       (function() {
         var dark = localStorage.getItem('theme') === 'dark';
         if (dark) document.documentElement.classList.add('dark');
         // Must match --bg-base in src/index.css.
+        var base = dark ? '#0D1420' : '#ffffff';
         var bar = document.querySelector('meta[name="theme-color"]');
-        if (bar) bar.setAttribute('content', dark ? '#0D1420' : '#ffffff');
+        if (bar) bar.setAttribute('content', base);
+        document.documentElement.style.backgroundColor = base;
       })();
     </script>
   </head>
