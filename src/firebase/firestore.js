@@ -1410,7 +1410,12 @@ export async function openReturnRequest({
 
   const request = await createReturnRequest({
     bookId,
-    communityId: communityId || book.communityId,
+    // The book's own community, not the caller's idea of it. The rules accept a
+    // return only when its `communityId` is the one on the requester's profile,
+    // and a screen that passes a route parameter instead is a screen that can
+    // pass a stale one — which the server then refuses with nothing on it to say
+    // why. The book knows where it lives; nobody else has to be right about it.
+    communityId: book.communityId || communityId,
     requesterId,
     requesterName,
     holderId,
