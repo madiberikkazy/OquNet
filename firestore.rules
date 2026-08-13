@@ -127,7 +127,30 @@ service cloud.firestore {
         && emailMatchesAccount()
         && !('password' in request.resource.data)
         && roleChangeAllowed()
-        && membershipChangeAllowed();
+        && membershipChangeAllowed()
+        && phoneChangeAllowed();
+    }
+
+    /**
+     * A phone number is only worth as much as the SMS that proved it.
+     *
+     * This is the one field on a profile that a stranger acts on physically:
+     * the pickup and return screens hand it to somebody who is about to travel
+     * to meet its owner. So it may not be typed in. Firebase Auth writes the
+     * number it actually sent a code to into the caller's ID token, and this
+     * rule refuses any profile that claims a different one — which is what
+     * makes `phoneVerifiedAt` a record rather than a flag the client sets about
+     * itself.
+     *
+     * Clearing is allowed — `deleteAccount` scrubs the profile, and removing a
+     * number claims nothing — but only as a pair. A timestamp left behind on an
+     * empty number is a profile saying it proved something it does not have.
+     */
+    function phoneChangeAllowed() {
+      return !changed().hasAny(['phone', 'phoneVerifiedAt'].toSet())
+        || (request.resource.data.get('phone', '') == ''
+            && request.resource.data.get('phoneVerifiedAt', null) == null)
+        || request.resource.data.phone == request.auth.token.get('phone_number', '');
     }
 
     // The profile may only ever repeat what Firebase Auth already says.

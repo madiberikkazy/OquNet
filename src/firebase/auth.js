@@ -205,7 +205,7 @@ export async function sendPasswordReset(email) {
  * (and verified) auth user. Requires `uid` returned from startEmailRegistration().
  */
 export async function finalizeRegistration({
-  uid, email, password, nickname, firstName, lastName, phone, address,
+  uid, email, password, nickname, firstName, lastName, address,
   notificationsEnabled, photoURL,
 }) {
   const cleanEmail = normalizeEmail(email);
@@ -235,7 +235,10 @@ export async function finalizeRegistration({
     nickname: cleanNick,
     firstName: (firstName || "").toString().trim().slice(0, 60),
     lastName: (lastName || "").toString().trim().slice(0, 60),
-    phone: (phone || "").toString().trim().slice(0, 20),
+    // No phone. It is not asked for at registration any more: the number is
+    // what a stranger acts on when they come to collect a book, so it is proven
+    // by SMS at the point it starts to matter — joining a community — and
+    // written by firebase/phoneAuth.js, never by a form.
     // Shown to whoever comes to collect a book from this user, so it travels
     // with the profile rather than being asked for at every handoff.
     address: (address || "").toString().trim().slice(0, LIMITS.ADDRESS_MAX),
@@ -501,7 +504,12 @@ export async function deleteAccount({ password } = {}) {
     // than an empty profile. The index entry is already gone, so the name
     // itself is free again.
     nickname: `deleted_${uid.slice(0, 8)}`,
+    // The number and its proof go together. `phoneChangeAllowed` in the rules
+    // accepts a cleared number only when the timestamp goes with it — a profile
+    // left saying it proved a number it no longer has is exactly the state that
+    // rule exists to prevent, and it would refuse this whole scrub.
     phone: "",
+    phoneVerifiedAt: null,
     address: "",
     photoURL: "",
     savedBookIds: [],

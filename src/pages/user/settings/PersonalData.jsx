@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import SettingsPage from "../../../components/SettingsPage.jsx";
 import { useAuth } from "../../../contexts/AuthContext.jsx";
 import { claimUsername, releaseUsername } from "../../../firebase/firestore.js";
 import { logger } from "../../../utils/logger.js";
 import { t } from "../../../utils/i18n.js";
-import { clampText, isAddress, isPhone, LIMITS } from "../../../utils/validators.js";
+import { clampText, isAddress, LIMITS } from "../../../utils/validators.js";
 
 /**
  * Личные данные — name, nickname and the contact details other members need
@@ -18,7 +19,6 @@ export default function PersonalData() {
     firstName: user?.firstName || "",
     lastName:  user?.lastName  || "",
     nickname:  user?.nickname  || "",
-    phone:     user?.phone     || "",
     address:   user?.address   || "",
   });
   const [saving, setSaving] = useState(false);
@@ -34,20 +34,12 @@ export default function PersonalData() {
       return;
     }
 
-    // Contacts gate — same rules the join flow enforces. A member is someone
-    // other people have to reach for a handover, so they can edit these but
-    // not empty them; everyone else may leave them blank, just not malformed.
-    const phone = form.phone.trim();
+    // Address gate — a member is someone other people have to reach for a
+    // handover, so they can edit it but not empty it; everyone else may leave
+    // it blank, just not malformed. The phone is not part of this save at all:
+    // it only ever changes through the SMS flow.
     const address = clampText(form.address, LIMITS.ADDRESS_MAX);
     const contactsRequired = Boolean(user?.communityId);
-    if (contactsRequired && !phone) {
-      setMsg({ type: "err", text: t.phoneRequiredError });
-      return;
-    }
-    if (phone && !isPhone(phone)) {
-      setMsg({ type: "err", text: t.phoneInvalidError });
-      return;
-    }
     if ((contactsRequired || address) && !isAddress(address)) {
       setMsg({ type: "err", text: t.addressRequiredError });
       return;
@@ -76,7 +68,6 @@ export default function PersonalData() {
         firstName: form.firstName.trim(),
         lastName:  form.lastName.trim(),
         nickname:  nick,
-        phone:     phone.slice(0, 20),
         address,
       });
 
@@ -128,18 +119,36 @@ export default function PersonalData() {
           </div>
         </label>
 
-        <label className="block mb-3">
+        {/* The number is not editable here, and that is the point: it is the
+            one detail somebody acts on physically, so changing it costs an SMS
+            like proving it did the first time. The security rules refuse a
+            profile whose phone the account has not proven, so a field here
+            would only be a way to be told "no" by the server. */}
+        <div className="mb-3">
           <span className="text-[12px] text-ink-500 mb-1 block">{t.phone}</span>
-          <input
-            type="tel"
-            value={form.phone}
-            onChange={(e) => updateForm("phone", e.target.value.replace(/[^\d+\-() ]/g, ""))}
-            placeholder="+7 (777) 123-45-67"
-            autoComplete="tel"
-            maxLength={20}
-            className="input"
-          />
-        </label>
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-ink-100 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-[15px] font-medium truncate">
+                {user?.phone || t.phoneNoneYet}
+              </p>
+              {user?.phone ? (
+                <span
+                  className={
+                    "text-[12px] " + (user?.phoneVerifiedAt ? "text-ok" : "text-warn")
+                  }
+                >
+                  {user?.phoneVerifiedAt ? `✓ ${t.phoneVerified}` : t.phoneNotVerified}
+                </span>
+              ) : null}
+            </div>
+            <Link
+              to={`/settings/phone?next=${encodeURIComponent("/settings/profile")}`}
+              className="text-[13px] font-semibold text-brand-500 shrink-0"
+            >
+              {user?.phone ? t.phoneChangeCta : t.phoneVerifyCta}
+            </Link>
+          </div>
+        </div>
 
         <label className="block mb-4">
           <span className="text-[12px] text-ink-500 mb-1 block">{t.address}</span>

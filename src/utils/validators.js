@@ -57,6 +57,59 @@ export function isPhone(s) {
 }
 
 /**
+ * A number in the one format an SMS gateway will accept: E.164, `+` and digits.
+ *
+ * `isPhone` above is a *shape* check for a field someone is still typing into.
+ * This is the conversion that has to happen before the number leaves the app,
+ * and it is stricter on purpose: everything stored and verified from now on is
+ * the E.164 form, because that is what Firebase sends the code to and what it
+ * writes back into the ID token — and a profile that says "+7 (777) 123-45-67"
+ * while the token says "+77771234567" is a profile the security rules would
+ * refuse for a number the person genuinely proved.
+ *
+ * Kazakhstan is the default country, so the two ways people write a local
+ * number here both land in the same place:
+ *
+ *   8 777 123 45 67   →  +77771234567
+ *   777 123 45 67     →  +77771234567
+ *
+ * Anything already carrying a `+` is taken at its word — a member abroad is
+ * expected to type their own country code, and guessing one for them would send
+ * the code to a stranger.
+ *
+ * @returns the E.164 string, or null when it cannot be one.
+ */
+export function toE164(raw, { defaultCallingCode = "7", nationalLength = 10 } = {}) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const international = trimmed.startsWith("+");
+  let digits = trimmed.replace(/\D/g, "");
+  if (!digits) return null;
+
+  if (!international) {
+    // A trunk prefix — the 8 people dial before a Kazakh number — is not part
+    // of the number itself, and E.164 has no room for it.
+    if (digits.length === nationalLength + 1 && digits.startsWith("8")) {
+      digits = defaultCallingCode + digits.slice(1);
+    } else if (digits.length === nationalLength) {
+      digits = defaultCallingCode + digits;
+    }
+  }
+
+  // The standard's own bounds: at least a country code and a subscriber number,
+  // at most fifteen digits in total.
+  if (digits.length < 8 || digits.length > 15) return null;
+  return "+" + digits;
+}
+
+/** True for a string that is already exactly an E.164 number. */
+export function isE164(s) {
+  return typeof s === "string" && /^\+[1-9]\d{7,14}$/.test(s);
+}
+
+/**
  * A postal address is free-form across the countries we serve, so the only
  * thing worth asserting is that someone typed something a courier could act on.
  */
