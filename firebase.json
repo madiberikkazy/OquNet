@@ -34,6 +34,7 @@
   "auth": {
     "providers": {
       "emailPassword": true,
+      "phone": true,
       "googleSignIn": {
         "oAuthBrandDisplayName": "OquNet",
         "supportEmail": "support@oqunet.com, admin@oqunet.com"

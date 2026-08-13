@@ -24,6 +24,7 @@ import {
 } from "../../utils/bookReturn.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { t } from "../../utils/i18n.js";
+import { writeError } from "../../utils/writeError.js";
 import { logger } from "../../utils/logger.js";
 
 /**
@@ -144,7 +145,7 @@ export default function ReturnBook() {
       if (created) await notifyHolder(opened.returnCode, t.returnRequestNotifTitle);
     } catch (err) {
       logger.error("returnBook.sendCode", err?.message, { code: err?.code, bookId });
-      setError(err?.message || t.error);
+      setError(writeError(err));
     } finally {
       setBusy("");
     }
@@ -164,7 +165,7 @@ export default function ReturnBook() {
       setNotice(t.codeResent);
     } catch (err) {
       logger.error("returnBook.resend", err?.message, { code: err?.code, bookId });
-      setError(err?.message || t.error);
+      setError(writeError(err));
     } finally {
       resendingRef.current = false;
       setBusy("");
@@ -289,7 +290,7 @@ export default function ReturnBook() {
       setDone({ closedBorrowing, canLeave: verdict.canLeave });
     } catch (err) {
       logger.error("returnBook.confirm", err?.message, { code: err?.code, bookId });
-      setError(err?.message || t.error);
+      setError(writeError(err));
     } finally {
       submittingRef.current = false;
       setBusy("");
@@ -341,7 +342,7 @@ export default function ReturnBook() {
                 onClick={() => {
                   setError("");
                   leaveMutation.mutate(undefined, {
-                    onError: (err) => setError(err?.message || t.error),
+                    onError: (err) => setError(writeError(err)),
                   });
                 }}
                 disabled={leaveMutation.isPending}
