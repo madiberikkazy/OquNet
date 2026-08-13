@@ -1524,6 +1524,45 @@ describe("the app's own write sequences still work", () => {
     }));
   });
 
+  it("LeaveCommunity: send the code for a copy that is out on loan", async () => {
+    // Exactly the three writes `openReturnRequest` makes from the leave screen,
+    // for the case in the screenshot: the book is unavailable with a reader on
+    // it, so nothing is reserved and only the request and the notification are
+    // written. If this passes and the app still says "permission denied", the
+    // deployed ruleset is older than this file.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
+        status: "unavailable", borrowerId: MEMBER_A2, holderId: MEMBER_A2,
+      });
+    });
+    const db = as(MEMBER_A); // the owner, a member of C1, on their way out
+
+    await assertSucceeds(setDoc(doc(db, "requests", "rr-loan"), {
+      type: "return", status: "pending",
+      bookId: BOOK_1, bookName: "Abai Joly", communityId: C1,
+      requesterId: MEMBER_A, requesterName: "F L",
+      holderId: MEMBER_A2, returnCode: "1234", reservedBook: false,
+      createdAt: serverTimestamp(),
+    }));
+
+    await assertSucceeds(setDoc(doc(db, "notifications", "n-return"), {
+      recipientId: MEMBER_A2, title: "Кітапты қайтару сұралуда", body: "…",
+      read: false, type: "return-request", bookId: BOOK_1, bookName: "Abai Joly",
+      pickupCode: "1234", returnCode: "1234", requesterId: MEMBER_A,
+      createdAt: serverTimestamp(),
+    }));
+
+    // And the free-copy case, where the book also comes off the shelf.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
+        status: "available", borrowerId: null, holderId: MEMBER_A2,
+      });
+    });
+    await assertSucceeds(updateDoc(doc(db, "books", BOOK_1), {
+      status: "unavailable", borrowerId: null,
+    }));
+  });
+
   it("PhoneVerify: the proven number lands on the profile", async () => {
     // What firebase/phoneAuth.js writes after linkWithCredential, once the ID
     // token has been force-refreshed — which is why the context carries the
