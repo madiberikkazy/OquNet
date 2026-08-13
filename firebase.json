@@ -5,6 +5,10 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "functions": {
+    "source": "functions",
+    "ignore": ["node_modules", ".git", "*.local"]
+  },
   "hosting": {
     "public": "public",
     "ignore": [
@@ -34,7 +38,6 @@
   "auth": {
     "providers": {
       "emailPassword": true,
-      "phone": true,
       "googleSignIn": {
         "oAuthBrandDisplayName": "OquNet",
         "supportEmail": "support@oqunet.com, admin@oqunet.com"

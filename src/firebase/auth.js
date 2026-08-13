@@ -238,7 +238,8 @@ export async function finalizeRegistration({
     // No phone. It is not asked for at registration any more: the number is
     // what a stranger acts on when they come to collect a book, so it is proven
     // by SMS at the point it starts to matter — joining a community — and
-    // written by firebase/phoneAuth.js, never by a form.
+    // written by the verification webhook, never by a form — see
+    // firebase/phoneVerify.js and functions/index.js.
     // Shown to whoever comes to collect a book from this user, so it travels
     // with the profile rather than being asked for at every handoff.
     address: (address || "").toString().trim().slice(0, LIMITS.ADDRESS_MAX),

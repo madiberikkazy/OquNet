@@ -37,7 +37,7 @@ export default function PersonalData() {
     // Address gate — a member is someone other people have to reach for a
     // handover, so they can edit it but not empty it; everyone else may leave
     // it blank, just not malformed. The phone is not part of this save at all:
-    // it only ever changes through the SMS flow.
+    // it only ever changes through the verification flow.
     const address = clampText(form.address, LIMITS.ADDRESS_MAX);
     const contactsRequired = Boolean(user?.communityId);
     if ((contactsRequired || address) && !isAddress(address)) {
@@ -120,10 +120,10 @@ export default function PersonalData() {
         </label>
 
         {/* The number is not editable here, and that is the point: it is the
-            one detail somebody acts on physically, so changing it costs an SMS
-            like proving it did the first time. The security rules refuse a
-            profile whose phone the account has not proven, so a field here
-            would only be a way to be told "no" by the server. */}
+            one detail somebody acts on physically, so changing it costs the
+            same message to our bot that proving it did the first time. The
+            rules refuse `phone` from any client at all, so a field here would
+            only be a way to be told "no" by the server. */}
         <div className="mb-3">
           <span className="text-[12px] text-ink-500 mb-1 block">{t.phone}</span>
           <div className="flex items-center justify-between gap-3 rounded-xl bg-ink-100 px-4 py-3">

@@ -3,6 +3,7 @@
 
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
+  onSnapshot,
   query, where, orderBy, limit, startAfter, serverTimestamp, Timestamp, writeBatch,
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "./config.js";
@@ -46,7 +47,7 @@ function emptyDb() {
   return {
     users: [], usernames: [], communities: [], books: [], posts: [],
     notifications: [], requests: [], borrowings: [], ratings: [], reviews: [],
-    readingSessions: [],
+    readingSessions: [], phoneVerifications: [],
   };
 }
 function readLS() {
@@ -1512,6 +1513,71 @@ export async function completeReturnToOwner({ bookId, ownerId, requestId = null 
   if (requestId) await updateReturnRequest(requestId, { status: "fulfilled" });
 
   return { book: { ...book, ...patch }, closedBorrowing: active, alreadyHome: false };
+}
+
+// ---------- Phone verifications ----------
+//
+// One document per attempt to prove a phone number, keyed by the token that
+// travels in the WhatsApp or Telegram message. See firebase/phoneVerify.js for
+// the flow; what matters here is who writes what:
+//
+//   the client  creates the attempt (its own userId, the number it claims, the
+//               channel it picked) and may cancel it. That is all it can do.
+//   the bot     reads the attempt by token, compares the number the message
+//               actually came from against the claim, and — only then — writes
+//               the profile. It does that with the Admin SDK, which bypasses
+//               the rules entirely, because there is no client claim the rules
+//               could check any more: with Firebase SMS the proven number
+//               arrived in the ID token, and with a bot it arrives at a server.
+//
+// The client therefore never writes `phone` or `phoneVerifiedAt` — the rules
+// refuse it outright — and this collection is the only thing standing between
+// "I typed a number" and "somebody messaged us from it".
+
+/** A verification attempt, at a known id: the token is the document. */
+export async function createPhoneVerification(token, payload) {
+  if (!token) throw new Error("createPhoneVerification: missing token");
+  return setOne("phoneVerifications", token, payload);
+}
+
+export async function getPhoneVerification(token) {
+  return getOne("phoneVerifications", token);
+}
+
+/** The subject giving up on their own attempt — the one update they may make. */
+export async function cancelPhoneVerification(token) {
+  if (!token) return null;
+  return updateOne("phoneVerifications", token, { status: "cancelled" });
+}
+
+/**
+ * Watch one attempt until the bot resolves it.
+ *
+ * Real-time where there is a real database, and a poll where there is not: the
+ * localStorage fallback has no change feed, and a screen that only worked with
+ * Firebase configured would be the first in this project that did not.
+ *
+ * @returns an unsubscribe function — call it on unmount, always.
+ */
+export function watchPhoneVerification(token, onChange, { pollMs = 2000 } = {}) {
+  if (!token || typeof onChange !== "function") return () => {};
+
+  if (isFirebaseConfigured) {
+    return onSnapshot(
+      doc(db, "phoneVerifications", token),
+      (snap) => onChange(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+      (err) => logger.error("firestore.watchPhoneVerification", err?.message, { code: err?.code })
+    );
+  }
+
+  let stopped = false;
+  const tick = async () => {
+    if (stopped) return;
+    onChange(await getOne("phoneVerifications", token));
+  };
+  tick();
+  const id = setInterval(tick, pollMs);
+  return () => { stopped = true; clearInterval(id); };
 }
 
 // ---------- Borrowings ----------
