@@ -18,22 +18,10 @@ import {
 import { hasVerifiedPhone } from "../../firebase/phoneAuth.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
+import { writeError } from "../../utils/writeError.js";
 import { clampText, isAddress, LIMITS } from "../../utils/validators.js";
 
 const TABS = ["posts", "books", "members"];
-
-/**
- * What to show when a management write is refused.
- *
- * A SchemaError names the i18n key for the field it refused. Firestore's own
- * "Missing or insufficient permissions" is translated because it is the one a
- * user can do least with: it means the rules do not allow what was asked.
- */
-function writeError(err) {
-  if (err?.errorKey && t[err.errorKey]) return t[err.errorKey];
-  if (err?.code === "permission-denied") return t.notAuthorized;
-  return err?.message || t.error;
-}
 
 export default function CommunityProfile() {
   const { id } = useParams();

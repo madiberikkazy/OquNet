@@ -19,6 +19,7 @@ import {
 import { qk } from "../../lib/queryKeys.js";
 import { invalidateReturnRequest, invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { t } from "../../utils/i18n.js";
+import { writeError } from "../../utils/writeError.js";
 import { logger } from "../../utils/logger.js";
 import { holderIdOf } from "../../utils/bookHolder.js";
 import {
@@ -225,7 +226,7 @@ export default function LeaveCommunity() {
     },
     onError: (err) => {
       logger.error("leave.sendReturnCode", err?.message, { code: err?.code });
-      setError(err?.message || t.error);
+      setError(writeError(err));
     },
     onSettled: () => setBusyBookId(null),
   });
@@ -259,7 +260,7 @@ export default function LeaveCommunity() {
     },
     onError: (err) => {
       logger.error("leave.cancelReturn", err?.message, { code: err?.code });
-      setError(err?.message || t.error);
+      setError(writeError(err));
     },
     onSettled: () => setBusyBookId(null),
   });
@@ -468,7 +469,7 @@ export default function LeaveCommunity() {
           onClick={() => {
             setError("");
             leaveMutation.mutate(undefined, {
-              onError: (err) => setError(err?.message || t.error),
+              onError: (err) => setError(writeError(err)),
             });
           }}
           disabled={!canLeaveNow || leaveMutation.isPending || anyBusy}

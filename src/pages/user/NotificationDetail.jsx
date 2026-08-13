@@ -23,25 +23,11 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
+import { writeError } from "../../utils/writeError.js";
 
 // The two notifications that ask their reader for a decision rather than
 // telling them something. Both name the request they are about.
 const DECIDABLE = new Set(["join-request", "leave-request"]);
-
-/**
- * What to show when a write on this screen is refused.
- *
- * A SchemaError names the i18n key for the field it refused. Firestore's own
- * "Missing or insufficient permissions" is the one worth translating: it is
- * raw English in the middle of a Kazakh screen, and it means the rules in the
- * project do not allow what this build is asking for — which for the accept
- * button means the deployed ruleset predates the entry-fee book.
- */
-function writeError(err) {
-  if (err?.errorKey && t[err.errorKey]) return t[err.errorKey];
-  if (err?.code === "permission-denied") return t.notAuthorized;
-  return err?.message || t.error;
-}
 
 export default function NotificationDetail() {
   const { id } = useParams();
