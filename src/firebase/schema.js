@@ -128,6 +128,12 @@ export const userSchema = Object.freeze({
   required: Object.freeze(["id", "email", "nickname", "role"]),
   defaults: Object.freeze({
     firstName: "", lastName: "", phone: "", address: "",
+    // When the number on this profile was proven by SMS, or null for a profile
+    // that has never had one. It is not a flag the client sets to be believed:
+    // the security rules check the number itself against the account's own ID
+    // token (see `phoneChangeAllowed`), and this only records when that
+    // happened. Nobody registers with a phone — see firebase/phoneAuth.js.
+    phoneVerifiedAt: null,
     photoURL: "", notificationsEnabled: true, savedBookIds: [],
   }),
   immutable: Object.freeze(["email", "createdAt"]),
@@ -147,6 +153,9 @@ export function normalizeNewUser(payload) {
     nickname,
     firstName: clampText(payload.firstName, LIMITS.NAME_MAX),
     lastName: clampText(payload.lastName, LIMITS.NAME_MAX),
+    // Carried, never invented: registration does not ask for a number, and the
+    // only thing that writes one is the SMS flow. A caller that passes one gets
+    // it stored unverified, which is what `phoneVerifiedAt: null` then says.
     phone: clampText(payload.phone, 20),
     // Shown to whoever comes to collect a book, so it travels with the profile.
     address: clampText(payload.address, LIMITS.ADDRESS_MAX),

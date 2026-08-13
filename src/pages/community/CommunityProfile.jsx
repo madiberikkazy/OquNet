@@ -15,9 +15,10 @@ import {
   createJoinRequest, createNotification, getActiveBorrowingForUser,
   createPost, updatePost, deletePost, deleteBook, updateUser,
 } from "../../firebase/firestore.js";
+import { hasVerifiedPhone } from "../../firebase/phoneAuth.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
-import { clampText, isAddress, isPhone, LIMITS } from "../../utils/validators.js";
+import { clampText, isAddress, LIMITS } from "../../utils/validators.js";
 
 const TABS = ["posts", "books", "members"];
 
@@ -57,7 +58,7 @@ export default function CommunityProfile() {
   const [coverFile, setCoverFile]   = useState(null);
   // Contacts are collected here rather than on the book screens: joining is the
   // moment a user becomes reachable, and every handoff afterwards needs them.
-  const [contactForm, setContactForm] = useState({ phone: "", address: "" });
+  const [contactForm, setContactForm] = useState({ address: "" });
   const [joinError, setJoinError]   = useState("");
   const [joining, setJoining]       = useState(false);
   const [joinDone, setJoinDone]     = useState(false);
@@ -103,11 +104,12 @@ export default function CommunityProfile() {
     }).catch(() => setHeaderLoading(false));
   }, [id, user?.communityId]);
 
-  // Seed the contact fields from whatever the profile already knows, so a user
-  // who filled them in at registration just confirms them.
+  // Seed the address from whatever the profile already knows, so a user who
+  // filled it in at registration just confirms it. The phone is not seeded —
+  // it is not a field here any more, only a verified fact about the account.
   useEffect(() => {
-    setContactForm({ phone: user?.phone || "", address: user?.address || "" });
-  }, [user?.phone, user?.address]);
+    setContactForm({ address: user?.address || "" });
+  }, [user?.address]);
 
   const isMember  = user?.communityId === id;
   const isOwner   = community?.ownerId === user?.id;
@@ -135,11 +137,14 @@ export default function CommunityProfile() {
     if ((bookForm.genres || []).length < 1) { setJoinError(t.addBookErrGenre); return; }
     if (!bookForm.pages) { setJoinError(t.addBookErrPages); return; }
 
-    // Contacts gate — a member with no phone or address cannot hand a book over.
-    const phone = contactForm.phone.trim();
+    // Contacts gate — a member nobody can reach cannot hand a book over.
+    //
+    // The phone half of it is not a field any more: it is a number this account
+    // proved by SMS, once, and it is asked for on its own screen. Checked here
+    // as well as at the button that opens that screen, because the modal can
+    // have been sitting open since before the profile was reloaded.
     const address = clampText(contactForm.address, LIMITS.ADDRESS_MAX);
-    if (!phone) { setJoinError(t.phoneRequiredError); return; }
-    if (!isPhone(phone)) { setJoinError(t.phoneInvalidError); return; }
+    if (!hasVerifiedPhone(user)) { setJoinError(t.phoneVerifyToJoin); return; }
     if (!isAddress(address)) { setJoinError(t.addressRequiredError); return; }
 
     const active = await getActiveBorrowingForUser(user.id);
@@ -147,9 +152,10 @@ export default function CommunityProfile() {
     setJoining(true);
     try {
       // Save first: the admin approving this request is agreeing to a member
-      // other people can actually reach.
-      if (phone !== (user.phone || "") || address !== (user.address || "")) {
-        await updateProfile({ phone: phone.slice(0, 20), address });
+      // other people can actually reach. Only the address — the number came
+      // from the SMS flow, which wrote it itself.
+      if (address !== (user.address || "")) {
+        await updateProfile({ address });
       }
 
       // Uploaded here rather than at pick time, for the same reason Add Book
@@ -677,16 +683,31 @@ export default function CommunityProfile() {
                 {t.contactsRequiredNote}
               </p>
             </div>
-            <input
-              type="tel"
-              value={contactForm.phone}
-              onChange={(e) =>
-                setContactForm({ ...contactForm, phone: e.target.value.replace(/[^\d+\-() ]/g, "") })
-              }
-              placeholder={`${t.phone} *`}
-              autoComplete="tel"
-              className="input"
-            />
+            {/* The phone is a proven number, not a field. Verified once, it is
+                never asked for again — including when joining somewhere else
+                later — so this row is a statement on every subsequent visit. */}
+            {hasVerifiedPhone(user) ? (
+              <div className="flex items-center justify-between gap-3 rounded-2xl bg-ink-100/60 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-[12px] text-ink-500">{t.phone}</p>
+                  <p className="text-[15px] font-medium truncate">{user.phone}</p>
+                </div>
+                <span className="pill bg-ok/10 text-ok text-[12px] shrink-0">✓ {t.phoneVerified}</span>
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-warnSoft px-4 py-3">
+                <p className="text-[13px] text-ink-900 leading-relaxed">{t.phoneVerifyToJoin}</p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(`/settings/phone?next=${encodeURIComponent(`/community/${id}`)}`)
+                  }
+                  className="mt-2 text-[13px] font-semibold text-brand-500 underline underline-offset-2"
+                >
+                  {t.phoneVerifyCta} →
+                </button>
+              </div>
+            )}
             <input
               value={contactForm.address}
               onChange={(e) => setContactForm({ ...contactForm, address: e.target.value })}

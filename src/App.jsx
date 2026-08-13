@@ -32,6 +32,8 @@ const LikedPosts         = lazyRoute(() => import("./pages/user/LikedPosts.jsx")
 
 // Settings sub-screens — one topic each, reached from the settings hub.
 const PersonalData         = lazyRoute(() => import("./pages/user/settings/PersonalData.jsx"));
+// Proving a phone number by SMS — the one gate on joining a community.
+const PhoneVerify          = lazyRoute(() => import("./pages/user/settings/PhoneVerify.jsx"));
 const SecuritySettings     = lazyRoute(() => import("./pages/user/settings/Security.jsx"));
 const NotificationSettings = lazyRoute(() => import("./pages/user/settings/NotificationSettings.jsx"));
 const ThemeSettings        = lazyRoute(() => import("./pages/user/settings/ThemeSettings.jsx"));
@@ -110,6 +112,7 @@ export default function App() {
             <Route path="/profile/liked"     element={<LikedPosts />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/settings/profile"       element={<PersonalData />} />
+            <Route path="/settings/phone"         element={<PhoneVerify />} />
             <Route path="/settings/security"      element={<SecuritySettings />} />
             <Route path="/settings/notifications" element={<NotificationSettings />} />
             <Route path="/settings/theme"         element={<ThemeSettings />} />

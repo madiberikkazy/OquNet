@@ -29,7 +29,6 @@ export default function Register() {
     nickname: "",
     firstName: "",
     lastName: "",
-    phone: "",
     address: "",
     notificationsEnabled: true,
     acceptedTerms: false,
@@ -224,7 +223,6 @@ export default function Register() {
         nickname: form.nickname,
         firstName: form.firstName,
         lastName: form.lastName,
-        phone: form.phone,
         address: form.address,
         notificationsEnabled: form.notificationsEnabled,
         photoURL,
@@ -458,17 +456,10 @@ export default function Register() {
               </label>
             </div>
 
-            <label className="block">
-              <span className="text-[13px] text-ink-500 mb-1 block">{t.phone}</span>
-              <input
-                type="tel"
-                value={form.phone}
-                onChange={(e) => update("phone", e.target.value.replace(/[^\d+\-() ]/g, ""))}
-                placeholder="+7 (777) 123-45-67"
-                autoComplete="tel"
-                className="input"
-              />
-            </label>
+            {/* No phone field. A number typed here would be a number nobody
+                checked, and it is the one detail a stranger acts on — so it is
+                asked for once, with an SMS behind it, at the point it starts to
+                matter: joining a community (see settings/PhoneVerify.jsx). */}
 
             {/* Address — optional here, but required before joining a community,
                 since it is what the next reader navigates to. */}

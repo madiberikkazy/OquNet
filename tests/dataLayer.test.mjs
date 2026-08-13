@@ -38,6 +38,8 @@ const {
 
 const { requestBook } = await import("../src/firebase/schema.js");
 
+const { toE164, isE164 } = await import("../src/utils/validators.js");
+
 const LS_KEY = "oqunet:db";
 const DAY = 86_400_000;
 const COMMUNITY = "c1";
@@ -809,5 +811,42 @@ describe("return requests", () => {
     assert.equal((await open(second)).created, true);
     assert.equal((await listPendingReturnsForUser(OWNER)).length, 2);
     assert.ok(await getPendingReturnForBook({ bookId: second, communityId: COMMUNITY }));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E.164 — the one format an SMS gateway accepts, and the format the ID token
+// hands back for the security rules to compare against.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("phone numbers in E.164", () => {
+  it("keeps an international number as it was typed", () => {
+    assert.equal(toE164("+7 (777) 123-45-67"), "+77771234567");
+    assert.equal(toE164("+44 20 7123 4567"), "+442071234567");
+  });
+
+  it("drops the trunk prefix people dial locally", () => {
+    assert.equal(toE164("8 777 123 45 67"), "+77771234567");
+  });
+
+  it("adds the default country code to a bare national number", () => {
+    assert.equal(toE164("777 123 45 67"), "+77771234567");
+  });
+
+  it("refuses what cannot be a number", () => {
+    for (const bad of ["", "   ", "12345", "abc", "+", "1".repeat(16)]) {
+      assert.equal(toE164(bad), null, `accepted ${JSON.stringify(bad)}`);
+    }
+  });
+
+  it("never guesses a country code for a number that named one", () => {
+    // A member abroad types their own code; inventing one would send the code
+    // to a stranger's phone.
+    assert.equal(toE164("+1 202 555 0142"), "+12025550142");
+  });
+
+  it("agrees with isE164 about what it produces", () => {
+    for (const raw of ["+7 777 123 45 67", "87771234567", "7771234567"]) {
+      assert.equal(isE164(toE164(raw)), true, raw);
+    }
   });
 });
