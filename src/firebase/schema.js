@@ -128,11 +128,12 @@ export const userSchema = Object.freeze({
   required: Object.freeze(["id", "email", "nickname", "role"]),
   defaults: Object.freeze({
     firstName: "", lastName: "", phone: "", address: "",
-    // When the number on this profile was proven by SMS, or null for a profile
-    // that has never had one. It is not a flag the client sets to be believed:
-    // the security rules check the number itself against the account's own ID
-    // token (see `phoneChangeAllowed`), and this only records when that
-    // happened. Nobody registers with a phone — see firebase/phoneAuth.js.
+    // When somebody proved they can be reached on this number, or null for a
+    // profile that has never had one. Not a flag the client sets to be believed:
+    // the rules refuse `phone` and `phoneVerifiedAt` from every client, and the
+    // only writer is the verification webhook, running with the Admin SDK after
+    // our bot has seen a message arrive from that very number. Nobody registers
+    // with a phone — see firebase/phoneVerify.js and functions/index.js.
     phoneVerifiedAt: null,
     photoURL: "", notificationsEnabled: true, savedBookIds: [],
   }),
@@ -153,9 +154,9 @@ export function normalizeNewUser(payload) {
     nickname,
     firstName: clampText(payload.firstName, LIMITS.NAME_MAX),
     lastName: clampText(payload.lastName, LIMITS.NAME_MAX),
-    // Carried, never invented: registration does not ask for a number, and the
-    // only thing that writes one is the SMS flow. A caller that passes one gets
-    // it stored unverified, which is what `phoneVerifiedAt: null` then says.
+    // Carried, never invented: registration does not ask for a number, and a
+    // profile is only ever born without one. A caller that passes one anyway
+    // gets it stored unverified, which is what `phoneVerifiedAt: null` says.
     phone: clampText(payload.phone, 20),
     // Shown to whoever comes to collect a book, so it travels with the profile.
     address: clampText(payload.address, LIMITS.ADDRESS_MAX),

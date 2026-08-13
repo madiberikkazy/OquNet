@@ -527,40 +527,40 @@ describe("users: membership and profile writes", () => {
 
   // ── the phone number, which is the one field a stranger acts on ──
   //
-  // It is handed to somebody who is about to travel to meet its owner, so it
-  // may not be typed in. Firebase Auth puts the number it actually sent a code
-  // to into the ID token; these assert the profile can say nothing else.
+  // It is handed to somebody about to travel to meet its owner, so it may not
+  // be typed in. It used to be provable in the ID token (Firebase SMS); it is
+  // now proven in a WhatsApp or Telegram conversation our server sees and the
+  // rules cannot. So the rule is the strongest one left: no client writes a
+  // number, ever. The webhook does it with the Admin SDK, which never passes
+  // through here.
   const PROVEN = "+77770000000";
-  const withPhone = (uid, phone_number) =>
-    testEnv.authenticatedContext(uid, { phone_number }).firestore();
 
-  it("a user may NOT write a phone number their account never proved", async () => {
+  it("a user may NOT write a phone number, however they ask", async () => {
     await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), {
       phone: PROVEN, phoneVerifiedAt: Date.now(),
     }));
-  });
-
-  it("a user MAY write the number their account proved by SMS", async () => {
-    await assertSucceeds(updateDoc(doc(withPhone(MEMBER_A, PROVEN), "users", MEMBER_A), {
-      phone: PROVEN, phoneVerifiedAt: Date.now(),
-    }));
-  });
-
-  it("a user may NOT write a different number from the one they proved", async () => {
-    await assertFails(updateDoc(doc(withPhone(MEMBER_A, PROVEN), "users", MEMBER_A), {
-      phone: "+77019999999", phoneVerifiedAt: Date.now(),
-    }));
+    await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), { phone: PROVEN }));
   });
 
   it("nor claim a verification for a number they never wrote", async () => {
-    // `phoneVerifiedAt` on its own is the flag-without-the-fact case: the
-    // stored phone is empty, so this would say "proven" about nothing.
     await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), {
       phoneVerifiedAt: Date.now(),
     }));
   });
 
-  it("clearing the number is always allowed — deleteAccount scrubs it", async () => {
+  it("an old SMS-style token claim buys nothing any more", async () => {
+    // A leftover `phone_number` claim on a session from the Firebase Auth days
+    // must not be a way back in: that mechanism is gone, and the rule no longer
+    // reads the token at all.
+    const withClaim = testEnv
+      .authenticatedContext(MEMBER_A, { phone_number: PROVEN })
+      .firestore();
+    await assertFails(updateDoc(doc(withClaim, "users", MEMBER_A), {
+      phone: PROVEN, phoneVerifiedAt: Date.now(),
+    }));
+  });
+
+  it("clearing the number is allowed — deleteAccount scrubs it", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await updateDoc(doc(ctx.firestore(), "users", MEMBER_A), {
         phone: PROVEN, phoneVerifiedAt: Date.now(),
@@ -571,7 +571,16 @@ describe("users: membership and profile writes", () => {
     }));
   });
 
-  it("an edit that leaves the number alone needs no token at all", async () => {
+  it("but not half of it — a proof without a number is a lie either way", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "users", MEMBER_A), {
+        phone: PROVEN, phoneVerifiedAt: Date.now(),
+      });
+    });
+    await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), { phone: "" }));
+  });
+
+  it("an edit that leaves the number alone is unaffected", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await updateDoc(doc(ctx.firestore(), "users", MEMBER_A), {
         phone: PROVEN, phoneVerifiedAt: Date.now(),
@@ -579,39 +588,6 @@ describe("users: membership and profile writes", () => {
     });
     await assertSucceeds(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), {
       firstName: "Still Editable",
-    }));
-  });
-
-  it("nobody may write a proven number onto somebody else's profile", async () => {
-    await assertFails(updateDoc(doc(withPhone(MEMBER_A, PROVEN), "users", MEMBER_A2), {
-      phone: PROVEN, phoneVerifiedAt: Date.now(),
-    }));
-  });
-
-  it("a user may not rewrite their own email", async () => {
-    await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), {
-      email: "somebody-else@example.com",
-    }));
-  });
-
-  // The email moves in Firebase Auth first (verifyBeforeUpdateEmail, confirmed
-  // from the new inbox). The profile is then allowed to catch up — but only to
-  // the address the caller's own token already carries.
-  it("a user may sync their profile email to the address on their account", async () => {
-    const withToken = testEnv
-      .authenticatedContext(MEMBER_A, { email: "moved@example.com" })
-      .firestore();
-    await assertSucceeds(updateDoc(doc(withToken, "users", MEMBER_A), {
-      email: "moved@example.com",
-    }));
-  });
-
-  it("a user may not set an email their account does not have", async () => {
-    const withToken = testEnv
-      .authenticatedContext(MEMBER_A, { email: "moved@example.com" })
-      .firestore();
-    await assertFails(updateDoc(doc(withToken, "users", MEMBER_A), {
-      email: "someone-elses@example.com",
     }));
   });
 
@@ -1563,14 +1539,54 @@ describe("the app's own write sequences still work", () => {
     }));
   });
 
-  it("PhoneVerify: the proven number lands on the profile", async () => {
-    // What firebase/phoneAuth.js writes after linkWithCredential, once the ID
-    // token has been force-refreshed — which is why the context carries the
-    // claim here. Without that refresh this is the write that gets refused.
-    const proven = "+77015550101";
-    const db = testEnv.authenticatedContext(MEMBER_A, { phone_number: proven }).firestore();
-    await assertSucceeds(updateDoc(doc(db, "users", MEMBER_A), {
-      phone: proven, phoneVerifiedAt: Date.now(),
+  it("PhoneVerify: the client opens an attempt and can only abandon it", async () => {
+    // Exactly what firebase/phoneVerify.js writes — and note what is missing:
+    // any write to the profile. Resolving an attempt belongs to the webhook,
+    // through the Admin SDK. There is no client path to a verified number.
+    const db = as(MEMBER_A);
+    const token = "ABCD2345WXYZ";
+    await assertSucceeds(setDoc(doc(db, "phoneVerifications", token), {
+      userId: MEMBER_A, phone: "+77015550101", channel: "whatsapp",
+      status: "pending", expiresAt: Date.now() + 15 * 60 * 1000,
+    }));
+    await assertSucceeds(getDoc(doc(db, "phoneVerifications", token)));
+    await assertFails(updateDoc(doc(db, "phoneVerifications", token), {
+      status: "verified", verifiedPhone: "+77015550101",
+    }));
+    await assertSucceeds(updateDoc(doc(db, "phoneVerifications", token), {
+      status: "cancelled",
+    }));
+  });
+
+  it("PhoneVerify: nobody may open or read an attempt in somebody else's name", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "phoneVerifications", "T1"), {
+      userId: MEMBER_A2, phone: "+77015550101", channel: "telegram",
+      status: "pending", expiresAt: Date.now() + 60000,
+    }));
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "phoneVerifications", "T2"), {
+        userId: MEMBER_A2, phone: "+77015550102", channel: "telegram",
+        status: "pending", expiresAt: Date.now() + 60000,
+      });
+    });
+    await assertFails(getDoc(doc(as(MEMBER_A), "phoneVerifications", "T2")));
+    await assertFails(updateDoc(doc(as(MEMBER_A), "phoneVerifications", "T2"), {
+      status: "cancelled",
+    }));
+  });
+
+  it("PhoneVerify: an attempt may not be born verified, nor open for a year", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "phoneVerifications", "T3"), {
+      userId: MEMBER_A, phone: "+77015550101", channel: "whatsapp",
+      status: "verified", expiresAt: Date.now() + 60000,
+    }));
+    await assertFails(setDoc(doc(as(MEMBER_A), "phoneVerifications", "T4"), {
+      userId: MEMBER_A, phone: "+77015550101", channel: "whatsapp",
+      status: "pending", expiresAt: Date.now() + 400 * 86400000,
+    }));
+    await assertFails(setDoc(doc(as(MEMBER_A), "phoneVerifications", "T5"), {
+      userId: MEMBER_A, phone: "+77015550101", channel: "carrier-pigeon",
+      status: "pending", expiresAt: Date.now() + 60000,
     }));
   });
 
@@ -1581,11 +1597,10 @@ describe("the app's own write sequences still work", () => {
         phone: proven, phoneVerifiedAt: Date.now(),
       });
     });
-    // Exactly the patch in auth.js `deleteAccount`. It runs after re-auth, on a
-    // token that still carries the number — so clearing has to be allowed on
-    // its own terms, not by matching the claim.
+    // Exactly the patch in auth.js `deleteAccount`. Clearing is the one thing a
+    // client may do to a phone number, and this is why it stays allowed.
     await assertSucceeds(updateDoc(
-      doc(testEnv.authenticatedContext(MEMBER_A, { phone_number: proven }).firestore(), "users", MEMBER_A),
+      doc(as(MEMBER_A), "users", MEMBER_A),
       {
         firstName: "", lastName: "", nickname: "deleted_member-a",
         phone: "", phoneVerifiedAt: null, address: "", photoURL: "",

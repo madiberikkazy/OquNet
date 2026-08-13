@@ -15,7 +15,7 @@ import {
   createJoinRequest, createNotification, getActiveBorrowingForUser,
   createPost, updatePost, deletePost, deleteBook, updateUser,
 } from "../../firebase/firestore.js";
-import { hasVerifiedPhone } from "../../firebase/phoneAuth.js";
+import { hasVerifiedPhone } from "../../firebase/phoneVerify.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 import { writeError } from "../../utils/writeError.js";
@@ -127,10 +127,10 @@ export default function CommunityProfile() {
 
     // Contacts gate — a member nobody can reach cannot hand a book over.
     //
-    // The phone half of it is not a field any more: it is a number this account
-    // proved by SMS, once, and it is asked for on its own screen. Checked here
-    // as well as at the button that opens that screen, because the modal can
-    // have been sitting open since before the profile was reloaded.
+    // The phone half of it is not a field any more: it is a number somebody
+    // proved, once, by messaging our bot from it — asked for on its own screen.
+    // Checked here as well as at the button that opens that screen, because the
+    // modal can have been sitting open since before the profile was reloaded.
     const address = clampText(contactForm.address, LIMITS.ADDRESS_MAX);
     if (!hasVerifiedPhone(user)) { setJoinError(t.phoneVerifyToJoin); return; }
     if (!isAddress(address)) { setJoinError(t.addressRequiredError); return; }
@@ -140,8 +140,8 @@ export default function CommunityProfile() {
     setJoining(true);
     try {
       // Save first: the admin approving this request is agreeing to a member
-      // other people can actually reach. Only the address — the number came
-      // from the SMS flow, which wrote it itself.
+      // other people can actually reach. Only the address — the number is the
+      // verification webhook's to write, and the rules refuse it from here.
       if (address !== (user.address || "")) {
         await updateProfile({ address });
       }
@@ -671,9 +671,10 @@ export default function CommunityProfile() {
                 {t.contactsRequiredNote}
               </p>
             </div>
-            {/* The phone is a proven number, not a field. Verified once, it is
-                never asked for again — including when joining somewhere else
-                later — so this row is a statement on every subsequent visit. */}
+            {/* The phone is a proven number, not a field. Proven once — by a
+                message to our bot from that number — it is never asked for
+                again, including when joining somewhere else later, so this row
+                is a statement on every subsequent visit. */}
             {hasVerifiedPhone(user) ? (
               <div className="flex items-center justify-between gap-3 rounded-2xl bg-ink-100/60 px-4 py-3">
                 <div className="min-w-0">

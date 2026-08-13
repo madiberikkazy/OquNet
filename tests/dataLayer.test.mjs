@@ -13,13 +13,19 @@ globalThis.localStorage = {
   setItem: (k, v) => void store.set(k, String(v)),
   removeItem: (k) => void store.delete(k),
 };
+// utils/safeStorage.js reaches through `window`, not the bare global — it is
+// written to survive a browser that refuses storage, and a missing `window` is
+// indistinguishable from that. Without this the modules that keep a little
+// state across a reload (the auth session, a pending verification) read nothing
+// under Node and every test of them passes for the wrong reason.
+globalThis.window = { localStorage: globalThis.localStorage };
 
 const {
   createBook, listBooks, listNewBooks, listBooksHeldBy, listBooksOwnedBy,
   updateBook, getBook, createNotification, listNotifications,
   createUserDoc, getUserById, notifyCommunityMembers,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
-  createJoinRequest, getRequestById,
+  createJoinRequest, getRequestById, getPhoneVerification,
   openPickupRequest, getPickupRequest, getPendingPickupForUser,
   cancelPickupRequest, fulfillPickupRequest, createBorrowing, PickupBlockedError,
   openReturnRequest, getReturnRequest, getPendingReturnForBook,
@@ -39,6 +45,13 @@ const {
 const { requestBook } = await import("../src/firebase/schema.js");
 
 const { toE164, isE164 } = await import("../src/utils/validators.js");
+
+const {
+  botConfig, channelAvailable, hasVerifiedPhone, isVerificationExpired,
+  newVerificationToken, startPhoneVerification, simulateBotConfirmation,
+  abandonVerification, readPendingVerification, verificationLink,
+  verificationPayload,
+} = await import("../src/firebase/phoneVerify.js");
 
 const LS_KEY = "oqunet:db";
 const DAY = 86_400_000;
@@ -848,5 +861,118 @@ describe("phone numbers in E.164", () => {
     for (const raw of ["+7 777 123 45 67", "87771234567", "7771234567"]) {
       assert.equal(isE164(toE164(raw)), true, raw);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Proving a phone number over WhatsApp / Telegram.
+//
+// The client's whole part is an attempt document and a link; the profile write
+// belongs to the webhook. `simulateBotConfirmation` is what stands in for that
+// webhook where there is no Firebase — and it makes the same comparison, so
+// these exercise the decision the real one makes.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("phone verification over a chat channel", () => {
+  const USER = "u-verify";
+  const CLAIM = "+77771234567";
+
+  beforeEach(async () => {
+    botConfig.whatsappPhone = "+7 700 000 00 00";
+    botConfig.telegramBot = "@oqunet_bot";
+    store.set("oqunet:auth", JSON.stringify({ uid: USER }));
+    await createUserDoc({
+      id: USER, email: "v@example.com", nickname: "verifier",
+      firstName: "V", lastName: "R",
+    });
+  });
+
+  it("mints an unguessable token and the exact text the bot expects", () => {
+    const a = newVerificationToken();
+    const b = newVerificationToken();
+    assert.match(a, /^[A-Z2-9]{12}$/);
+    assert.notEqual(a, b, "two tokens in a row must not collide");
+    assert.equal(verificationPayload(a), `VERIFY_${a}`);
+  });
+
+  it("builds a deep link per channel, and none for a bot nobody configured", () => {
+    assert.equal(
+      verificationLink({ channel: "whatsapp", token: "ABC123" }),
+      "https://wa.me/77000000000?text=VERIFY_ABC123"
+    );
+    assert.equal(
+      verificationLink({ channel: "telegram", token: "ABC123" }),
+      "https://t.me/oqunet_bot?start=VERIFY_ABC123"
+    );
+    botConfig.whatsappPhone = "";
+    assert.equal(verificationLink({ channel: "whatsapp", token: "ABC123" }), null);
+    assert.equal(channelAvailable("whatsapp"), false);
+    assert.equal(channelAvailable("telegram"), true);
+  });
+
+  it("opens an attempt that claims a number and proves nothing", async () => {
+    const started = await startPhoneVerification({
+      userId: USER, phone: "8 777 123 45 67", channel: "telegram",
+    });
+    assert.equal(started.attempt.phone, CLAIM, "stored in E.164, whatever was typed");
+    assert.equal(started.attempt.status, "pending");
+    assert.ok(started.attempt.expiresAt > Date.now());
+
+    const user = await getUserById(USER);
+    assert.equal(user.phone, "", "a claim is not a verification");
+    assert.equal(user.phoneVerifiedAt, null);
+  });
+
+  it("refuses a number that cannot be dialled, and a channel with no bot", async () => {
+    await assert.rejects(() => startPhoneVerification({
+      userId: USER, phone: "12345", channel: "telegram",
+    }));
+    botConfig.telegramBot = "";
+    await assert.rejects(() => startPhoneVerification({
+      userId: USER, phone: CLAIM, channel: "telegram",
+    }));
+  });
+
+  it("verifies when the message comes from the number that was claimed", async () => {
+    const { token } = await startPhoneVerification({
+      userId: USER, phone: CLAIM, channel: "whatsapp",
+    });
+    const resolved = await simulateBotConfirmation(token, { fromPhone: CLAIM });
+    assert.equal(resolved.status, "verified");
+
+    const user = await getUserById(USER);
+    assert.equal(user.phone, CLAIM);
+    assert.ok(user.phoneVerifiedAt > 0);
+    assert.equal(hasVerifiedPhone(user), true);
+  });
+
+  it("refuses when the message comes from a different number", async () => {
+    // The check the whole design exists for: otherwise anyone could claim any
+    // number and message us from their own.
+    const { token } = await startPhoneVerification({
+      userId: USER, phone: CLAIM, channel: "whatsapp",
+    });
+    const resolved = await simulateBotConfirmation(token, { fromPhone: "+77019999999" });
+    assert.equal(resolved.status, "mismatch");
+
+    const user = await getUserById(USER);
+    assert.equal(user.phone, "", "a mismatch must leave the profile untouched");
+    assert.equal(user.phoneVerifiedAt, null);
+  });
+
+  it("knows when an attempt has run out its window", async () => {
+    const attempt = { status: "pending", expiresAt: Date.now() - 1 };
+    assert.equal(isVerificationExpired(attempt), true);
+    assert.equal(isVerificationExpired({ ...attempt, expiresAt: Date.now() + 60000 }), false);
+    assert.equal(isVerificationExpired({ status: "verified", expiresAt: 1 }), false);
+  });
+
+  it("lets the member abandon their own attempt", async () => {
+    const { token } = await startPhoneVerification({
+      userId: USER, phone: CLAIM, channel: "telegram",
+    });
+    await abandonVerification(token);
+    const attempt = await getPhoneVerification(token);
+    assert.equal(attempt.status, "cancelled");
+    assert.equal(readPendingVerification(), null);
   });
 });
