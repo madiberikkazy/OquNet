@@ -145,7 +145,7 @@ service cloud.firestore {
      *
      * So the rule is the strongest one available: **no client may set a phone
      * number, ever**. The write belongs to the webhook, through the Admin SDK,
-     * which does not pass through here at all (functions/index.js). A client
+     * which does not pass through here at all (server/server.js). A client
      * that could write it would make the whole handshake decorative — it is a
      * number somebody else has to be able to trust.
      *
