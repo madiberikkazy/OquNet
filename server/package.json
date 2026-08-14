@@ -1,0 +1,20 @@
+{
+  "name": "oqunet-verify-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phone verification webhooks \u2014 the only writer of a verified number.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test:emulator": "firebase emulators:exec --only firestore --project demo-oqunet-server 'node webhooks.test.mjs'"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "firebase-admin": "^12.7.0"
+  }
+}

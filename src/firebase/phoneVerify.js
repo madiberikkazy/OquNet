@@ -25,7 +25,7 @@
  * against the claim, and writes the profile with the Admin SDK. The rules refuse
  * `phone` and `phoneVerifiedAt` from any client, so that write is the only way a
  * number can become verified — see `phoneChangeAllowed` in firestore.rules and
- * the reference webhook in functions/index.js.
+ * the verification server in server/server.js.
  *
  * ── What this costs instead ──────────────────────────────────────────────────
  * A server, which SMS did not need. And a fair warning about the trade: a

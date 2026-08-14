@@ -133,7 +133,7 @@ export const userSchema = Object.freeze({
     // the rules refuse `phone` and `phoneVerifiedAt` from every client, and the
     // only writer is the verification webhook, running with the Admin SDK after
     // our bot has seen a message arrive from that very number. Nobody registers
-    // with a phone — see firebase/phoneVerify.js and functions/index.js.
+    // with a phone — see firebase/phoneVerify.js and server/server.js.
     phoneVerifiedAt: null,
     photoURL: "", notificationsEnabled: true, savedBookIds: [],
   }),
