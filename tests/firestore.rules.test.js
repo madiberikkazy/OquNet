@@ -529,7 +529,7 @@ describe("users: membership and profile writes", () => {
   //
   // It is handed to somebody about to travel to meet its owner, so it may not
   // be typed in. It used to be provable in the ID token (Firebase SMS); it is
-  // now proven in a WhatsApp or Telegram conversation our server sees and the
+  // now proven in a Telegram conversation our server sees and the
   // rules cannot. So the rule is the strongest one left: no client writes a
   // number, ever. The webhook does it with the Admin SDK, which never passes
   // through here.
@@ -1546,7 +1546,7 @@ describe("the app's own write sequences still work", () => {
     const db = as(MEMBER_A);
     const token = "ABCD2345WXYZ";
     await assertSucceeds(setDoc(doc(db, "phoneVerifications", token), {
-      userId: MEMBER_A, phone: "+77015550101", channel: "whatsapp",
+      userId: MEMBER_A, phone: "+77015550101", channel: "telegram",
       status: "pending", expiresAt: Date.now() + 15 * 60 * 1000,
     }));
     await assertSucceeds(getDoc(doc(db, "phoneVerifications", token)));
@@ -1577,11 +1577,11 @@ describe("the app's own write sequences still work", () => {
 
   it("PhoneVerify: an attempt may not be born verified, nor open for a year", async () => {
     await assertFails(setDoc(doc(as(MEMBER_A), "phoneVerifications", "T3"), {
-      userId: MEMBER_A, phone: "+77015550101", channel: "whatsapp",
+      userId: MEMBER_A, phone: "+77015550101", channel: "telegram",
       status: "verified", expiresAt: Date.now() + 60000,
     }));
     await assertFails(setDoc(doc(as(MEMBER_A), "phoneVerifications", "T4"), {
-      userId: MEMBER_A, phone: "+77015550101", channel: "whatsapp",
+      userId: MEMBER_A, phone: "+77015550101", channel: "telegram",
       status: "pending", expiresAt: Date.now() + 400 * 86400000,
     }));
     await assertFails(setDoc(doc(as(MEMBER_A), "phoneVerifications", "T5"), {

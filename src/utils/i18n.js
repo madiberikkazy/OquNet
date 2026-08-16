@@ -205,28 +205,25 @@ const kz = {
   phoneInvalidError: "Телефон нөмірі дұрыс емес",
   addressRequiredError: "Мекенжайыңызды жазыңыз",
 
-  // Телефонды растау — WhatsApp / Telegram арқылы (firebase/phoneVerify.js)
+  // Телефонды растау — Telegram арқылы (firebase/phoneVerify.js)
   phoneVerifyTitle: "Телефонды растау",
   phoneVerifyIntro:
-    "Нөміріңізді WhatsApp немесе Telegram арқылы растаңыз. Ботқа дайын хабарлама жіберсеңіз болды — нөмірді өзіміз тексереміз.",
-  phoneChangeIntro: "Жаңа нөміріңізді жазып, оны WhatsApp немесе Telegram арқылы растаңыз.",
+    "Нөміріңізді Telegram арқылы растаңыз. Ботты ашып, «Контакт жіберу» түймесін бассаңыз болды.",
+  phoneChangeIntro: "Жаңа нөміріңізді жазып, оны Telegram арқылы растаңыз.",
   phoneCurrent: "Қазіргі нөмір",
-  phoneChannelNote:
-    "Нөмірді халықаралық форматта жазыңыз: +7 700 000 00 00. Хабарламаны дәл сол нөмірден жіберіңіз.",
-  phoneVerifyWhatsApp: "WhatsApp арқылы растау",
+  phoneTelegramNote:
+    "Нөмірді халықаралық форматта жазыңыз: +7 700 000 00 00. Telegram-дағы нөміріңіз дәл осы болуы керек.",
   phoneVerifyTelegram: "Telegram арқылы растау",
-  phoneChannelUnavailable: "Бұл тәсіл әзірге қолжетімсіз.",
-  phoneWaitingTitle: "Хабарламаңызды күтудеміз…",
-  phoneWaitingWhatsApp: "WhatsApp ашылды — дайын хабарламаны жіберіңіз. Растау автоматты түрде аяқталады.",
-  phoneWaitingTelegram: "Telegram-да ботты іске қосып, «Контакт жіберу» түймесін басыңыз.",
-  phoneOpenWhatsApp: "WhatsApp-ты ашу",
+  phoneChannelUnavailable: "Растау әзірге қолжетімсіз. Әкімшіге хабарласыңыз.",
+  phoneWaitingTitle: "Растауды күтудеміз…",
+  phoneWaitingTelegram: "Telegram-да ботты іске қосып, «📱 Контакт жіберу» түймесін басыңыз.",
   phoneOpenTelegram: "Telegram-ды ашу",
-  phoneManualHint: "Хабарлама автоматты жазылмаса, мына мәтінді өзіңіз жіберіңіз:",
+  phoneManualHint: "Бот сілтемені танымаса, мына мәтінді өзіңіз жіберіңіз:",
   phoneVerifyTtlNote: "Сілтеме 15 минут бойы жарамды.",
   phoneStartOver: "Басқа нөмір енгізу",
   phoneSimulateBot: "Ботты имитациялау (әзірлеу режимі)",
   phoneMismatchError: (from) =>
-    `Хабарлама басқа нөмірден келді (${from}). Растау үшін дәл сол нөмірден жіберіңіз.`,
+    `Telegram-дағы нөміріңіз басқа болып шықты (${from}). Сол нөмірді жазыңыз немесе басқа аккаунттан жіберіңіз.`,
   phoneVerifyExpired: "Растау мерзімі бітті. Қайтадан бастаңыз.",
   phoneSameAsCurrent: "Бұл — қазіргі нөміріңіз.",
   phoneVerifiedTitle: "Нөмір расталды",
@@ -783,28 +780,25 @@ const ru = {
   phoneInvalidError: "Некорректный номер телефона",
   addressRequiredError: "Укажите адрес",
 
-  // Подтверждение телефона — через WhatsApp / Telegram (firebase/phoneVerify.js)
+  // Подтверждение телефона — через Telegram (firebase/phoneVerify.js)
   phoneVerifyTitle: "Подтверждение телефона",
   phoneVerifyIntro:
-    "Подтвердите номер через WhatsApp или Telegram. Отправьте боту готовое сообщение — номер мы проверим сами.",
-  phoneChangeIntro: "Введите новый номер и подтвердите его через WhatsApp или Telegram.",
+    "Подтвердите номер через Telegram. Откройте бота и нажмите «Отправить контакт».",
+  phoneChangeIntro: "Введите новый номер и подтвердите его через Telegram.",
   phoneCurrent: "Текущий номер",
-  phoneChannelNote:
-    "Номер в международном формате: +7 700 000 00 00. Сообщение отправьте именно с этого номера.",
-  phoneVerifyWhatsApp: "Подтвердить через WhatsApp",
+  phoneTelegramNote:
+    "Номер в международном формате: +7 700 000 00 00. В Telegram у вас должен быть именно этот номер.",
   phoneVerifyTelegram: "Подтвердить через Telegram",
-  phoneChannelUnavailable: "Этот способ пока недоступен.",
-  phoneWaitingTitle: "Ждём ваше сообщение…",
-  phoneWaitingWhatsApp: "WhatsApp открыт — отправьте готовое сообщение. Подтверждение завершится автоматически.",
-  phoneWaitingTelegram: "В Telegram запустите бота и нажмите «Отправить контакт».",
-  phoneOpenWhatsApp: "Открыть WhatsApp",
+  phoneChannelUnavailable: "Подтверждение пока недоступно. Обратитесь к администратору.",
+  phoneWaitingTitle: "Ждём подтверждение…",
+  phoneWaitingTelegram: "В Telegram запустите бота и нажмите «📱 Отправить контакт».",
   phoneOpenTelegram: "Открыть Telegram",
-  phoneManualHint: "Если текст не подставился, отправьте его сами:",
+  phoneManualHint: "Если бот не увидел ссылку, отправьте этот текст сами:",
   phoneVerifyTtlNote: "Ссылка действует 15 минут.",
   phoneStartOver: "Ввести другой номер",
   phoneSimulateBot: "Симулировать бота (для разработки)",
   phoneMismatchError: (from) =>
-    `Сообщение пришло с другого номера (${from}). Отправьте его именно с указанного номера.`,
+    `В Telegram у вас другой номер (${from}). Укажите его или отправьте с нужного аккаунта.`,
   phoneVerifyExpired: "Время подтверждения истекло. Начните заново.",
   phoneSameAsCurrent: "Это ваш текущий номер.",
   phoneVerifiedTitle: "Номер подтверждён",
@@ -1362,28 +1356,25 @@ const en = {
   phoneInvalidError: "That phone number looks wrong",
   addressRequiredError: "Enter your address",
 
-  // Proving a phone number — over WhatsApp / Telegram (firebase/phoneVerify.js)
+  // Proving a phone number — over Telegram (firebase/phoneVerify.js)
   phoneVerifyTitle: "Verify your phone",
   phoneVerifyIntro:
-    "Verify your number over WhatsApp or Telegram. Send our bot the ready-made message — we check the number ourselves.",
-  phoneChangeIntro: "Enter the new number and verify it over WhatsApp or Telegram.",
+    "Verify your number over Telegram. Open the bot and press \u201cSend contact\u201d.",
+  phoneChangeIntro: "Enter the new number and verify it over Telegram.",
   phoneCurrent: "Current number",
-  phoneChannelNote:
-    "Use the international format: +7 700 000 00 00. Send the message from that same number.",
-  phoneVerifyWhatsApp: "Verify via WhatsApp",
+  phoneTelegramNote:
+    "Use the international format: +7 700 000 00 00. Your Telegram account must carry that same number.",
   phoneVerifyTelegram: "Verify via Telegram",
-  phoneChannelUnavailable: "This option is not available yet.",
-  phoneWaitingTitle: "Waiting for your message…",
-  phoneWaitingWhatsApp: "WhatsApp is open — send the ready-made message. Verification finishes on its own.",
-  phoneWaitingTelegram: "In Telegram, start the bot and press \u201cSend contact\u201d.",
-  phoneOpenWhatsApp: "Open WhatsApp",
+  phoneChannelUnavailable: "Verification is not available yet. Ask your admin.",
+  phoneWaitingTitle: "Waiting for the bot\u2026",
+  phoneWaitingTelegram: "In Telegram, start the bot and press \u201c\ud83d\udcf1 Send contact\u201d.",
   phoneOpenTelegram: "Open Telegram",
-  phoneManualHint: "If the text did not come through, send this yourself:",
+  phoneManualHint: "If the bot did not pick up the link, send this yourself:",
   phoneVerifyTtlNote: "The link is good for 15 minutes.",
   phoneStartOver: "Use a different number",
   phoneSimulateBot: "Simulate the bot (development only)",
   phoneMismatchError: (from) =>
-    `That message came from a different number (${from}). Send it from the number you entered.`,
+    `Your Telegram number is a different one (${from}). Enter that number, or send from the right account.`,
   phoneVerifyExpired: "That verification timed out. Start again.",
   phoneSameAsCurrent: "That is your current number.",
   phoneVerifiedTitle: "Number verified",

@@ -47,7 +47,7 @@ const { requestBook } = await import("../src/firebase/schema.js");
 const { toE164, isE164 } = await import("../src/utils/validators.js");
 
 const {
-  botConfig, channelAvailable, hasVerifiedPhone, isVerificationExpired,
+  botConfig, verificationAvailable, hasVerifiedPhone, isVerificationExpired,
   newVerificationToken, startPhoneVerification, simulateBotConfirmation,
   abandonVerification, readPendingVerification, verificationLink,
   verificationPayload,
@@ -865,19 +865,18 @@ describe("phone numbers in E.164", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Proving a phone number over WhatsApp / Telegram.
+// Proving a phone number over Telegram.
 //
 // The client's whole part is an attempt document and a link; the profile write
 // belongs to the webhook. `simulateBotConfirmation` is what stands in for that
 // webhook where there is no Firebase — and it makes the same comparison, so
 // these exercise the decision the real one makes.
 // ─────────────────────────────────────────────────────────────────────────────
-describe("phone verification over a chat channel", () => {
+describe("phone verification over Telegram", () => {
   const USER = "u-verify";
   const CLAIM = "+77771234567";
 
   beforeEach(async () => {
-    botConfig.whatsappPhone = "+7 700 000 00 00";
     botConfig.telegramBot = "@oqunet_bot";
     store.set("oqunet:auth", JSON.stringify({ uid: USER }));
     await createUserDoc({
@@ -894,24 +893,23 @@ describe("phone verification over a chat channel", () => {
     assert.equal(verificationPayload(a), `VERIFY_${a}`);
   });
 
-  it("builds a deep link per channel, and none for a bot nobody configured", () => {
+  it("builds the deep link, and none when nobody configured a bot", () => {
+    // The `@` is optional in the environment variable and must not survive
+    // into the URL — `t.me/@bot` is a 404.
     assert.equal(
-      verificationLink({ channel: "whatsapp", token: "ABC123" }),
-      "https://wa.me/77000000000?text=VERIFY_ABC123"
-    );
-    assert.equal(
-      verificationLink({ channel: "telegram", token: "ABC123" }),
+      verificationLink("ABC123"),
       "https://t.me/oqunet_bot?start=VERIFY_ABC123"
     );
-    botConfig.whatsappPhone = "";
-    assert.equal(verificationLink({ channel: "whatsapp", token: "ABC123" }), null);
-    assert.equal(channelAvailable("whatsapp"), false);
-    assert.equal(channelAvailable("telegram"), true);
+    assert.equal(verificationAvailable(), true);
+
+    botConfig.telegramBot = "";
+    assert.equal(verificationLink("ABC123"), null);
+    assert.equal(verificationAvailable(), false);
   });
 
   it("opens an attempt that claims a number and proves nothing", async () => {
     const started = await startPhoneVerification({
-      userId: USER, phone: "8 777 123 45 67", channel: "telegram",
+      userId: USER, phone: "8 777 123 45 67", token: newVerificationToken(),
     });
     assert.equal(started.attempt.phone, CLAIM, "stored in E.164, whatever was typed");
     assert.equal(started.attempt.status, "pending");
@@ -922,19 +920,19 @@ describe("phone verification over a chat channel", () => {
     assert.equal(user.phoneVerifiedAt, null);
   });
 
-  it("refuses a number that cannot be dialled, and a channel with no bot", async () => {
+  it("refuses a number that cannot be dialled, and a deploy with no bot", async () => {
     await assert.rejects(() => startPhoneVerification({
-      userId: USER, phone: "12345", channel: "telegram",
+      userId: USER, phone: "12345", token: newVerificationToken(),
     }));
     botConfig.telegramBot = "";
     await assert.rejects(() => startPhoneVerification({
-      userId: USER, phone: CLAIM, channel: "telegram",
+      userId: USER, phone: CLAIM, token: newVerificationToken(),
     }));
   });
 
   it("verifies when the message comes from the number that was claimed", async () => {
     const { token } = await startPhoneVerification({
-      userId: USER, phone: CLAIM, channel: "whatsapp",
+      userId: USER, phone: CLAIM, token: newVerificationToken(),
     });
     const resolved = await simulateBotConfirmation(token, { fromPhone: CLAIM });
     assert.equal(resolved.status, "verified");
@@ -949,7 +947,7 @@ describe("phone verification over a chat channel", () => {
     // The check the whole design exists for: otherwise anyone could claim any
     // number and message us from their own.
     const { token } = await startPhoneVerification({
-      userId: USER, phone: CLAIM, channel: "whatsapp",
+      userId: USER, phone: CLAIM, token: newVerificationToken(),
     });
     const resolved = await simulateBotConfirmation(token, { fromPhone: "+77019999999" });
     assert.equal(resolved.status, "mismatch");
@@ -968,7 +966,7 @@ describe("phone verification over a chat channel", () => {
 
   it("lets the member abandon their own attempt", async () => {
     const { token } = await startPhoneVerification({
-      userId: USER, phone: CLAIM, channel: "telegram",
+      userId: USER, phone: CLAIM, token: newVerificationToken(),
     });
     await abandonVerification(token);
     const attempt = await getPhoneVerification(token);

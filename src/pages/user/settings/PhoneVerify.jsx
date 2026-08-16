@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SettingsPage from "../../../components/SettingsPage.jsx";
 import { useAuth } from "../../../contexts/AuthContext.jsx";
 import {
-  CHANNELS,
   abandonVerification,
-  channelAvailable,
   forgetPendingVerification,
   hasVerifiedPhone,
+  newVerificationToken,
   readPendingVerification,
   simulateBotConfirmation,
   startPhoneVerification,
+  verificationAvailable,
   verificationLink,
   verificationPayload,
   watchVerification,
@@ -22,19 +22,22 @@ import { logger } from "../../../utils/logger.js";
 import { writeError } from "../../../utils/writeError.js";
 
 /**
- * Proving a phone number, by messaging a bot.
+ * Proving a phone number, by starting our Telegram bot.
  *
- * Two steps and no code to type. The reader enters the number they want on
- * their profile, picks WhatsApp or Telegram, and the app hands them a link that
- * opens that app with the message already written. Everything after that
- * happens somewhere else: they press send, the bot sees which number the
- * message came from, and — if it is the number they claimed — writes it to the
- * profile with the Admin SDK.
- *
- * So the third step of this screen is *waiting*, and it is a real state rather
+ * One number, one button, and then a wait. The reader types the number they
+ * want on their profile and taps through to Telegram, where the bot asks for
+ * their contact card; everything that decides the outcome happens over there.
+ * So the second half of this screen is *waiting*, and it is a real state rather
  * than a spinner over a guess: it is subscribed to the attempt document, and
- * the bot resolving it is what ends the wait. Nothing here polls the profile,
- * and nothing here can decide the answer.
+ * the bot resolving it is what ends the wait. Nothing here can decide the
+ * answer, which is the point — see firebase/phoneVerify.js.
+ *
+ * ── Why the button is a link ─────────────────────────────────────────────────
+ * `window.open` after an `await` is not a user gesture any more, and mobile
+ * Safari blocks it — which was a verification flow that did nothing at all on
+ * an iPhone. So the token is minted as soon as the number looks valid, the
+ * anchor carries the real `t.me` href before anyone taps it, and writing the
+ * attempt happens alongside the navigation rather than in front of it.
  *
  * Reached from the two places a number has to be real — joining a community and
  * changing the number afterwards — and `?next=` is where to go once it is done,
@@ -47,25 +50,36 @@ export default function PhoneVerify() {
 
   const next = params.get("next") || "/settings/profile";
   const changing = hasVerifiedPhone(user);
+  const available = verificationAvailable();
 
   const [phone, setPhone]     = useState(user?.phone || "");
-  const [pending, setPending] = useState(null);   // { token, payload, link, channel, phone }
-  const [status, setStatus]   = useState("");     // "", "waiting", "verified", "mismatch", "expired"
-  const [mismatch, setMismatch] = useState(null); // the number the message came from
+  const [pending, setPending] = useState(null);   // { token, payload, link, phone }
+  const [status, setStatus]   = useState("");     // "" | "waiting" | "verified" | "mismatch" | "expired"
+  const [mismatch, setMismatch] = useState(null);
   const [busy, setBusy]       = useState("");
   const [error, setError]     = useState("");
 
-  // Guards a double tap: opening an attempt writes a document and mints a token.
   const startingRef = useRef(false);
   // The live subscription, wherever it was opened from — resuming on mount and
   // starting a new attempt both go through `follow`, so there is one of these
   // and one place that closes it.
   const unsubscribeRef = useRef(() => {});
 
+  const e164 = toE164(phone);
+
+  /**
+   * The token for the attempt this tap will open, minted before the tap so the
+   * link is a real link. Tied to the number: change the number and the pending
+   * token changes with it, so a stale one can never be redeemed for a claim
+   * nobody made.
+   */
+  const token = useMemo(() => (e164 ? newVerificationToken() : null), [e164]);
+  const link = token ? verificationLink(token) : null;
+
   /** Subscribe to an attempt and let the bot's answer drive the screen. */
-  const follow = useCallback((token) => {
+  const follow = useCallback((forToken) => {
     unsubscribeRef.current?.();
-    unsubscribeRef.current = watchVerification(token, {
+    unsubscribeRef.current = watchVerification(forToken, {
       onResolved: async (attempt) => {
         if (attempt.status === "verified") {
           forgetPendingVerification();
@@ -79,7 +93,6 @@ export default function PhoneVerify() {
           setStatus("mismatch");
           return;
         }
-        // Cancelled elsewhere, or the window closed.
         forgetPendingVerification();
         setStatus("expired");
       },
@@ -87,52 +100,54 @@ export default function PhoneVerify() {
   }, [refresh]);
 
   // An attempt survives leaving the app — which this flow *requires*, since the
-  // reader has to switch to WhatsApp or Telegram and come back. Picking it up
-  // again on mount is what makes the return trip land back in the waiting state
-  // rather than on an empty form.
+  // reader has to switch to Telegram and come back. Picking it up again on
+  // mount is what makes the return trip land in the waiting state rather than
+  // on an empty form.
   useEffect(() => {
     const saved = readPendingVerification();
-    if (!saved?.token) return undefined;
-    setPending({ ...saved, payload: verificationPayload(saved.token),
-      link: verificationLink({ channel: saved.channel, token: saved.token }) });
+    if (!saved?.token) return;
+    setPending({
+      ...saved,
+      payload: verificationPayload(saved.token),
+      link: verificationLink(saved.token),
+    });
     setPhone(saved.phone || "");
     setStatus("waiting");
     follow(saved.token);
-    return undefined; // closing it is the unmount effect's job, below
   }, [follow]);
-
-  async function start(channel) {
-    if (startingRef.current) return;
-    const e164 = toE164(phone);
-    if (!e164) { setError(t.phoneInvalidError); return; }
-    if (changing && e164 === user.phone) { setError(t.phoneSameAsCurrent); return; }
-    if (!channelAvailable(channel)) { setError(t.phoneChannelUnavailable); return; }
-
-    startingRef.current = true;
-    setBusy(channel);
-    setError("");
-    try {
-      const started = await startPhoneVerification({ userId: user.id, phone: e164, channel });
-      setPending({ ...started, channel, phone: e164 });
-      setStatus("waiting");
-      setMismatch(null);
-      // Opened rather than navigated to: this tab has to stay alive to hear the
-      // answer. A same-tab navigation would tear the subscription down at
-      // exactly the moment it starts to matter.
-      if (started.link) window.open(started.link, "_blank", "noopener,noreferrer");
-      follow(started.token);
-    } catch (err) {
-      logger.error("phoneVerify.start", err?.message, { code: err?.code });
-      setError(writeError(err));
-    } finally {
-      startingRef.current = false;
-      setBusy("");
-    }
-  }
 
   // The one place a live subscription is closed: leaving the screen. `follow`
   // replaces it, `startOver` closes it, and this catches everything else.
   useEffect(() => () => unsubscribeRef.current?.(), []);
+
+  /**
+   * Open the attempt. Deliberately *not* awaited before the browser follows the
+   * anchor: the navigation to Telegram is the user's tap, and holding it back
+   * behind a round trip is what got it blocked. If the write fails the screen
+   * says so, and the bot would answer an unknown token with the same advice.
+   */
+  function handleStart(event) {
+    if (startingRef.current) return;
+    if (!e164) { event.preventDefault(); setError(t.phoneInvalidError); return; }
+    if (changing && e164 === user.phone) { event.preventDefault(); setError(t.phoneSameAsCurrent); return; }
+    if (!available || !link) { event.preventDefault(); setError(t.phoneChannelUnavailable); return; }
+
+    startingRef.current = true;
+    setError("");
+    setMismatch(null);
+    setPending({ token, payload: verificationPayload(token), link, phone: e164 });
+    setStatus("waiting");
+
+    startPhoneVerification({ userId: user.id, phone: e164, token })
+      .then(() => follow(token))
+      .catch((err) => {
+        logger.error("phoneVerify.start", err?.message, { code: err?.code });
+        setError(writeError(err));
+        setStatus("");
+        setPending(null);
+      })
+      .finally(() => { startingRef.current = false; });
+  }
 
   async function startOver() {
     if (pending?.token) await abandonVerification(pending.token);
@@ -188,12 +203,7 @@ export default function PhoneVerify() {
         </p>
 
         {status === "waiting" && pending ? (
-          <Waiting
-            pending={pending}
-            onStartOver={startOver}
-            onFakeBot={fakeBot}
-            busy={busy}
-          />
+          <Waiting pending={pending} onStartOver={startOver} onFakeBot={fakeBot} busy={busy} />
         ) : (
           <>
             {changing ? (
@@ -229,26 +239,32 @@ export default function PhoneVerify() {
                 className="input"
               />
             </label>
-            <p className="text-[12px] text-ink-500 leading-snug">{t.phoneChannelNote}</p>
+            <p className="text-[12px] text-ink-500 leading-snug">{t.phoneTelegramNote}</p>
 
             {error ? <p className="text-bad text-[13px]">{error}</p> : null}
 
-            <div className="space-y-2">
-              <ChannelButton
-                channel={CHANNELS.WHATSAPP}
-                label={t.phoneVerifyWhatsApp}
-                busy={busy === CHANNELS.WHATSAPP}
-                disabled={!phone.trim() || !!busy}
-                onClick={() => start(CHANNELS.WHATSAPP)}
-              />
-              <ChannelButton
-                channel={CHANNELS.TELEGRAM}
-                label={t.phoneVerifyTelegram}
-                busy={busy === CHANNELS.TELEGRAM}
-                disabled={!phone.trim() || !!busy}
-                onClick={() => start(CHANNELS.TELEGRAM)}
-              />
-            </div>
+            {/* An anchor, not a button: see the note at the top of the file. */}
+            <a
+              href={link || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleStart}
+              aria-disabled={!available || !e164}
+              className={
+                "w-full font-semibold rounded-xl py-3.5 transition active:scale-[0.99] " +
+                "flex items-center justify-center gap-2 text-white " +
+                (available && e164
+                  ? "bg-[#2AABEE] hover:bg-[#1E96D4]"
+                  : "bg-[#2AABEE]/40 pointer-events-none")
+              }
+            >
+              <TelegramIcon />
+              {t.phoneVerifyTelegram}
+            </a>
+
+            {!available ? (
+              <p className="text-[12px] text-warn leading-snug">{t.phoneChannelUnavailable}</p>
+            ) : null}
           </>
         )}
       </div>
@@ -256,50 +272,7 @@ export default function PhoneVerify() {
   );
 }
 
-/**
- * One channel, offered or explained.
- *
- * A channel whose bot is not configured is shown greyed with a reason rather
- * than hidden: "there used to be two buttons and now there is one" is a bug
- * report nobody can act on, and half the time the reason is a missing
- * environment variable in a deploy.
- */
-function ChannelButton({ channel, label, busy, disabled, onClick }) {
-  const available = channelAvailable(channel);
-  const brand =
-    channel === CHANNELS.WHATSAPP
-      ? "bg-[#25D366] hover:bg-[#1FBF5A] text-white"
-      : "bg-[#2AABEE] hover:bg-[#1E96D4] text-white";
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled || !available}
-        className={
-          "w-full font-semibold rounded-xl py-3.5 transition active:scale-[0.99] " +
-          "disabled:opacity-50 flex items-center justify-center gap-2 " + brand
-        }
-      >
-        <ChannelIcon channel={channel} />
-        {busy ? "…" : label}
-      </button>
-      {!available ? (
-        <p className="text-[12px] text-ink-500 mt-1">{t.phoneChannelUnavailable}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function ChannelIcon({ channel }) {
-  if (channel === CHANNELS.WHATSAPP) {
-    return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm0 18.15h-.01a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23 2.2 0 4.27.86 5.83 2.42a8.18 8.18 0 0 1 2.41 5.82c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.78.97-.15.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.44.13-.15.17-.25.25-.41.09-.17.04-.31-.02-.44-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.47c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.47-.07 1.47-.6 1.68-1.18.2-.58.2-1.07.14-1.18-.06-.1-.22-.16-.47-.28Z" />
-      </svg>
-    );
-  }
+function TelegramIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M21.94 4.3 18.9 19.1c-.23 1.02-.84 1.27-1.7.79l-4.7-3.46-2.27 2.18c-.25.25-.46.46-.94.46l.34-4.78 8.7-7.86c.38-.34-.08-.53-.59-.19L6.28 13.02l-4.63-1.45c-1-.31-1.02-1 .21-1.48L20.64 2.8c.84-.31 1.57.19 1.3 1.5Z" />
@@ -311,13 +284,11 @@ function ChannelIcon({ channel }) {
  * The wait.
  *
  * Everything visible here is a way back into the conversation the reader is
- * meant to be having somewhere else — the link again, and the exact text the
- * bot expects, because a deep link that opened the app without the message (an
- * old WhatsApp build, a desktop client) leaves them with nothing to send.
+ * meant to be having somewhere else — the link again, and the exact payload the
+ * bot expects, because a deep link that opened Telegram without it (a desktop
+ * client, an old build) leaves them with nothing to send.
  */
 function Waiting({ pending, onStartOver, onFakeBot, busy }) {
-  const isWhatsApp = pending.channel === CHANNELS.WHATSAPP;
-
   return (
     <div className="space-y-4">
       <div className="rounded-2xl bg-brand-50 border border-brand-200 px-4 py-3.5">
@@ -325,9 +296,7 @@ function Waiting({ pending, onStartOver, onFakeBot, busy }) {
           <span className="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse" />
           <p className="text-[13px] font-semibold text-brand-700">{t.phoneWaitingTitle}</p>
         </div>
-        <p className="text-[12px] text-brand-600 leading-relaxed mt-1">
-          {isWhatsApp ? t.phoneWaitingWhatsApp : t.phoneWaitingTelegram}
-        </p>
+        <p className="text-[12px] text-brand-600 leading-relaxed mt-1">{t.phoneWaitingTelegram}</p>
         <p className="text-[13px] font-medium mt-2">{pending.phone}</p>
       </div>
 
@@ -336,18 +305,13 @@ function Waiting({ pending, onStartOver, onFakeBot, busy }) {
           href={pending.link}
           target="_blank"
           rel="noopener noreferrer"
-          className={
-            "w-full font-semibold rounded-xl py-3.5 transition active:scale-[0.99] " +
-            "flex items-center justify-center gap-2 text-white " +
-            (isWhatsApp ? "bg-[#25D366]" : "bg-[#2AABEE]")
-          }
+          className="w-full font-semibold rounded-xl py-3.5 transition active:scale-[0.99] flex items-center justify-center gap-2 text-white bg-[#2AABEE]"
         >
-          <ChannelIcon channel={pending.channel} />
-          {isWhatsApp ? t.phoneOpenWhatsApp : t.phoneOpenTelegram}
+          <TelegramIcon />
+          {t.phoneOpenTelegram}
         </a>
       ) : null}
 
-      {/* The fallback for a link that opened the app without the text. */}
       <div className="rounded-2xl bg-ink-100/60 px-4 py-3">
         <p className="text-[12px] text-ink-500">{t.phoneManualHint}</p>
         <p className="font-mono text-[15px] font-semibold mt-1 break-all">{pending.payload}</p>

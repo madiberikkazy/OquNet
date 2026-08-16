@@ -106,8 +106,8 @@ server/             Phone verification webhooks (Express, deployed separately)
 `server/` is a small Express process, deployed apart from the app — on Render's
 free tier, which is why it is not a Cloud Function. It exists because of one
 rule: the security rules refuse `phone` and `phoneVerifiedAt` from every client,
-so a number can only become verified by a server that watched a WhatsApp or
-Telegram message arrive from it. See `server/README.md` for deploying it and
+so a number can only become verified by a server that watched a Telegram
+contact card arrive from it. See `server/README.md` for deploying it and
 `src/firebase/phoneVerify.js` for the app's half.
 
 ## MVP behavior

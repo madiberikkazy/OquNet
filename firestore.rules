@@ -139,9 +139,9 @@ service cloud.firestore {
      * the pickup and return screens hand it to somebody who is about to travel
      * to meet its owner. It used to be proven by SMS, and Firebase Auth put the
      * proven number into the caller's own ID token, so this rule could compare
-     * the two. That is gone: verification now happens in a WhatsApp or Telegram
-     * conversation with our bot, and the only party that learns which number the
-     * message came from is the bot's server.
+     * the two. That is gone: verification now happens in a Telegram
+     * conversation with our bot, and the only party that learns which number a
+     * shared contact card carries is the bot's server.
      *
      * So the rule is the strongest one available: **no client may set a phone
      * number, ever**. The write belongs to the webhook, through the Admin SDK,
@@ -593,14 +593,17 @@ service cloud.firestore {
     // ═══ phoneVerifications ═══
     //
     // One document per attempt to prove a phone number, keyed by the token that
-    // travels in the WhatsApp or Telegram message (see firebase/phoneVerify.js).
+    // travels in the Telegram deep link (see firebase/phoneVerify.js).
     //
     // Everything about this collection follows from one fact: the client cannot
     // be trusted about phone numbers, because it is the party being checked. So
     // it may say what it *claims* — that is what a pending attempt is — and it
     // may give up. It may not resolve one. The bot does that with the Admin SDK,
     // which bypasses these rules, after comparing the claim against the number
-    // the message actually arrived from.
+    // on the contact card Telegram vouches for.
+    //
+    // Reading its own attempt is what the waiting screen is subscribed to: the
+    // client watches this document and finishes the moment the bot stamps it.
     //
     // Reads are self-only and by id: the token is not a secret worth much (it
     // buys nothing without a message from the right number) but an attempt names
@@ -616,8 +619,7 @@ service cloud.firestore {
         && request.resource.data.status == 'pending'
         && request.resource.data.phone is string
         && request.resource.data.phone.size() > 0
-        && (request.resource.data.channel == 'whatsapp'
-            || request.resource.data.channel == 'telegram')
+        && request.resource.data.channel == 'telegram'
         // A window the client cannot widen. The bot checks its own clock too;
         // this stops an attempt being written that is redeemable for a year.
         && request.resource.data.expiresAt is number
