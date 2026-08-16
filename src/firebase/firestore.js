@@ -1518,13 +1518,13 @@ export async function completeReturnToOwner({ bookId, ownerId, requestId = null 
 // ---------- Phone verifications ----------
 //
 // One document per attempt to prove a phone number, keyed by the token that
-// travels in the WhatsApp or Telegram message. See firebase/phoneVerify.js for
-// the flow; what matters here is who writes what:
+// travels in the Telegram deep link. See firebase/phoneVerify.js for the flow;
+// what matters here is who writes what:
 //
 //   the client  creates the attempt (its own userId, the number it claims, the
 //               channel it picked) and may cancel it. That is all it can do.
-//   the bot     reads the attempt by token, compares the number the message
-//               actually came from against the claim, and — only then — writes
+//   the bot     reads the attempt by token, compares the number on the contact
+//               card Telegram vouches for against the claim, and only then writes
 //               the profile. It does that with the Admin SDK, which bypasses
 //               the rules entirely, because there is no client claim the rules
 //               could check any more: with Firebase SMS the proven number
