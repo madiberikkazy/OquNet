@@ -242,7 +242,8 @@ export default function Home() {
   }, [search]);
 
   return (
-    <MobileShell>
+    <MobileShell
+      header={
       <div className="pb-2">
         <SearchBar
           value={search}
@@ -290,7 +291,8 @@ export default function Home() {
           }
         />
       </div>
-
+      }
+    >
       {/* ── Search results ── */}
       {search ? (
         <div className="px-4 mt-2 space-y-3">
