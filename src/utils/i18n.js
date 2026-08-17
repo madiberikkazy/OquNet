@@ -545,6 +545,10 @@ const kz = {
   selectNotifications: "Таңдау",
   selectedCount: "таңдалды",
   markRead: "Оқылды деп белгілеу",
+  // Sent once, when the app is added to the home screen.
+  installedTitle: "OquNet басты экранға қосылды 🎉",
+  installedBody:
+    "Енді OquNet-ті басты экраннан бір рет басып ашасыз. Интернетсіз де жұмыс істейді, ал жаңалықтар туралы хабарламамен білдіріп отырамыз.",
 
   // Filter
   filterTitle: "Сүзгі",
@@ -1151,6 +1155,9 @@ const ru = {
   selectNotifications: "Выбрать",
   selectedCount: "выбрано",
   markRead: "Отметить прочитанным",
+  installedTitle: "OquNet добавлен на главный экран 🎉",
+  installedBody:
+    "Теперь OquNet открывается с главного экрана одним касанием. Приложение работает и без интернета, а о новом мы сообщим уведомлением.",
 
   // Filter
   filterTitle: "Фильтр",
@@ -1754,6 +1761,9 @@ const en = {
   selectNotifications: "Select",
   selectedCount: "selected",
   markRead: "Mark as read",
+  installedTitle: "OquNet is on your home screen 🎉",
+  installedBody:
+    "OquNet now opens straight from your home screen. It works without a connection, and we'll let you know here when something happens.",
 
   // Filter
   filterTitle: "Filter",

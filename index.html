@@ -103,6 +103,11 @@
         if (window.deferredInstallPrompt) {
           window.deferredInstallPrompt = null;
         }
+        // Recorded because the event does not replay: it can fire in the gap
+        // before React mounts, and src/utils/useInstallNotification.js — which
+        // is what turns this into the "OquNet is on your home screen" message —
+        // would otherwise never learn it happened.
+        window.appInstalled = true;
       });
     </script>
   </body>

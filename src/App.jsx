@@ -5,6 +5,7 @@ import OfflineIndicator from "./components/OfflineIndicator.jsx";
 import SystemBars from "./components/SystemBars.jsx";
 import { t } from "./utils/i18n.js";
 import { lazyRoute } from "./utils/lazyRoute.js";
+import { useInstallNotification } from "./utils/useInstallNotification.js";
 
 // Eager: the auth screens and the route gate. These are on the critical path
 // for a signed-out visitor, so splitting them would only add a round trip.
@@ -71,6 +72,9 @@ function RouteFallback() {
 
 export default function App() {
   useLang(); // re-render entire tree whenever language changes so all t.key proxies update
+  // Says hello once, when the app is added to the home screen. Here rather than
+  // on a screen, because the install can happen on any of them.
+  useInstallNotification();
   return (
     <>
       {/* Paints the OS strips above and below the app the colour of whatever
