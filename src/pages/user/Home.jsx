@@ -5,6 +5,7 @@ import SearchBar from "../../components/SearchBar.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
+import { useNotifications } from "../../contexts/NotificationContext.jsx";
 import LikeButton from "../../components/LikeButton.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
 import {
@@ -12,12 +13,14 @@ import {
   searchCommunities, searchUsers, togglePostLike,
 } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
+import { navIconSrc } from "../../utils/icons.js";
 import { formatPostDate } from "../../utils/time.js";
 import { t } from "../../utils/i18n.js";
 
 export default function Home() {
   const { user, refresh } = useAuth();
   const { community }     = useCommunity();
+  const { unreadCount }   = useNotifications();
 
   const [search, setSearch]         = useState("");
   const [foundUsers, setFoundUsers] = useState([]);
@@ -247,16 +250,43 @@ export default function Home() {
           placeholder="Пайдаланушы немесе қоғамдастық іздеу"
           showFilter={false}
           rightSlot={
-            /* Liked posts. It sits next to the search field rather than on the
-               profile because it belongs to the feed — it is where the hearts
-               tapped below end up. */
-            <Link
-              to="/profile/liked"
-              aria-label={t.likedPosts}
-              className="shrink-0 w-10 h-10 inline-flex items-center justify-center active:scale-90 transition"
-            >
-              <AppIcon name="heart" size={26} alt={t.likedPosts} />
-            </Link>
+            <>
+              {/* Liked posts. It sits next to the search field rather than on
+                  the profile because it belongs to the feed — it is where the
+                  hearts tapped below end up. */}
+              <Link
+                to="/profile/liked"
+                aria-label={t.likedPosts}
+                className="shrink-0 w-10 h-10 inline-flex items-center justify-center active:scale-90 transition"
+              >
+                <AppIcon name="heart" size={26} alt={t.likedPosts} />
+              </Link>
+
+              {/* The bell. It used to be a tab of its own; the conversations
+                  list has that place now, and notifications keep their badge
+                  up here — on the one screen everybody opens first. */}
+              <Link
+                to="/notifications"
+                aria-label={t.navNotification}
+                className="relative shrink-0 w-10 h-10 inline-flex items-center justify-center active:scale-90 transition"
+              >
+                <img
+                  src={navIconSrc("notification", false)}
+                  alt=""
+                  aria-hidden="true"
+                  width={24}
+                  height={24}
+                  style={{ width: 24, height: 24 }}
+                  className="shrink-0 select-none"
+                  draggable={false}
+                />
+                {unreadCount > 0 ? (
+                  <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                ) : null}
+              </Link>
+            </>
           }
         />
       </div>

@@ -8,6 +8,7 @@ import { CommunityProvider } from "./contexts/CommunityContext.jsx";
 import { ThemeProvider } from "./contexts/ThemeContext.jsx";
 import { LanguageProvider } from "./contexts/LanguageContext.jsx";
 import { NotificationProvider } from "./contexts/NotificationContext.jsx";
+import { ChatProvider } from "./contexts/ChatContext.jsx";
 import { queryClient } from "./lib/queryClient.js";
 import { queryPersister, shouldPersistQuery } from "./lib/queryPersister.js";
 import "./index.css";
@@ -39,9 +40,14 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <ThemeProvider>
               <AuthProvider>
                 <NotificationProvider>
-                  <CommunityProvider>
-                    <App />
-                  </CommunityProvider>
+                  {/* Above the router, because the unread badge on the tab bar
+                      is drawn on every screen — one subscription, not one per
+                      visit to the chats tab. */}
+                  <ChatProvider>
+                    <CommunityProvider>
+                      <App />
+                    </CommunityProvider>
+                  </ChatProvider>
                 </NotificationProvider>
               </AuthProvider>
             </ThemeProvider>

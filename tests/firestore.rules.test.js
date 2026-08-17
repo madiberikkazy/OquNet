@@ -25,6 +25,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
 
 const PROJECT_ID = "demo-oqunet-rules";
@@ -1835,6 +1836,250 @@ describe("readingSessions", () => {
     });
     await assertFails(updateDoc(doc(as(MEMBER_A), "readingSessions", "s1"), { seconds: 36_000 }));
     await assertFails(deleteDoc(doc(as(MEMBER_A), "readingSessions", "s1")));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Chats. Two people, one thread, an id that *is* the pair — and a messages
+// subcollection whose permission comes from that id rather than from a read of
+// the parent document. These tests are mostly about the second half: the id is
+// load-bearing, so every way of lying about it has to fail.
+describe("chats", () => {
+  // MEMBER_A and MEMBER_A2, sorted — the id the app derives for this pair.
+  const PAIR = [MEMBER_A, MEMBER_A2].sort();
+  const CHAT = `${PAIR[0]}__${PAIR[1]}`;
+
+  /** The chat document as the first message writes it, from `sender`. */
+  const opening = (sender) => {
+    const other = PAIR.find((id) => id !== sender);
+    return {
+      memberIds: PAIR,
+      lastMessage: { senderId: sender, text: "hello", at: serverTimestamp() },
+      updatedAt: serverTimestamp(),
+      unread: { [sender]: 0, [other]: 1 },
+    };
+  };
+
+  /** An existing thread with one message waiting for MEMBER_A2. */
+  async function seedChat() {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "chats", CHAT), {
+        memberIds: PAIR,
+        lastMessage: { senderId: MEMBER_A, text: "hello", at: Date.now() },
+        updatedAt: Date.now(),
+        unread: { [MEMBER_A]: 0, [MEMBER_A2]: 1 },
+      });
+      await setDoc(doc(db, "chats", CHAT, "messages", "m1"), {
+        senderId: MEMBER_A, text: "hello", createdAt: Date.now(),
+      });
+    });
+  }
+
+  describe("the conversation document", () => {
+    it("is created by its first message, and only by a member", async () => {
+      await assertSucceeds(setDoc(doc(as(MEMBER_A), "chats", CHAT), opening(MEMBER_A)));
+    });
+
+    it("cannot be opened on two other people's behalf", async () => {
+      await assertFails(setDoc(doc(as(MEMBER_B), "chats", CHAT), opening(MEMBER_A)));
+    });
+
+    it("must be named after exactly the two people in it", async () => {
+      // Right members, wrong id.
+      await assertFails(setDoc(doc(as(MEMBER_A), "chats", "some-other-id"), opening(MEMBER_A)));
+      // Right id, members in the wrong order — the sort is what makes the pair
+      // unordered, so an unsorted list is a different pair.
+      await assertFails(setDoc(doc(as(MEMBER_A), "chats", CHAT), {
+        ...opening(MEMBER_A), memberIds: [PAIR[1], PAIR[0]],
+      }));
+      // A third participant.
+      await assertFails(setDoc(doc(as(MEMBER_A), "chats", CHAT), {
+        ...opening(MEMBER_A), memberIds: [...PAIR, MEMBER_B],
+      }));
+    });
+
+    it("cannot be a chat with yourself", async () => {
+      const selfId = `${MEMBER_A}__${MEMBER_A}`;
+      await assertFails(setDoc(doc(as(MEMBER_A), "chats", selfId), {
+        memberIds: [MEMBER_A, MEMBER_A],
+        lastMessage: { senderId: MEMBER_A, text: "hi", at: serverTimestamp() },
+        updatedAt: serverTimestamp(),
+        unread: { [MEMBER_A]: 0 },
+      }));
+    });
+
+    it("cannot be stamped with a time the client chose", async () => {
+      await assertFails(setDoc(doc(as(MEMBER_A), "chats", CHAT), {
+        ...opening(MEMBER_A),
+        // Tomorrow — which would pin this thread to the top of the other
+        // person's list for a day.
+        updatedAt: new Date(Date.now() + 86_400_000),
+      }));
+    });
+
+    it("is readable only by its two members", async () => {
+      await seedChat();
+      await assertSucceeds(getDoc(doc(as(MEMBER_A), "chats", CHAT)));
+      await assertSucceeds(getDoc(doc(as(MEMBER_A2), "chats", CHAT)));
+      await assertFails(getDoc(doc(as(MEMBER_B), "chats", CHAT)));
+      await assertFails(getDoc(doc(anon(), "chats", CHAT)));
+    });
+
+    it("is listable only as your own conversations", async () => {
+      await seedChat();
+      await assertSucceeds(getDocs(query(
+        collection(as(MEMBER_A), "chats"), where("memberIds", "array-contains", MEMBER_A))));
+      // Somebody else's inbox, and the whole collection.
+      await assertFails(getDocs(query(
+        collection(as(MEMBER_B), "chats"), where("memberIds", "array-contains", MEMBER_A))));
+      await assertFails(getDocs(collection(as(MEMBER_A), "chats")));
+    });
+
+    it("moves its rollup when a member sends, one unread at a time", async () => {
+      await seedChat();
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+        lastMessage: { senderId: MEMBER_A2, text: "replying", at: serverTimestamp() },
+        updatedAt: serverTimestamp(),
+        unread: { [MEMBER_A]: 1, [MEMBER_A2]: 0 },
+      }));
+    });
+
+    it("refuses a send that inflates the other person's badge", async () => {
+      await seedChat();
+      await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+        lastMessage: { senderId: MEMBER_A2, text: "spam", at: serverTimestamp() },
+        updatedAt: serverTimestamp(),
+        unread: { [MEMBER_A]: 500, [MEMBER_A2]: 0 },
+      }));
+    });
+
+    it("refuses a preview attributed to the other person", async () => {
+      await seedChat();
+      await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+        lastMessage: { senderId: MEMBER_A, text: "words in your mouth", at: serverTimestamp() },
+        updatedAt: serverTimestamp(),
+        unread: { [MEMBER_A]: 1, [MEMBER_A2]: 0 },
+      }));
+    });
+
+    it("lets a member clear their own counter and nobody else's", async () => {
+      await seedChat();
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+        unread: { [MEMBER_A]: 0, [MEMBER_A2]: 0 },
+      }));
+      // MEMBER_A's own count was already 0; raising the other person's is not
+      // a read receipt, it is writing to somebody else's badge.
+      await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+        unread: { [MEMBER_A]: 7, [MEMBER_A2]: 0 },
+      }));
+    });
+
+    it("cannot be re-pointed at somebody else, or deleted", async () => {
+      await seedChat();
+      await assertFails(updateDoc(doc(as(MEMBER_A), "chats", CHAT), {
+        memberIds: [MEMBER_A, MEMBER_B],
+      }));
+      await assertFails(deleteDoc(doc(as(MEMBER_A), "chats", CHAT)));
+      await assertFails(deleteDoc(doc(as(MEMBER_A2), "chats", CHAT)));
+    });
+  });
+
+  // The rules above are each tested on their own; this is the write the app
+  // actually makes. It matters because sendMessage commits both documents in
+  // one batch, rewrites `memberIds` identically on every send, and moves the
+  // recipient's counter with an `increment` rather than a literal — three
+  // things that are invisible when each rule is poked at by hand.
+  describe("the app's own send", () => {
+    /** sendMessage(), exactly as src/firebase/firestore.js writes it. */
+    function send(db, senderId, recipientId, text) {
+      const batch = writeBatch(db);
+      batch.set(doc(collection(db, "chats", CHAT, "messages")), {
+        senderId, text, createdAt: serverTimestamp(),
+      });
+      batch.set(doc(db, "chats", CHAT), {
+        memberIds: PAIR,
+        lastMessage: { senderId, text, at: serverTimestamp() },
+        updatedAt: serverTimestamp(),
+        unread: { [recipientId]: increment(1), [senderId]: 0 },
+      }, { merge: true });
+      return batch.commit();
+    }
+
+    it("opens the conversation and keeps it going", async () => {
+      await assertSucceeds(send(as(MEMBER_A), MEMBER_A, MEMBER_A2, "first"));
+      await assertSucceeds(send(as(MEMBER_A), MEMBER_A, MEMBER_A2, "second"));
+      await assertSucceeds(send(as(MEMBER_A2), MEMBER_A2, MEMBER_A, "reply"));
+    });
+
+    it("is refused for a thread the sender is not in", async () => {
+      await assertFails(send(as(MEMBER_B), MEMBER_B, MEMBER_A, "not mine"));
+    });
+  });
+
+  describe("the messages", () => {
+    it("are readable and writable by the two people the id names", async () => {
+      await seedChat();
+      await assertSucceeds(getDocs(collection(as(MEMBER_A), "chats", CHAT, "messages")));
+      await assertSucceeds(setDoc(doc(as(MEMBER_A2), "chats", CHAT, "messages", "m2"), {
+        senderId: MEMBER_A2, text: "hello back", createdAt: serverTimestamp(),
+      }));
+    });
+
+    it("need no chat document to exist first", async () => {
+      // The batch that opens a conversation writes the message and the chat
+      // together, and a rule cannot see the other half of its own batch. If
+      // this failed, nobody could ever send a first message.
+      await assertSucceeds(setDoc(doc(as(MEMBER_A), "chats", CHAT, "messages", "m1"), {
+        senderId: MEMBER_A, text: "first", createdAt: serverTimestamp(),
+      }));
+    });
+
+    it("are closed to everybody else", async () => {
+      await seedChat();
+      await assertFails(getDocs(collection(as(MEMBER_B), "chats", CHAT, "messages")));
+      await assertFails(getDoc(doc(as(MEMBER_B), "chats", CHAT, "messages", "m1")));
+      await assertFails(setDoc(doc(as(MEMBER_B), "chats", CHAT, "messages", "m2"), {
+        senderId: MEMBER_B, text: "butting in", createdAt: serverTimestamp(),
+      }));
+      await assertFails(getDocs(collection(anon(), "chats", CHAT, "messages")));
+    });
+
+    it("cannot be signed with somebody else's name", async () => {
+      await assertFails(setDoc(doc(as(MEMBER_A), "chats", CHAT, "messages", "m2"), {
+        senderId: MEMBER_A2, text: "I never said this", createdAt: serverTimestamp(),
+      }));
+    });
+
+    it("cannot be empty, oversized, backdated or carry extra fields", async () => {
+      const path = doc(as(MEMBER_A), "chats", CHAT, "messages", "m2");
+      await assertFails(setDoc(path, { senderId: MEMBER_A, text: "", createdAt: serverTimestamp() }));
+      await assertFails(setDoc(path, {
+        senderId: MEMBER_A, text: "x".repeat(2001), createdAt: serverTimestamp(),
+      }));
+      await assertFails(setDoc(path, { senderId: MEMBER_A, text: "hi", createdAt: Date.now() }));
+      await assertFails(setDoc(path, {
+        senderId: MEMBER_A, text: "hi", createdAt: serverTimestamp(), readBy: [MEMBER_A2],
+      }));
+    });
+
+    it("cannot be reached through an id that names three people", async () => {
+      const wide = `${MEMBER_A}__${MEMBER_A2}__${MEMBER_B}`;
+      await assertFails(setDoc(doc(as(MEMBER_A), "chats", wide, "messages", "m1"), {
+        senderId: MEMBER_A, text: "group chat?", createdAt: serverTimestamp(),
+      }));
+      await assertFails(getDocs(collection(as(MEMBER_A), "chats", wide, "messages")));
+    });
+
+    it("are immutable once sent", async () => {
+      await seedChat();
+      await assertFails(updateDoc(doc(as(MEMBER_A), "chats", CHAT, "messages", "m1"), {
+        text: "something else entirely",
+      }));
+      await assertFails(deleteDoc(doc(as(MEMBER_A), "chats", CHAT, "messages", "m1")));
+      await assertFails(deleteDoc(doc(as(MEMBER_A2), "chats", CHAT, "messages", "m1")));
+    });
   });
 });
 

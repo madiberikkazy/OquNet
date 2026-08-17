@@ -36,6 +36,14 @@ export const qk = {
   notifications: {
     forUser: (userId) => ["notifications", userId],
   },
+  chats: {
+    all: ["chats"],
+    // The people in the reader's conversation list, fetched as one batch keyed
+    // on the set of ids. The chats themselves are a live subscription and never
+    // pass through this cache — only the profiles behind them do, which change
+    // far more slowly than the messages do.
+    peers: (idsKey) => ["chats", "peers", idsKey],
+  },
   ratings: {
     forBook: (bookId) => ["ratings", bookId],
     byUser: (bookId, userId) => ["ratings", bookId, "byUser", userId],

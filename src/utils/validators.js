@@ -18,6 +18,10 @@ export const LIMITS = Object.freeze({
   ADDRESS_MAX: 160,
   DESCRIPTION_MAX: 2000,
   REVIEW_MAX: 2000,
+  // One chat message. Long enough for a paragraph nobody wanted to split in
+  // two, short enough that a single document stays a message rather than an
+  // attachment — the chat list carries a preview of every one of these.
+  MESSAGE_MAX: 2000,
   PASSWORD_MIN: 6,
   PASSWORD_MAX: 128,
   YEAR_MIN: 1450,
