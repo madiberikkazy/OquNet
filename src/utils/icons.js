@@ -52,13 +52,14 @@ export const NAV_ICONS = Object.freeze({
     active:   "/drawable/notification_active.svg",
     inactive: "/drawable/notification_inactive.svg",
   },
-  // One file for both states, unlike every other tab: chat.svg is what the
-  // design supplies. Dropping a chat_active.svg beside it and naming it here is
-  // all it would take to give the selected state its own drawing — the label
-  // already changes colour on its own.
+  // Spelled `activ`/`inactiv` — no trailing "e" — because that is what the two
+  // files in public/drawable are actually called. Deliberately not "corrected"
+  // to match the tabs above: the filename here has to be the filename on disk,
+  // and tidying this one to `chat_active.svg` without renaming the file is a
+  // silently blank icon.
   chats: {
-    active:   "/drawable/chat.svg",
-    inactive: "/drawable/chat.svg",
+    active:   "/drawable/chat_activ.svg",
+    inactive: "/drawable/chat_inactiv.svg",
   },
   profile: {
     active:   "/drawable/profile_active.svg",

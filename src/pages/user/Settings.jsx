@@ -8,7 +8,7 @@ import { SettingsGroup, GroupDivider, SettingsRow } from "../../components/Setti
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useTheme } from "../../contexts/ThemeContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
-import { uploadImage } from "../../firebase/storage.js";
+import { IMAGE_SIZES, uploadImage } from "../../firebase/storage.js";
 import { logger } from "../../utils/logger.js";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
 import { useGoBack } from "../../utils/useGoBack.js";
@@ -46,13 +46,18 @@ export default function Settings() {
     setPhotoPreview(URL.createObjectURL(file));
     setPhotoBusy(true);
     try {
-      const photoURL = await uploadImage(file, `avatars/${user.id}_${Date.now()}`);
+      const photoURL = await uploadImage(file, `avatars/${user.id}_${Date.now()}`, {
+        maxDimension: IMAGE_SIZES.avatar,
+      });
       await updateProfile({ photoURL });
       setPhotoPreview(null); // the stored URL takes over from here
     } catch (err) {
       logger.error("settings.avatar", err?.message);
       setPhotoPreview(null);
-      setPhotoError(t.saveFailed);
+      // A picture too big to store names itself; everything else is the
+      // generic failure, because a raw Firestore message is English and no
+      // help to the person looking at it.
+      setPhotoError(err?.errorKey && t[err.errorKey] ? t[err.errorKey] : t.saveFailed);
     } finally {
       setPhotoBusy(false);
     }
