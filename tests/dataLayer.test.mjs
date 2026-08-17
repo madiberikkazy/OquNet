@@ -29,8 +29,9 @@ const {
   createJoinRequest, getRequestById, getPhoneVerification,
   openPickupRequest, getPickupRequest, getPendingPickupForUser,
   cancelPickupRequest, fulfillPickupRequest, createBorrowing, PickupBlockedError,
-  openReturnRequest, getReturnRequest, getPendingReturnForBook,
-  listPendingReturnsForUser, cancelReturnRequest, expireReturnRequest,
+  openReturnRequest, offerReturnToOwner, getReturnRequest, getPendingReturnForBook,
+  listPendingReturnsForUser, listPendingReturnsForHolder,
+  cancelReturnRequest, expireReturnRequest,
   completeReturnToOwner, transferBookHolder, getActiveBorrowingByBook,
   NEW_BOOK_WINDOW_DAYS,
 } = await import("../src/firebase/firestore.js");
@@ -960,6 +961,115 @@ describe("return requests", () => {
     assert.equal((await open(second)).created, true);
     assert.equal((await listPendingReturnsForUser(OWNER)).length, 2);
     assert.ok(await getPendingReturnForBook({ bookId: second, communityId: COMMUNITY }));
+  });
+
+  // The same handover, offered from the other end. Handing a book home used to
+  // be a single write with nobody on the other side of it; it is now the same
+  // coded request an owner opens, which is what these tests are really about —
+  // that the document is the same document.
+  describe("offered by the holder", () => {
+    const offer = (bookId) => offerReturnToOwner({ bookId, holderId: HOLDER });
+
+    it("opens a return the owner's own screens can read", async () => {
+      const bookId = await bookWithHolder();
+      const { request, created } = await offer(bookId);
+
+      assert.equal(created, true);
+      assert.equal(request.type, "return");
+      assert.equal(request.status, "pending");
+      // `requesterId` is whoever collects — the owner, either way round. This
+      // is what lets the owner's code screen find it by its usual query.
+      assert.equal(request.requesterId, OWNER);
+      assert.equal(request.holderId, HOLDER);
+      assert.equal(request.openedBy, "holder");
+      assert.match(request.returnCode, /^\d{4}$/);
+
+      assert.ok(await getReturnRequest(bookId, OWNER), "the owner must be able to find it");
+    });
+
+    it("blocks a pickup on the copy, exactly as the owner's own request does", async () => {
+      const bookId = await bookWithHolder();
+      await offer(bookId);
+      assert.ok(await getPendingReturnForBook({ bookId, communityId: COMMUNITY }));
+    });
+
+    it("is idempotent, and never mints a second code for one handover", async () => {
+      const bookId = await bookWithHolder();
+      const first = await offer(bookId);
+      const second = await offer(bookId);
+
+      assert.equal(second.created, false);
+      assert.equal(second.request.id, first.request.id);
+      assert.equal(second.request.returnCode, first.request.returnCode);
+    });
+
+    it("defers to a return the owner already opened", async () => {
+      // Two codes for one handover is one code that does not work.
+      const bookId = await bookWithHolder();
+      const owners = await open(bookId);
+      const offered = await offer(bookId);
+
+      assert.equal(offered.created, false);
+      assert.equal(offered.request.id, owners.request.id);
+      assert.equal(offered.request.returnCode, owners.request.returnCode);
+    });
+
+    it("is a no-op on a book already with its owner", async () => {
+      const { id } = await createBook({
+        name: "At Home", author: "Nobody", communityId: COMMUNITY,
+        ownerId: OWNER, genres: ["fiction"], pages: 300,
+      });
+      const result = await offerReturnToOwner({ bookId: id, holderId: OWNER });
+      assert.equal(result.alreadyHome, true);
+      assert.equal(result.request, null);
+    });
+
+    it("refuses somebody who is not holding the book", async () => {
+      const bookId = await bookWithHolder();
+      await assert.rejects(
+        () => offerReturnToOwner({ bookId, holderId: "someone-else" }),
+        /holder/
+      );
+    });
+
+    it("is listed to the holder, who cannot find it by requesterId", async () => {
+      // The leave screen's second list. A return names its collector in
+      // `requesterId`, so the query the leave screen already had was blind to
+      // exactly the errands its own rules block on.
+      const bookId = await bookWithHolder();
+      await offer(bookId);
+
+      assert.deepEqual(
+        (await listPendingReturnsForUser(HOLDER)).map((r) => r.bookId),
+        [],
+        "the holder is not the collector, so this query must not find it"
+      );
+      assert.deepEqual(
+        (await listPendingReturnsForHolder({ holderId: HOLDER, communityId: COMMUNITY }))
+          .map((r) => r.bookId),
+        [bookId]
+      );
+      // And the owner still finds it as the collector — one document, two views.
+      assert.deepEqual(
+        (await listPendingReturnsForUser(OWNER)).map((r) => r.bookId),
+        [bookId]
+      );
+    });
+
+    it("completes through the same call the owner's own return does", async () => {
+      const bookId = await bookWithHolder({ onLoan: true });
+      const { request } = await offer(bookId);
+
+      const { book, closedBorrowing } = await completeReturnToOwner({
+        bookId, ownerId: OWNER, requestId: request.id,
+      });
+
+      assert.equal(book.holderId, OWNER);
+      assert.equal(book.status, "available");
+      assert.equal(book.borrowerId, null);
+      assert.ok(closedBorrowing, "the live loan is closed by the handover");
+      assert.equal(await getPendingReturnForBook({ bookId, communityId: COMMUNITY }), null);
+    });
   });
 });
 

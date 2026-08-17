@@ -1,26 +1,20 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { listBooksHeldBy, returnBookToOwner, createNotification } from "../../firebase/firestore.js";
+import { listBooksHeldBy } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
-import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { isReadingByUser } from "../../utils/communityExit.js";
 import { isReservedForReturn } from "../../utils/bookReturn.js";
 import { t } from "../../utils/i18n.js";
-import { logger } from "../../utils/logger.js";
 
 export default function OwnedBooks() {
   const { user } = useAuth();
   const { community } = useCommunity();
   const navigate = useNavigate();
-
-  const [error, setError] = useState("");
-  const [returning, setReturning] = useState(null); // book id currently in flight
 
   // This list and the counter on the profile answer the same question, so they
   // are fetched the same way — same cache family, same staleness rules. When
@@ -42,50 +36,14 @@ export default function OwnedBooks() {
     },
   });
 
-  // Handing a book back to its owner. This is the action that clears the
-  // "books you hold" condition on the way out of the community, so it lives
-  // next to the list of exactly those books.
-  const returnMutation = useMutation({
-    mutationFn: async (book) => {
-      await returnBookToOwner({ bookId: book.id, fromUserId: user.id });
-      if (book.ownerId && book.ownerId !== user.id) {
-        await createNotification({
-          recipientId: book.ownerId,
-          title: t.bookReturnedNotifTitle,
-          body: t.bookReturnedNotifBody(
-            `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
-            book.name
-          ),
-          read: false,
-          type: "book-returned-to-owner",
-          bookId: book.id,
-          bookName: book.name,
-        });
-      }
-      return book.id;
-    },
-    onSuccess: (bookId) => {
-      // The book has left this user's hands, so it leaves this list too — and
-      // every other screen that names a holder.
-      invalidateHolderCaches(bookId);
-      booksQuery.refetch();
-    },
-    onError: (err, book) => {
-      logger.error("ownedBooks.returnToOwner", err?.message, {
-        code: err?.code, bookId: book?.id,
-      });
-      setError(err?.message || t.error);
-    },
-    onSettled: () => setReturning(null),
-  });
-
-  function handleReturn(book) {
-    if (returnMutation.isPending) return;
-    setError("");
-    setReturning(book.id);
-    returnMutation.mutate(book);
-  }
-
+  // Handing a book back to its owner is a handoff, not a button.
+  //
+  // This used to write the book home on the spot and tell its owner afterwards
+  // — the only handoff in the app with nobody on the other side of it, and the
+  // only one where a claim about the physical world ("you have your book back")
+  // was taken on one person's word. It now opens the same coded handover a
+  // pickup uses, run in this direction: the holder carries the code, the owner
+  // types it. See pages/user/ReturnToOwner.jsx.
   const books = booksQuery.data ?? [];
   const loading = booksQuery.isPending && !!user?.id && !!community?.id;
 
@@ -101,12 +59,6 @@ export default function OwnedBooks() {
         <h1 className="font-bold text-[18px]">{t.ownedBooks}</h1>
       </div>
 
-      {error ? (
-        <div className="mx-4 mb-3 rounded-xl bg-badSoft text-bad text-[13px] px-3 py-2">
-          {error}
-        </div>
-      ) : null}
-
       {loading ? (
         <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
       ) : books.length === 0 ? (
@@ -116,7 +68,6 @@ export default function OwnedBooks() {
           {books.map((book) => {
             const isOwn = book.ownerId === user?.id;
             const isReading = isReadingByUser(book, user?.id);
-            const busy = returning === book.id;
             return (
               <li key={book.id} className="py-3">
                 <div
@@ -160,11 +111,10 @@ export default function OwnedBooks() {
                   </button>
                 ) : (
                   <button
-                    onClick={() => handleReturn(book)}
-                    disabled={busy || returnMutation.isPending}
-                    className="mt-2 w-full py-2 rounded-xl bg-brand-500 text-white text-[13px] font-semibold active:scale-[0.99] transition disabled:opacity-60"
+                    onClick={() => navigate(`/books/${book.id}/return`)}
+                    className="mt-2 w-full py-2 rounded-xl bg-brand-500 text-white text-[13px] font-semibold active:scale-[0.99] transition"
                   >
-                    {busy ? "…" : t.returnToOwner}
+                    {t.returnToOwner}
                   </button>
                 )}
               </li>

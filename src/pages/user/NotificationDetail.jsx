@@ -403,6 +403,20 @@ export default function NotificationDetail() {
           </div>
         ) : null}
 
+        {/* ── Somebody wants to hand a book back ──
+            The owner's way into the code screen. This notification deliberately
+            carries no digits — the owner is the one who types them, and a code
+            posted to the person entering it would confirm nothing — so the
+            button is the whole point of the message. */}
+        {notification.type === "return-offer" && notification.bookId ? (
+          <button
+            onClick={() => navigate(`/books/${notification.bookId}/return/confirm`)}
+            className="btn-primary"
+          >
+            {t.returnOfferConfirmAction}
+          </button>
+        ) : null}
+
         {/* ── Join / leave request: the admin's decision ── */}
         {decidable ? (
           <div className="space-y-3">

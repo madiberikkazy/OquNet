@@ -650,12 +650,30 @@ export function normalizeJoinRequest(payload) {
 // returned to its owner?" without being able to read every request in the
 // database.
 
+/**
+ * Which end of the handover opened it.
+ *
+ * The two are the same document on purpose — `requesterId` is whoever collects
+ * either way, so every screen and every query downstream reads one shape. This
+ * is the one place they have to differ, and it is about who may call the thing
+ * off: an owner asking for their property back is not something the person
+ * holding it gets to cancel, while an offer to hand a book over is exactly the
+ * offer its maker may withdraw. The security rules turn on this field.
+ *
+ * Absent means "owner" — every request written before the holder could open one
+ * was the owner's, and the rules read it with that default.
+ */
+export const RETURN_OPENED_BY = Object.freeze(["owner", "holder"]);
+
 export const returnRequestSchema = Object.freeze({
   collection: "requests",
   required: Object.freeze([
-    "type", "status", "bookId", "requesterId", "holderId", "communityId", "returnCode",
+    "type", "status", "bookId", "requesterId", "holderId", "communityId",
+    "returnCode", "openedBy",
   ]),
-  defaults: Object.freeze({ bookName: "", requesterName: "", reservedBook: false }),
+  defaults: Object.freeze({
+    bookName: "", requesterName: "", reservedBook: false, openedBy: "owner",
+  }),
   serverOwned: SERVER_OWNED_FIELDS,
 });
 
@@ -667,6 +685,13 @@ export function normalizeReturnRequest(payload) {
   if (requesterId === holderId) {
     throw new SchemaError("requests: a return needs a holder other than the owner", {
       collection: "requests", field: "holderId",
+    });
+  }
+
+  const openedBy = payload.openedBy === undefined ? "owner" : str(payload.openedBy);
+  if (!RETURN_OPENED_BY.includes(openedBy)) {
+    throw new SchemaError(`requests: unknown openedBy "${payload.openedBy}"`, {
+      collection: "requests", field: "openedBy",
     });
   }
 
@@ -686,6 +711,7 @@ export function normalizeReturnRequest(payload) {
     // request without a code is a handover that cannot be confirmed.
     returnCode: str(payload.returnCode) || newPickupCode(),
     reservedBook: Boolean(payload.reservedBook),
+    openedBy,
   }, returnRequestSchema.required);
 }
 

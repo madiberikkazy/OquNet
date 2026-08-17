@@ -38,14 +38,24 @@ export function loanProgress(borrowing, book) {
  * reading means "open it", and the cover being the only hit target was the
  * mistake the old two-column layout made.
  */
-export default function CurrentBookCard({ borrowing, book, emptyAction }) {
+export default function CurrentBookCard({
+  borrowing,
+  book,
+  emptyAction,
+  // The empty state is the one part of this card that cannot be shared as-is
+  // between a reader's own profile and somebody else's: "open the library and
+  // borrow a book" is an instruction, and on a member profile it is addressed
+  // to a person who is not the one reading it. The card itself is identical.
+  emptyTitle = t.noReadingBook,
+  emptyHint = t.openLibraryHint,
+}) {
   const [broken, setBroken] = useState(false);
 
   if (!borrowing) {
     return (
       <div className="card px-4 py-5 text-center">
-        <p className="text-[14px] font-medium">{t.noReadingBook}</p>
-        <p className="text-[13px] text-ink-500 mt-1">{t.openLibraryHint}</p>
+        <p className="text-[14px] font-medium">{emptyTitle}</p>
+        {emptyHint ? <p className="text-[13px] text-ink-500 mt-1">{emptyHint}</p> : null}
         {emptyAction}
       </div>
     );

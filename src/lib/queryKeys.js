@@ -54,6 +54,12 @@ export const qk = {
     forBook: (bookId) => ["returnRequest", "forBook", bookId],
     /** Every return this member has open — one row per book on the leave screen. */
     pendingForUser: (userId) => ["returnRequest", "pendingForUser", userId],
+    /**
+     * The mirror: returns where this member is handing a book over rather than
+     * collecting it. A separate key because it is a separate query — a return
+     * names its collector in `requesterId`, so `pendingForUser` cannot see these.
+     */
+    byHolder: (holderId, communityId) => ["returnRequest", "byHolder", holderId, communityId],
   },
   profile: {
     stats: (userId, communityId) => ["profile", "stats", userId, communityId],

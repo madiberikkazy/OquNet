@@ -18,10 +18,40 @@ export const PROFILE_STATS = Object.freeze([
   { key: "held",      labelKey: "statHeld",      route: "/profile/owned" },
 ]);
 
-export default function ProfileStatsRow({ stats, onSelect }) {
+/**
+ * The same row, on somebody else's profile.
+ *
+ * The first three are the reader's own three, in the reader's own order, so a
+ * member profile and your own read as one design rather than two. `owned` is a
+ * fourth column here because it is the question a member profile exists to
+ * answer — what does this person have that I could ask to borrow — and there is
+ * nowhere else in the app to ask it.
+ *
+ * There is deliberately no `reading` column: the book somebody has open is shown
+ * by the CurrentBookCard below, which names it instead of counting it, exactly
+ * as on the reader's own profile.
+ *
+ * No `route`, either. These counters expand their list in place — a member's
+ * shelves have nothing to act on, so five read-only routes to render them would
+ * be five routes that only ever list.
+ */
+export const MEMBER_STATS = Object.freeze([
+  { key: "saved",     labelKey: "statSaved" },
+  { key: "completed", labelKey: "statCompleted" },
+  { key: "held",      labelKey: "statHeld" },
+  { key: "owned",     labelKey: "statOwned" },
+]);
+
+/**
+ * @param stats    the counts, keyed by stat key.
+ * @param columns  which columns to draw — `PROFILE_STATS` or `MEMBER_STATS`.
+ * @param onSelect called with the key; omit to make the row read-only.
+ * @param active   the key currently expanded, when the row drives a list below.
+ */
+export default function ProfileStatsRow({ stats, columns = PROFILE_STATS, onSelect, active = null }) {
   return (
     <div className="flex items-stretch">
-      {PROFILE_STATS.map((stat, i) => (
+      {columns.map((stat, i) => (
         <div key={stat.key} className="flex-1 flex items-stretch min-w-0">
           {/* Hairline between columns, not around them — so the row reads as one
               object and the first column has no rule to its left. */}
@@ -30,7 +60,11 @@ export default function ProfileStatsRow({ stats, onSelect }) {
             type="button"
             onClick={() => onSelect?.(stat.key)}
             disabled={!onSelect}
-            className="flex-1 min-w-0 px-1 py-1 rounded-xl transition active:scale-[0.97] disabled:active:scale-100"
+            aria-pressed={active ? active === stat.key : undefined}
+            className={
+              "flex-1 min-w-0 px-1 py-1 rounded-xl transition active:scale-[0.97] disabled:active:scale-100" +
+              (active === stat.key ? " bg-tint" : "")
+            }
           >
             <p className="text-[26px] font-bold leading-none tabular-nums">{stats?.[stat.key] ?? 0}</p>
             <p className="text-[12px] text-ink-500 mt-1.5 truncate">{t[stat.labelKey]}</p>
