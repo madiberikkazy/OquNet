@@ -61,8 +61,22 @@ export default function Chats() {
 
   return (
     <MobileShell>
-      <div className="px-4 pb-2">
+      <div className="px-4 pb-2 flex items-center justify-between gap-3">
         <h1 className="text-[22px] font-bold">{t.navChats}</h1>
+
+        {/* Starting a conversation with somebody you have never messaged. The
+            profile route stays the main one — you meet people through their
+            books — but a chat app whose only way to start a chat is to go and
+            find a profile first is a chat app missing a button. */}
+        <Link
+          to="/chats/new"
+          aria-label={t.newChat}
+          className="shrink-0 w-10 h-10 rounded-full bg-brand-500 text-white flex items-center justify-center active:scale-95 transition"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </Link>
       </div>
 
       {loading && rows.length === 0 ? (
@@ -80,7 +94,7 @@ export default function Chats() {
       ) : rows.length === 0 ? (
         <EmptyState
           title={t.noChats}
-          subtitle={t.noChatsHint}
+          subtitle={t.noChatsHintPlus}
           icon={
             <svg width="120" height="120" viewBox="0 0 24 24" className="text-brand-500" fill="currentColor">
               <path d="M12 3C6.99 3 3 6.36 3 10.5c0 2.3 1.23 4.35 3.16 5.72-.14 1.2-.6 2.3-1.35 3.2a.5.5 0 0 0 .46.83c1.9-.3 3.4-1.02 4.5-1.8.7.16 1.44.25 2.23.25 5.01 0 9-3.36 9-7.5S17.01 3 12 3Z" />
