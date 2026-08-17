@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useCallback } fr
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "./AuthContext.jsx";
 import { listNotifications } from "../firebase/firestore.js";
-import { sendNotification } from "../utils/notificationService.js";
+import { sendNotification, wasNotificationAnnounced } from "../utils/notificationService.js";
 import { qk } from "../lib/queryKeys.js";
 
 // React Query owns the notification list now. Benefits:
@@ -45,7 +45,11 @@ export function NotificationProvider({ children }) {
       notifications.filter((n) => !n.read).map((n) => n.id)
     );
     if (prevUnreadIdsRef.current.size > 0) {
-      const fresh = notifications.find((n) => !n.read && !prevUnreadIdsRef.current.has(n.id));
+      // Anything this tab already handed to the OS itself is skipped rather
+      // than announced twice — see markNotificationAnnounced.
+      const fresh = notifications.find(
+        (n) => !n.read && !prevUnreadIdsRef.current.has(n.id) && !wasNotificationAnnounced(n.id)
+      );
       if (fresh) {
         sendNotification(fresh.title, {
           body: fresh.body,

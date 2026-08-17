@@ -274,6 +274,64 @@ export async function showBrowserNotification(title, options = {}) {
   }
 }
 
+/**
+ * Ask for permission at a moment the browser is willing to accept.
+ *
+ * `requestNotificationPermission` above answers "no" the instant the browser
+ * refuses the question, which is the right answer for a settings toggle the
+ * user is looking at. This one is for the other case: the app has something to
+ * say *now* and has never been allowed to say it. Safari — including an
+ * installed PWA on iOS, where this app spends much of its life — only takes
+ * the question during a user gesture, and the app being added to the home
+ * screen is not one. So a refusal here is not final: the ask is parked on the
+ * next tap anywhere in the app, and the caller's `await` finishes then.
+ *
+ * Resolves false for a browser without notifications, and for a user who has
+ * said no — that answer is theirs to change in the site settings, and asking
+ * again would not reach them anyway.
+ */
+export async function ensureNotificationPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'default') return permission === 'granted';
+  } catch (err) {
+    // Thrown where a gesture is required. Not an error — just "not yet".
+    console.log('[OquNet] Notification permission needs a tap first:', err?.message ?? err);
+  }
+
+  return new Promise((resolve) => {
+    const ask = async () => {
+      try {
+        resolve((await Notification.requestPermission()) === 'granted');
+      } catch {
+        resolve(false);
+      }
+    };
+    window.addEventListener('pointerdown', ask, { once: true });
+  });
+}
+
+// Notifications this tab has already handed to the OS itself. The poll in
+// NotificationContext announces anything unread it has not seen before, and it
+// would see these when the document it was written from comes back from
+// Firestore — the same message, a second time. Ids only, and only for this
+// tab's lifetime: it is a de-dupe window, not a record of anything.
+const announcedIds = new Set();
+
+/** Claim a notification id as already announced to the OS. */
+export function markNotificationAnnounced(id) {
+  if (id) announcedIds.add(String(id));
+}
+
+/** Has this tab already shown the OS notification for this id? */
+export function wasNotificationAnnounced(id) {
+  return announcedIds.has(String(id));
+}
+
 // Send notification (both sound + browser notification)
 export async function sendNotification(title, options = {}) {
   try {
