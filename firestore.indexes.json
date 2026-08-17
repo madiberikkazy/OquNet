@@ -129,6 +129,15 @@
       ]
     },
     {
+      "_comment": "watchChatsForUser — the conversation list, most recent first.",
+      "collectionGroup": "chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "memberIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "_comment": "listReadingSessions — a reader's own sittings, newest first.",
       "collectionGroup": "readingSessions",
       "queryScope": "COLLECTION",

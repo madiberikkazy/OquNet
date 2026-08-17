@@ -795,6 +795,139 @@ export function normalizePostPatch(patch) {
   return out;
 }
 
+// ---------- chats ----------
+//
+// One conversation between two people, and the id *is* the pair: both uids,
+// sorted, joined by a separator. Nothing about that is cosmetic — it is what
+// makes a duplicate conversation impossible to create.
+//
+// The alternative, allocating a random id and searching for an existing chat
+// before writing one, has a race with itself: two people opening each other's
+// profile at the same moment both find nothing and both create a chat, and from
+// then on there are two threads and each of them can only see half the
+// conversation. No amount of client-side checking closes that window, because
+// the check and the write are two round trips. Deriving the id from the members
+// removes the question — both devices compute the same string, and the second
+// write is an update of the first document rather than a second document. The
+// rules enforce the same derivation, so it holds for a caller that is not this
+// app.
+//
+// Sorting is what makes the pair unordered: a chat is a relationship, not a
+// direction, and `a__b` must be the same conversation as `b__a`.
+//
+// Messages live in a subcollection, `chats/{chatId}/messages`. They are the
+// unbounded half of the model and belong under the document that scopes them:
+// a thread's history is read by opening one collection with one rule, and it
+// never has to be filtered out of everybody else's messages.
+//
+// What the chat document itself carries is exactly what the conversation list
+// needs — who is in it, the last thing said, when, and one unread counter per
+// member. That list is the most-read screen in a chat app, and this shape draws
+// it from one query with no fan-out: without the rollup, every row would need
+// its own query into that thread's messages.
+
+/** Joins the two uids in a chat id. */
+export const CHAT_ID_SEPARATOR = "__";
+
+export const chatSchema = Object.freeze({
+  collection: "chats",
+  required: Object.freeze(["memberIds", "unread"]),
+  defaults: Object.freeze({ lastMessage: null }),
+  serverOwned: SERVER_OWNED_FIELDS,
+});
+
+export const messageSchema = Object.freeze({
+  collection: "messages",
+  required: Object.freeze(["senderId", "text"]),
+  defaults: Object.freeze({}),
+  serverOwned: SERVER_OWNED_FIELDS,
+});
+
+/**
+ * The id of the conversation between two people.
+ *
+ * Deterministic and symmetric: same two ids in either order, same string. Throws
+ * for a single person talking to themselves — a self-chat is not a degenerate
+ * conversation to be tolerated, it is a bug upstream, and the rules refuse it
+ * too.
+ */
+export function chatIdFor(a, b) {
+  const first = requiredId("chats", "memberIds", a);
+  const second = requiredId("chats", "memberIds", b);
+
+  if (first === second) {
+    throw new SchemaError("chats: a chat needs two different people", {
+      collection: "chats", field: "memberIds", errorKey: "chatSelfError",
+    });
+  }
+  // An id containing the separator would make two different pairs collide on
+  // one string. Firebase uids never contain one; a caller inventing ids might.
+  if (first.includes(CHAT_ID_SEPARATOR) || second.includes(CHAT_ID_SEPARATOR)) {
+    throw new SchemaError(`chats: a user id may not contain "${CHAT_ID_SEPARATOR}"`, {
+      collection: "chats", field: "memberIds",
+    });
+  }
+
+  return [first, second].sort().join(CHAT_ID_SEPARATOR);
+}
+
+/** The two members of a chat, sorted — the same order the id is built from. */
+export function chatMemberIds(a, b) {
+  chatIdFor(a, b); // validates the pair, including the self-chat refusal
+  return [String(a).trim(), String(b).trim()].sort();
+}
+
+/**
+ * The person on the other side, from a chat document and the reader's own id.
+ *
+ * Returns null when the reader is not in `memberIds` — a corrupt row rather
+ * than a missing user, and one the list should skip instead of drawing.
+ */
+export function otherMemberId(chat, selfId) {
+  const members = Array.isArray(chat?.memberIds) ? chat.memberIds : [];
+  if (!selfId || !members.includes(selfId)) return null;
+  return members.find((id) => id !== selfId) ?? null;
+}
+
+/**
+ * The chat document as it is born, on the first message rather than on the
+ * first visit: an empty conversation is not one, and a chat created by merely
+ * opening somebody's profile would put a blank row in both people's lists.
+ *
+ * `unread` starts at zero for both and is moved by `sendMessage` — the sender
+ * has read everything they just wrote, and the recipient has one more waiting.
+ */
+export function normalizeNewChat({ senderId, recipientId } = {}) {
+  const memberIds = chatMemberIds(senderId, recipientId);
+  return assertRequired("chats", {
+    memberIds,
+    unread: { [memberIds[0]]: 0, [memberIds[1]]: 0 },
+    lastMessage: null,
+  }, chatSchema.required);
+}
+
+/**
+ * One message. Text only, and required to be text: a message with nothing in it
+ * is a mis-tap, and the composer refuses to send one for the same reason the
+ * rules do.
+ */
+export function normalizeNewMessage({ senderId, text } = {}) {
+  return assertRequired("messages", {
+    senderId: requiredId("messages", "senderId", senderId),
+    text: requiredText("messages", "text", text, LIMITS.MESSAGE_MAX, "chatEmptyMessage"),
+  }, messageSchema.required);
+}
+
+/** The preview the conversation list draws, kept on the chat document. */
+export function chatPreviewOf({ senderId, text }) {
+  return {
+    senderId: requiredId("chats", "lastMessage.senderId", senderId),
+    // Same clamp as the message itself: the preview is a copy of it, not a
+    // summary, and a list row truncates in CSS rather than in the database.
+    text: requiredText("chats", "lastMessage.text", text, LIMITS.MESSAGE_MAX),
+  };
+}
+
 // ---------- notifications ----------
 //
 // An envelope: `recipientId`, `title`, `type` and `read` are the same on every

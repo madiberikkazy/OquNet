@@ -1,0 +1,143 @@
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import MobileShell from "../../components/MobileShell.jsx";
+import Avatar from "../../components/Avatar.jsx";
+import EmptyState from "../../components/EmptyState.jsx";
+import { useAuth } from "../../contexts/AuthContext.jsx";
+import { useChats } from "../../contexts/ChatContext.jsx";
+import { getUserById, otherMemberId, unreadFor } from "../../firebase/firestore.js";
+import { qk } from "../../lib/queryKeys.js";
+import { formatChatStamp } from "../../utils/time.js";
+import { peerName } from "../../utils/chatPeer.js";
+import { t } from "../../utils/i18n.js";
+
+/**
+ * Every conversation the reader is in, most recent first.
+ *
+ * The rows come from one subscription (ChatContext) and the people in them from
+ * one batched fetch: a chat document names its members but not their names, and
+ * a profile lookup per row on every snapshot would be a fetch storm every time
+ * anybody typed anything. Keyed on the set of ids, so it re-runs when the
+ * *cast* changes and not when the messages do.
+ */
+export default function Chats() {
+  const { user } = useAuth();
+  const { chats, loading } = useChats();
+
+  // Rows whose other member cannot be identified are dropped rather than drawn:
+  // a chat the reader is somehow not in has no peer to name, and there is
+  // nothing useful to put in the row.
+  const rows = useMemo(
+    () =>
+      chats
+        .map((chat) => ({ chat, peerId: otherMemberId(chat, user?.id) }))
+        .filter((row) => !!row.peerId),
+    [chats, user?.id]
+  );
+
+  const peerIds = useMemo(
+    () => [...new Set(rows.map((r) => r.peerId))].sort(),
+    [rows]
+  );
+
+  const peersQuery = useQuery({
+    queryKey: qk.chats.peers(peerIds.join(",")),
+    enabled: peerIds.length > 0,
+    staleTime: 60_000,
+    queryFn: async () => {
+      // A profile that has been deleted resolves to null and stays in the map
+      // as one: the conversation still happened, and the row says so rather
+      // than vanishing. Settled per id so one missing profile cannot empty the
+      // whole list.
+      const entries = await Promise.all(
+        peerIds.map(async (id) => [id, await getUserById(id).catch(() => null)])
+      );
+      return new Map(entries);
+    },
+  });
+
+  const peers = peersQuery.data ?? new Map();
+
+  return (
+    <MobileShell>
+      <div className="px-4 pb-2">
+        <h1 className="text-[22px] font-bold">{t.navChats}</h1>
+      </div>
+
+      {loading && rows.length === 0 ? (
+        <ul className="mt-1">
+          {[1, 2, 3, 4].map((i) => (
+            <li key={i} className="flex gap-3 px-4 py-3.5 border-b border-ink-100 animate-pulse">
+              <div className="w-12 h-12 rounded-full bg-ink-100 shrink-0" />
+              <div className="flex-1 space-y-2 py-1">
+                <div className="h-3 w-32 rounded bg-ink-100" />
+                <div className="h-3 w-48 rounded bg-ink-100" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : rows.length === 0 ? (
+        <EmptyState
+          title={t.noChats}
+          subtitle={t.noChatsHint}
+          icon={
+            <svg width="120" height="120" viewBox="0 0 24 24" className="text-brand-500" fill="currentColor">
+              <path d="M12 3C6.99 3 3 6.36 3 10.5c0 2.3 1.23 4.35 3.16 5.72-.14 1.2-.6 2.3-1.35 3.2a.5.5 0 0 0 .46.83c1.9-.3 3.4-1.02 4.5-1.8.7.16 1.44.25 2.23.25 5.01 0 9-3.36 9-7.5S17.01 3 12 3Z" />
+            </svg>
+          }
+        />
+      ) : (
+        <ul>
+          {rows.map(({ chat, peerId }) => {
+            const peer = peers.get(peerId) ?? null;
+            const unread = unreadFor(chat, user?.id);
+            const mine = chat.lastMessage?.senderId === user?.id;
+
+            return (
+              <li key={chat.id}>
+                <Link
+                  to={`/chats/${peerId}`}
+                  className="flex items-center gap-3 px-4 py-3.5 border-b border-ink-100 active:bg-ink-100/40 transition"
+                >
+                  <Avatar src={peer?.photoURL} name={peerName(peer)} size={48} />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-[15px] truncate flex-1">
+                        {peerName(peer)}
+                      </p>
+                      <span className="text-[12px] text-ink-500 shrink-0 tabular-nums">
+                        {formatChatStamp(chat.lastMessage?.at ?? chat.updatedAt)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {/* One line, ellipsised — the preview is the whole message
+                          as it was sent, not a summary of it. */}
+                      <p
+                        className={
+                          "text-[13px] truncate flex-1 " +
+                          (unread > 0 ? "text-ink-900 font-medium" : "text-ink-500")
+                        }
+                      >
+                        {mine ? <span className="text-ink-500">{t.chatYouPrefix} </span> : null}
+                        {chat.lastMessage?.text ?? ""}
+                      </p>
+
+                      {unread > 0 ? (
+                        <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-brand-500 text-white text-[11px] font-bold flex items-center justify-center tabular-nums">
+                          {unread > 99 ? "99+" : unread}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </MobileShell>
+  );
+}

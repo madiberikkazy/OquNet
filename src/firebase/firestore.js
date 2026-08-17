@@ -13,7 +13,9 @@ import { holderIdOf } from "../utils/bookHolder.js";
 import { searchTerm } from "../utils/search.js";
 import {
   bookSearchFields,
+  chatIdFor, chatMemberIds, chatPreviewOf,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
+  normalizeNewChat, normalizeNewMessage,
   normalizeNewCommunity, normalizeCommunityPatch, normalizeNewPost, normalizePostPatch,
   normalizeJoinRequest, normalizeReturnRequest, newPickupCode,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
@@ -27,6 +29,9 @@ import { rankByWeeklyReading } from "../utils/readingProgress.js";
 // the same helper the data layer wrote it with, without a second import.
 export { toMillis } from "../utils/time.js";
 export { SchemaError } from "./schema.js";
+// A chat's id is a pure function of the two people in it, so the screens
+// compute it rather than looking it up — see the chats section below.
+export { chatIdFor, otherMemberId } from "./schema.js";
 
 // Wraps a Firestore operation. Re-throws so callers can decide what to do,
 // but always logs the failure first so it doesn't get swallowed silently.
@@ -1203,6 +1208,221 @@ export async function updateNotification(id, patch) {
 }
 export async function deleteNotification(id) {
   return deleteOne("notifications", id);
+}
+
+// ---------- Chats ----------
+//
+// Two collections, one of them nested: `chats/{chatId}` is the conversation and
+// `chats/{chatId}/messages` is everything said in it. schema.js explains why the
+// id is derived from the pair rather than allocated; what follows is what that
+// buys the code here — no "find or create" step anywhere, and no way for two
+// devices to open two threads for one pair of people.
+//
+// The chat document is a rollup of its own subcollection: who is in it, the last
+// thing said, when, and one unread counter per member. It exists so the
+// conversation list is a single query. Without it that screen would be one
+// query per row to find the last message and another to count the unread ones,
+// which is the shape that stops working at exactly the point the app starts
+// being used.
+//
+// The rollup is only true if it is written with the message it summarises, so
+// both go in one batch: either the message lands and the list moves, or neither
+// happens. This is the reason sendMessage does not lean on createOne.
+
+/** One page of a thread. Long enough that scrolling back is rare. */
+export const MESSAGE_PAGE_MAX = 200;
+
+/** Conversations per reader. The list is sorted by recency, so this is a tail. */
+export const CHAT_LIST_MAX = 100;
+
+/** The subcollection path for one thread's messages. */
+function messagesPath(chatId) {
+  return `chats/${chatId}/messages`;
+}
+
+export async function getChat(chatId) {
+  return getOne("chats", chatId);
+}
+
+/**
+ * Every conversation this reader is in, most recent first.
+ *
+ * `array-contains` on `memberIds` is what makes one query answer "my chats"
+ * without a second collection per user to maintain — and it is the same
+ * predicate the security rule requires, so the query and the permission to run
+ * it are the same statement.
+ *
+ * A subscription rather than a fetch: a chat list that only updated on a
+ * refresh is a chat list that is wrong, and the unread badge on the tab is read
+ * from exactly this data.
+ */
+export function watchChatsForUser(userId, { pageSize = CHAT_LIST_MAX, ...handlers } = {}) {
+  if (!userId) return () => {};
+  return watchCollection(
+    "chats",
+    {
+      where: [["memberIds", "array-contains", userId]],
+      orderByField: "updatedAt",
+      descending: true,
+      pageSize,
+    },
+    handlers
+  );
+}
+
+/**
+ * One thread, live.
+ *
+ * Ordered newest-first and capped, which is the only way to ask for "the last
+ * page" of an unbounded collection — a year-old conversation must not be
+ * downloaded in full to show what was said a minute ago. The screen reverses it
+ * for display; `listMessages` below returns it already reversed for callers
+ * that just want the history.
+ */
+export function watchMessages(chatId, { pageSize = MESSAGE_PAGE_MAX, ...handlers } = {}) {
+  if (!chatId) return () => {};
+  return watchCollection(
+    messagesPath(chatId),
+    { orderByField: "createdAt", descending: true, pageSize },
+    handlers
+  );
+}
+
+/** The last page of a thread, oldest first — reading order. */
+export async function listMessages(chatId, pageSize = MESSAGE_PAGE_MAX) {
+  if (!chatId) return [];
+  const rows = await getCollection(messagesPath(chatId), {
+    orderByField: "createdAt",
+    descending: true,
+    pageSize,
+  });
+  return rows.reverse();
+}
+
+/**
+ * Say something to somebody.
+ *
+ * Creates the conversation if this is the first thing said in it — a chat is
+ * born from a message, never from somebody opening a profile, which is what
+ * keeps empty threads out of both people's lists.
+ *
+ * The unread counter moves here rather than on the recipient's device, because
+ * the recipient may not have one running. It is an `increment`, not a read
+ * followed by a write: two messages arriving at once must count as two.
+ *
+ * @returns the stored message, with the id of the chat it landed in.
+ */
+export async function sendMessage({ senderId, recipientId, text } = {}) {
+  // Throws for a missing id, a self-chat, or an empty message — all of them
+  // before anything is written, and all of them the same refusals the rules make.
+  const chatId = chatIdFor(senderId, recipientId);
+  const memberIds = chatMemberIds(senderId, recipientId);
+  const message = normalizeNewMessage({ senderId, text });
+  const preview = chatPreviewOf({ senderId, text: message.text });
+
+  return runFs("sendMessage", async () => {
+    if (isFirebaseConfigured) {
+      const batch = writeBatch(db);
+      const messageRef = doc(collection(db, messagesPath(chatId)));
+
+      batch.set(messageRef, { ...message, createdAt: serverTimestamp() });
+      // A merge, so the same statement creates the conversation and updates it.
+      // `memberIds` is rewritten identically every time rather than only on
+      // create: the rules freeze it, so this can only ever be a no-op, and it
+      // means a chat document can never exist without one.
+      batch.set(doc(db, "chats", chatId), {
+        memberIds,
+        lastMessage: { ...preview, at: serverTimestamp() },
+        updatedAt: serverTimestamp(),
+        unread: {
+          [recipientId]: increment(1),
+          // Whoever is talking has read their own thread by definition. This
+          // also clears anything that arrived while they were typing, which is
+          // the behaviour every messaging app has and nobody notices.
+          [senderId]: 0,
+        },
+      }, { merge: true });
+
+      await batch.commit();
+      return { id: messageRef.id, chatId, ...message };
+    }
+
+    // One read/write for both documents, so the fallback is as atomic as a
+    // single-threaded browser can make it.
+    const data = readLS();
+    const messages = messagesPath(chatId);
+    data[messages] = data[messages] || [];
+    data.chats = data.chats || [];
+
+    // A strictly increasing stamp, not the raw clock. Two messages sent in the
+    // same millisecond — which is a keypress apart, not a contrivance — would
+    // otherwise tie, and a tie is broken by document id, which is random: the
+    // conversation would read back in an order nobody said it in. Firestore's
+    // own `serverTimestamp()` has microsecond resolution and does not need
+    // this; the fallback owns its clock, so it fixes it here.
+    const latest = data[messages].reduce((max, m) => Math.max(max, m.createdAt || 0), 0);
+    const now = Math.max(Date.now(), latest + 1);
+    const stored = { ...message, id: uid(), createdAt: now };
+    data[messages].push(stored);
+
+    const idx = data.chats.findIndex((c) => c.id === chatId);
+    const previous = idx >= 0 ? data.chats[idx] : null;
+    const chat = {
+      ...(previous ?? normalizeNewChat({ senderId, recipientId })),
+      id: chatId,
+      memberIds,
+      lastMessage: { ...preview, at: now },
+      updatedAt: now,
+      unread: {
+        ...(previous?.unread ?? {}),
+        [recipientId]: (previous?.unread?.[recipientId] ?? 0) + 1,
+        [senderId]: 0,
+      },
+    };
+    if (idx >= 0) data.chats[idx] = chat;
+    else data.chats.push(chat);
+
+    writeLS(data);
+    return { id: stored.id, chatId, ...message };
+  });
+}
+
+/**
+ * Mark a thread read for one member — what opening it does.
+ *
+ * Only that member's own counter is touched, and only by name: a dotted path so
+ * the other member's count survives, which a whole-map write would not. There
+ * is deliberately no per-message read flag. The counter is what the list draws
+ * and what the badge sums; read receipts are a feature nobody asked for, and
+ * they would cost a write per message displayed.
+ *
+ * Callers should skip this when the counter is already zero — see
+ * `unreadFor` — so opening a quiet chat costs nothing.
+ */
+export async function markChatRead({ chatId, userId } = {}) {
+  if (!chatId || !userId) return null;
+
+  return runFs("markChatRead", async () => {
+    if (isFirebaseConfigured) {
+      await updateDoc(doc(db, "chats", chatId), { [`unread.${userId}`]: 0 });
+      return { id: chatId };
+    }
+    const data = readLS();
+    const idx = (data.chats || []).findIndex((c) => c.id === chatId);
+    if (idx < 0) return null;
+    data.chats[idx] = {
+      ...data.chats[idx],
+      unread: { ...(data.chats[idx].unread ?? {}), [userId]: 0 },
+    };
+    writeLS(data);
+    return data.chats[idx];
+  });
+}
+
+/** How many messages in this chat this reader has not opened yet. */
+export function unreadFor(chat, userId) {
+  const count = chat?.unread?.[userId];
+  return typeof count === "number" && count > 0 ? count : 0;
 }
 
 // ---------- Requests, generally ----------

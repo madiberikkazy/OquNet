@@ -64,7 +64,24 @@ const kz = {
   navHome: "Басты",
   navBooks: "Кітаптар",
   navNotification: "Хабарламалар",
+  navChats: "Чаттар",
   navProfile: "Профиль",
+
+  // Chats
+  message: "Хабарлама",
+  noChats: "Әзірге чат жоқ",
+  noChatsHint: "Кез келген оқырманның профилін ашып, «Хабарлама» түймесін басыңыз.",
+  chatYouPrefix: "Сіз:",
+  chatPlaceholder: "Хабарлама жазыңыз...",
+  chatSend: "Жіберу",
+  chatSendFailed: "Хабарлама жіберілмеді. Қайта көріңіз.",
+  chatEmptyTitle: "Әңгіме әлі басталған жоқ",
+  chatEmptyHint: "Бірінші хабарламаны жазыңыз.",
+  chatEmptyMessage: "Хабарлама бос болмауы керек",
+  chatSelfError: "Өзіңізбен чат ашу мүмкін емес",
+  chatPeerGone: "Бұл аккаунт жойылған",
+  chatSendingMark: "…",
+  deletedUser: "Жойылған аккаунт",
 
   // Auth — login
   welcomeBack: "Қайта оралуыңызбен",
@@ -675,7 +692,24 @@ const ru = {
   navHome: "Главная",
   navBooks: "Книги",
   navNotification: "Уведомления",
+  navChats: "Чаты",
   navProfile: "Профиль",
+
+  // Chats
+  message: "Сообщение",
+  noChats: "Пока нет чатов",
+  noChatsHint: "Откройте профиль любого читателя и нажмите «Сообщение».",
+  chatYouPrefix: "Вы:",
+  chatPlaceholder: "Напишите сообщение...",
+  chatSend: "Отправить",
+  chatSendFailed: "Сообщение не отправлено. Попробуйте ещё раз.",
+  chatEmptyTitle: "Разговор ещё не начат",
+  chatEmptyHint: "Напишите первое сообщение.",
+  chatEmptyMessage: "Сообщение не может быть пустым",
+  chatSelfError: "Нельзя открыть чат с самим собой",
+  chatPeerGone: "Этот аккаунт удалён",
+  chatSendingMark: "…",
+  deletedUser: "Удалённый аккаунт",
 
   // Auth — login
   welcomeBack: "С возвращением",
@@ -1284,7 +1318,24 @@ const en = {
   navHome: "Home",
   navBooks: "Books",
   navNotification: "Inbox",
+  navChats: "Chats",
   navProfile: "Profile",
+
+  // Chats
+  message: "Message",
+  noChats: "No chats yet",
+  noChatsHint: "Open any reader's profile and tap Message.",
+  chatYouPrefix: "You:",
+  chatPlaceholder: "Write a message...",
+  chatSend: "Send",
+  chatSendFailed: "The message was not sent. Try again.",
+  chatEmptyTitle: "No messages yet",
+  chatEmptyHint: "Write the first one.",
+  chatEmptyMessage: "A message cannot be empty",
+  chatSelfError: "You cannot open a chat with yourself",
+  chatPeerGone: "This account has been deleted",
+  chatSendingMark: "…",
+  deletedUser: "Deleted account",
 
   // Auth — login
   welcomeBack: "Welcome back",

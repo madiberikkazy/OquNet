@@ -45,9 +45,20 @@ export const NAV_ICONS = Object.freeze({
     active:   "/drawable/books_active.svg",
     inactive: "/drawable/books_inactive.svg",
   },
+  // The bell is no longer a tab — it sits in the corner of the Home header now
+  // (see Home.jsx). The pair stays because the icon is still drawn there, and
+  // because the notifications screen is still a screen.
   notification: {
     active:   "/drawable/notification_active.svg",
     inactive: "/drawable/notification_inactive.svg",
+  },
+  // One file for both states, unlike every other tab: chat.svg is what the
+  // design supplies. Dropping a chat_active.svg beside it and naming it here is
+  // all it would take to give the selected state its own drawing — the label
+  // already changes colour on its own.
+  chats: {
+    active:   "/drawable/chat.svg",
+    inactive: "/drawable/chat.svg",
   },
   profile: {
     active:   "/drawable/profile_active.svg",

@@ -790,6 +790,130 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.recipientId == uid();
     }
 
+    // ═══ chats ═══
+    //
+    // A conversation between exactly two people. Its id is the two uids sorted
+    // and joined by '__', and that is enforced here rather than trusted from the
+    // client — it is what makes a second thread for the same pair impossible to
+    // create, and it makes "am I in this conversation?" a question the id itself
+    // answers.
+    //
+    // That last part is deliberate and load-bearing: every rule on the messages
+    // subcollection below reads membership out of the *path*, so sending or
+    // reading a message costs no get() at all. The alternative — get() the chat
+    // document on every message — would be one billed read per message written
+    // and, worse, would not work: a batch that creates the conversation and its
+    // first message in one commit cannot see its own uncommitted chat document.
+    //
+    // Nothing is lost by trusting the id. Only the two uids named in it can read
+    // or write anything beneath it, so the worst a caller can do by inventing a
+    // path is talk to themselves in a thread with no document and no list entry.
+
+    function chatPair(chatId) { return chatId.split('__'); }
+
+    // Named in the id, and the id names exactly two people. The size check is
+    // what stops 'a__b__c' from being a three-way thread nobody can moderate.
+    function inChatId(chatId) {
+      return signedIn()
+        && chatPair(chatId).size() == 2
+        && uid() in chatPair(chatId);
+    }
+
+    /** The member who is not the caller. */
+    function otherMember(members) {
+      return members[0] == uid() ? members[1] : members[0];
+    }
+
+    // The pair, the id and the document all saying the same thing. `<` rather
+    // than `!=` gives the sort *and* refuses a self-chat in one comparison: two
+    // equal ids cannot satisfy it.
+    function wellFormedChat(chatId) {
+      let members = request.resource.data.memberIds;
+      return members is list
+        && members.size() == 2
+        && members[0] is string && members[1] is string
+        && members[0] < members[1]
+        && chatId == members[0] + '__' + members[1]
+        && uid() in members
+        && request.resource.data.keys().hasOnly(
+             ['memberIds', 'lastMessage', 'updatedAt', 'unread'])
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // The preview on the conversation row. Written by whoever just spoke, and
+    // stamped by the server — a client-chosen time would let one member pin
+    // their thread to the top of the other's list for ever.
+    function freshPreview() {
+      return request.resource.data.lastMessage.senderId == uid()
+        && request.resource.data.lastMessage.text is string
+        && request.resource.data.lastMessage.text.size() > 0
+        && request.resource.data.lastMessage.at == request.time;
+    }
+
+    // Sending: the preview and the stamp move, the recipient's counter goes up
+    // by exactly one, and the sender's own goes to zero — they have read their
+    // own thread by definition. Bounded to +1 so a single write cannot inflate
+    // somebody's badge to a thousand.
+    function chatSend() {
+      let other = otherMember(resource.data.memberIds);
+      return touchesOnly(['lastMessage', 'updatedAt', 'unread'].toSet())
+        && request.resource.data.updatedAt == request.time
+        && freshPreview()
+        && request.resource.data.unread.get(uid(), 0) == 0
+        && request.resource.data.unread.get(other, 0) == resource.data.unread.get(other, 0) + 1;
+    }
+
+    // Opening the thread: a member zeroes their own counter and may not touch
+    // the other's — reading your messages is not a way to clear somebody else's.
+    function chatMarkRead() {
+      let other = otherMember(resource.data.memberIds);
+      return touchesOnly(['unread'].toSet())
+        && request.resource.data.unread.get(uid(), 0) == 0
+        && request.resource.data.unread.get(other, 0) == resource.data.unread.get(other, 0);
+    }
+
+    match /chats/{chatId} {
+      // Membership, and a query has to name it: the app lists chats with
+      // `where('memberIds', 'array-contains', uid)`, which is this rule stated
+      // as a filter.
+      allow get, list: if signedIn() && uid() in resource.data.memberIds;
+
+      // A conversation is born from its first message, so a create is one:
+      // the recipient's counter is exactly one, and the sender is the speaker.
+      allow create: if signedIn()
+        && wellFormedChat(chatId)
+        && freshPreview()
+        && request.resource.data.unread.get(uid(), 0) == 0
+        && request.resource.data.unread.get(otherMember(request.resource.data.memberIds), 0) == 1;
+
+      allow update: if inChatId(chatId)
+        && uid() in resource.data.memberIds
+        && frozen(['memberIds'].toSet())
+        && (chatSend() || chatMarkRead());
+
+      // No delete. One member removing the conversation would remove it for
+      // both, and there is no such button in the app — a thread that needs to
+      // go needs a moderation story this project does not have yet.
+    }
+
+    match /chats/{chatId}/messages/{messageId} {
+      allow get, list: if inChatId(chatId);
+
+      allow create: if inChatId(chatId)
+        && request.resource.data.keys().hasOnly(['senderId', 'text', 'createdAt'])
+        && request.resource.data.senderId == uid()
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 2000
+        && request.resource.data.createdAt == request.time;
+
+      // Said is said. A message cannot be edited into something the other
+      // person never received, and cannot be taken back after they have read
+      // it — which is also why the unread counter can be a plain number rather
+      // than something that has to be recomputed when history changes.
+      allow update, delete: if false;
+    }
+
     // Everything not matched above is already denied — this only says so out
     // loud. It grants nothing: `allow` is additive, and this one never fires.
     match /{document=**} {

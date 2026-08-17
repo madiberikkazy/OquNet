@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { useLang } from "../contexts/LanguageContext.jsx";
-import { useNotifications } from "../contexts/NotificationContext.jsx";
+import { useChats } from "../contexts/ChatContext.jsx";
 import { navIconSrc } from "../utils/icons.js";
 import { t } from "../utils/i18n.js";
 
@@ -17,12 +17,15 @@ import { t } from "../utils/i18n.js";
  */
 export default function BottomNav() {
   useLang(); // subscribe to language changes so labels re-render
-  const { unreadCount } = useNotifications();
+  // Unread *messages*, not notifications. The bell moved to the Home header and
+  // took its badge with it — see Home.jsx — because the tab it used to live in
+  // is the conversations tab now.
+  const { unreadTotal } = useChats();
 
   const items = [
     { to: "/", icon: "home", label: t.navHome },
     { to: "/books", icon: "books", label: t.navBooks },
-    { to: "/notifications", icon: "notification", label: t.navNotification, badge: true },
+    { to: "/chats", icon: "chats", label: t.navChats, badge: true },
     { to: "/profile", icon: "profile", label: t.navProfile },
   ];
 
@@ -56,9 +59,9 @@ export default function BottomNav() {
                       className="shrink-0 select-none"
                       draggable={false}
                     />
-                    {it.badge && unreadCount > 0 ? (
+                    {it.badge && unreadTotal > 0 ? (
                       <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                        {unreadCount > 9 ? "9+" : unreadCount}
+                        {unreadTotal > 9 ? "9+" : unreadTotal}
                       </span>
                     ) : null}
                   </span>

@@ -23,6 +23,8 @@ const PickupBook         = lazyRoute(() => import("./pages/user/PickupBook.jsx")
 const ReturnToOwner      = lazyRoute(() => import("./pages/user/ReturnToOwner.jsx"));
 const Notification       = lazyRoute(() => import("./pages/user/Notification.jsx"));
 const NotificationDetail = lazyRoute(() => import("./pages/user/NotificationDetail.jsx"));
+const Chats              = lazyRoute(() => import("./pages/user/Chats.jsx"));
+const Chat               = lazyRoute(() => import("./pages/user/Chat.jsx"));
 const Profile            = lazyRoute(() => import("./pages/user/Profile.jsx"));
 const OwnedBooks         = lazyRoute(() => import("./pages/user/OwnedBooks.jsx"));
 const ReadingTimer       = lazyRoute(() => import("./pages/user/ReadingTimer.jsx"));
@@ -111,6 +113,12 @@ export default function App() {
               <Route path="/books/add" element={<AddBook />} />
               <Route path="/books/:id/edit" element={<EditBook />} />
             </Route>
+
+            {/* Conversations. The thread is addressed by the other person's
+                id, not the chat's: every entry point already has one, and the
+                chat id is derived from the pair rather than looked up. */}
+            <Route path="/chats" element={<Chats />} />
+            <Route path="/chats/:userId" element={<Chat />} />
 
             <Route path="/notifications" element={<Notification />} />
             {/* Join and leave requests are decided here, by whoever the request
