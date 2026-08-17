@@ -3,7 +3,7 @@
 
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-  onSnapshot,
+  onSnapshot, increment,
   query, where, orderBy, limit, startAfter, serverTimestamp, Timestamp, writeBatch,
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "./config.js";
@@ -14,7 +14,7 @@ import { searchTerm } from "../utils/search.js";
 import {
   bookSearchFields,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
-  normalizeNewCommunity, normalizeCommunityPatch, normalizePostPatch,
+  normalizeNewCommunity, normalizeCommunityPatch, normalizeNewPost, normalizePostPatch,
   normalizeJoinRequest, normalizeReturnRequest, newPickupCode,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
   normalizeNewReadingSession, normalizeReadingProgress,
@@ -190,6 +190,62 @@ async function getPage(name, { where: wheres = [], orderByField, descending = fa
 /** A whole (or capped) result set, for the queries that do not page. */
 async function getCollection(name, options) {
   return (await getPage(name, options)).rows;
+}
+
+/**
+ * The same query as `getCollection`, kept open.
+ *
+ * `onRows` is called with the first page and again every time the server's
+ * answer changes — a new document, a deleted one, or a field moving underneath
+ * one that is already on screen. That last case is the whole reason this exists:
+ * a like is a number on somebody else's post, and a screen that only ever read
+ * it once would show every other reader a total frozen at whatever it was when
+ * they opened the app.
+ *
+ * Real-time where there is a real database, and a poll where there is not —
+ * exactly the arrangement `watchPhoneVerification` documents. Firestore also
+ * reports this client's own pending writes before the server has acknowledged
+ * them, so a like is on screen in the same frame it was tapped, and disappears
+ * by itself if the write turns out to be refused.
+ *
+ * `onError` fires instead of `onRows` when the query is refused or its index is
+ * missing; a caller showing two of these must be able to keep the other one.
+ *
+ * @returns an unsubscribe function — call it on unmount, always.
+ */
+function watchCollection(name, options = {}, { onRows, onError, pollMs = 4000 } = {}) {
+  if (typeof onRows !== "function") return () => {};
+  const { where: wheres = [], orderByField, descending = false, pageSize } = options;
+
+  const fail = (err) => {
+    logger.error(`firestore.watch.${name}`, err?.message, { code: err?.code });
+    onError?.(err);
+  };
+
+  if (isFirebaseConfigured) {
+    const constraints = wheres.map(([f, op, v]) => where(f, op, v));
+    if (orderByField) constraints.push(orderBy(orderByField, descending ? "desc" : "asc"));
+    if (pageSize) constraints.push(limit(pageSize));
+    return onSnapshot(
+      query(collection(db, name), ...constraints),
+      (snap) => onRows(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      fail
+    );
+  }
+
+  let stopped = false;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const rows = await getCollection(name, options);
+      if (!stopped) onRows(rows);
+    } catch (err) {
+      if (!stopped) fail(err);
+    }
+  };
+  tick();
+  const id = setInterval(tick, pollMs);
+  return () => { stopped = true; clearInterval(id); };
 }
 
 async function getOne(name, id) {
@@ -801,7 +857,15 @@ export async function returnBookToOwner({ bookId, fromUserId }) {
 }
 
 // ---------- Posts ----------
-export async function createPost(payload) { return createOne("posts", payload); }
+//
+// Written through the schema like every other create in this file. It used to
+// be the one exception, which is exactly why it could produce a post with no
+// `isPublic` (invisible to everyone outside the community, silently) and no
+// `likeCount` (a total the feed had to invent). Both are now part of what a post
+// *is* — see `normalizeNewPost`.
+export async function createPost(payload) {
+  return createOne("posts", normalizeNewPost(payload));
+}
 
 /**
  * Edit a post. Only its author can, and only its title and body — the rules
@@ -840,6 +904,38 @@ export async function getPostsByIds(postIds, concurrency = 5) {
 }
 
 /**
+ * Move a post's like total by one, as a delta rather than as a number.
+ *
+ * This is the difference between a total everybody agrees on and a total that
+ * quietly loses likes. The old code read the counter, added one in JavaScript
+ * and wrote the result back: two people liking the same post within the same
+ * second both read 4, both wrote 5, and one of the likes was gone — with no
+ * error anywhere, because each write was individually valid. `increment()` is
+ * resolved by the server against whatever the stored value is at the moment it
+ * lands, so concurrent likes add up.
+ *
+ * The security rule sees the resolved value, not the sentinel, so the ±1 bound
+ * still holds — which is what stops this from being a way to write an arbitrary
+ * number onto somebody else's post.
+ */
+async function adjustPostLikeCount(postId, delta) {
+  return runFs("adjustPostLikeCount", async () => {
+    if (isFirebaseConfigured) {
+      await updateDoc(doc(db, "posts", postId), { likeCount: increment(delta) });
+      return;
+    }
+    // A single browser tab against its own localStorage: no second writer to
+    // race, so read-modify-write is the honest implementation of the same thing.
+    const data = readLS();
+    const idx = (data.posts || []).findIndex((r) => r.id === postId);
+    if (idx < 0) throw new Error(`adjustPostLikeCount: no post ${postId}`);
+    const stored = Number.isInteger(data.posts[idx].likeCount) ? data.posts[idx].likeCount : 0;
+    data.posts[idx] = { ...data.posts[idx], likeCount: Math.max(0, stored + delta) };
+    writeLS(data);
+  });
+}
+
+/**
  * Like or unlike a post.
  *
  * Two writes, and they are not interchangeable: `likedPostIds` on the profile
@@ -848,10 +944,15 @@ export async function getPostsByIds(postIds, concurrency = 5) {
  * total, kept because a feed cannot count a field it is not allowed to read
  * across every user.
  *
- * The profile is written first. If the counter write then fails (offline, a
- * rule refusing a stale delta), the user's own view of what they liked is still
- * correct and the total is merely one behind — the opposite order would show a
- * heart the profile does not remember.
+ * They are one action to the person who tapped, so they succeed or fail
+ * together. The counter failing used to be logged and swallowed: the profile
+ * kept the like, the screen kept its optimistic +1, and every *other* reader saw
+ * a total that was never written — the like was real to exactly one person.
+ * Now a refused counter puts the profile back and the failure reaches the
+ * caller, whose screen is the only thing that can undo what it drew.
+ *
+ * @returns `{ likedPostIds, likeDelta, changed }` — `likeDelta` is what the
+ *   total actually moved by, which is 0 when there was nothing to subtract.
  */
 export async function togglePostLike({ postId, userId, likedPostIds = [], liked }) {
   if (!postId || !userId) throw new Error("togglePostLike: missing postId or userId");
@@ -859,28 +960,38 @@ export async function togglePostLike({ postId, userId, likedPostIds = [], liked 
   const current = Array.isArray(likedPostIds) ? likedPostIds : [];
   const has = current.includes(postId);
   const next = liked ?? !has;
-  if (next === has) return { likedPostIds: current, changed: false };
+  if (next === has) return { likedPostIds: current, likeDelta: 0, changed: false };
 
   const updatedIds = next
     ? [postId, ...current.filter((id) => id !== postId)]
     : current.filter((id) => id !== postId);
 
-  await updateUser(userId, { likedPostIds: updatedIds });
-
-  // Read-modify-write rather than a blind set: the rules only accept a value
-  // one away from the stored one, so the count has to start from what is
-  // actually there — including posts written before likes existed, which have
-  // no counter at all.
-  try {
+  // Unliking is the one direction that can be refused outright: the rule will
+  // not take the counter below zero, so a post whose stored total is already 0
+  // — a legacy post with no counter, or one whose likes were lost to the race
+  // above — has nothing to subtract. Reading it first is cheaper than a denied
+  // write, and the write itself is still a delta, so this is a guard against
+  // the degenerate case rather than a read the increment depends on.
+  let delta = next ? 1 : -1;
+  if (!next) {
     const post = await getOne("posts", postId);
-    const currentCount = Number.isInteger(post?.likeCount) ? post.likeCount : 0;
-    const nextCount = Math.max(0, currentCount + (next ? 1 : -1));
-    await updateOne("posts", postId, { likeCount: nextCount });
-  } catch (err) {
-    logger.warn("firestore.togglePostLike.count", err?.message, { postId });
+    if (!Number.isInteger(post?.likeCount) || post.likeCount <= 0) delta = 0;
   }
 
-  return { likedPostIds: updatedIds, changed: true };
+  await updateUser(userId, { likedPostIds: updatedIds });
+
+  if (delta !== 0) {
+    try {
+      await adjustPostLikeCount(postId, delta);
+    } catch (err) {
+      await updateUser(userId, { likedPostIds: current }).catch((undoErr) => {
+        logger.error("firestore.togglePostLike.undo", undoErr?.message, { postId, userId });
+      });
+      throw err;
+    }
+  }
+
+  return { likedPostIds: updatedIds, likeDelta: delta, changed: true };
 }
 
 /** How many posts the discovery half of the Home feed reads. */
@@ -900,12 +1011,28 @@ export const PUBLIC_FEED_MAX = 60;
  * over one page of posts.
  */
 export async function listPublicPosts({ pageSize = PUBLIC_FEED_MAX } = {}) {
-  return getCollection("posts", {
+  return getCollection("posts", { ...publicPostsQuery(pageSize) });
+}
+
+function publicPostsQuery(pageSize) {
+  return {
     where: [["isPublic", "==", true]],
     orderByField: "createdAt",
     descending: true,
     pageSize,
-  });
+  };
+}
+
+/**
+ * The same discovery feed, kept open — see `watchCollection`.
+ *
+ * Home uses this rather than `listPublicPosts` so that a post published while
+ * somebody is looking at the feed arrives on its own, and so that a like landing
+ * on a post already on screen moves the number every reader can see. Both are
+ * the same mechanism: the query result changed, so the screen changed.
+ */
+export function watchPublicPosts({ pageSize = PUBLIC_FEED_MAX, ...handlers } = {}) {
+  return watchCollection("posts", publicPostsQuery(pageSize), handlers);
 }
 
 /**
@@ -936,12 +1063,22 @@ export async function syncPostVisibility(communityId, isPublic) {
  */
 export async function listPostsByCommunity(communityId, pageSize = 30) {
   if (!communityId) return [];
-  return getCollection("posts", {
+  return getCollection("posts", communityPostsQuery(communityId, pageSize));
+}
+
+function communityPostsQuery(communityId, pageSize) {
+  return {
     where: [["communityId", "==", communityId]],
     orderByField: "createdAt",
     descending: true,
     pageSize,
-  });
+  };
+}
+
+/** A community's noticeboard, kept open — the member's half of the Home feed. */
+export function watchPostsByCommunity(communityId, { pageSize = 100, ...handlers } = {}) {
+  if (!communityId) return () => {};
+  return watchCollection("posts", communityPostsQuery(communityId, pageSize), handlers);
 }
 
 // There is no global post feed, and there cannot be one: `posts` is readable

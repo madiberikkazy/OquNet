@@ -696,6 +696,46 @@ export function normalizeReturnRequest(payload) {
 // are what make it that post rather than a different one, and the security
 // rules freeze all four.
 
+export const postSchema = Object.freeze({
+  collection: "posts",
+  // `isPublic` is required rather than defaulted on purpose: it decides who can
+  // see the post, and the create rule refuses a post that does not carry it as
+  // a bool. Guessing a default here would be guessing at an audience.
+  required: Object.freeze(["communityId", "authorId", "body"]),
+  defaults: Object.freeze({ title: "", likeCount: 0 }),
+  serverOwned: SERVER_OWNED_FIELDS,
+});
+
+/**
+ * A new noticeboard entry.
+ *
+ * `likeCount` is written at birth rather than left absent. The security rule
+ * tolerates a missing counter — it reads `get('likeCount', 0)` — but the feed
+ * has to *show* a total to everybody looking at the post, and a field that only
+ * appears once somebody has liked it is a field every reader has to guess at.
+ * Zero is a number; nothing is not.
+ */
+export function normalizeNewPost(payload) {
+  requirePayload("posts", payload);
+
+  if (typeof payload.isPublic !== "boolean") {
+    throw new SchemaError("posts: isPublic must be a boolean", {
+      collection: "posts", field: "isPublic",
+    });
+  }
+
+  return assertRequired("posts", {
+    ...postSchema.defaults,
+    communityId: requiredId("posts", "communityId", payload.communityId),
+    authorId: requiredId("posts", "authorId", payload.authorId),
+    authorName: clampText(payload.authorName, LIMITS.NAME_MAX),
+    title: clampText(payload.title, LIMITS.NAME_MAX),
+    body: requiredText("posts", "body", payload.body, LIMITS.DESCRIPTION_MAX, "fillAllFields"),
+    isPublic: payload.isPublic,
+    likeCount: 0,
+  }, postSchema.required);
+}
+
 const POST_PATCH_FIELDS = Object.freeze({
   // The text is the post, so it is the field that may not be emptied. `title`
   // is here only for the posts written when it was the required one; nothing

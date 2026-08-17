@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
@@ -8,7 +8,7 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import LikeButton from "../../components/LikeButton.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
 import {
-  listPostsByCommunity, listPublicPosts, getCommunity,
+  watchPostsByCommunity, watchPublicPosts, getCommunity,
   searchCommunities, searchUsers, togglePostLike,
 } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
@@ -19,14 +19,17 @@ export default function Home() {
   const { user, refresh } = useAuth();
   const { community }     = useCommunity();
 
-  const [feed, setFeed]             = useState([]);   // enriched posts with communityMeta
-  const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState("");
   const [foundUsers, setFoundUsers] = useState([]);
   const [foundComs, setFoundComs]   = useState([]);
 
-  // The feed is two shelves, in this order: everything from the community the
-  // user belongs to, then everything public from the rest.
+  const communityId = user?.communityId ?? null;
+
+  // ── The feed ────────────────────────────────────────────────────────────────
+  //
+  // Two shelves, in this order: everything from the community the user belongs
+  // to, then everything public from the rest. Everyone signed in gets the second
+  // shelf, member of anything or not — a public community's notices are public.
   //
   // It is two queries because it has to be. A single query cannot say "mine OR
   // public" — Firestore has no OR across different fields with one sort — and
@@ -37,78 +40,160 @@ export default function Home() {
   // The two overlap whenever the user's community is public, so the second list
   // is filtered against the first by id.
   //
-  // A failure in one shelf must not empty the other: `allSettled` means a user
-  // with no community still gets discovery, and a discovery query that trips an
-  // index still leaves the member's own noticeboard intact.
+  // Both are subscriptions rather than one-shot reads. That is what makes the
+  // rest of this screen true for more than an instant: a post published by
+  // somebody else appears without a reload, and a like landing on a post already
+  // on screen moves the number *every* reader sees, not just the one who tapped.
+  //
+  // A failure in one shelf must not empty the other, so each keeps its own
+  // loaded flag: a user with no community still gets discovery, and a discovery
+  // query that trips an index still leaves the member's own noticeboard intact.
+  const [mine, setMine]                       = useState([]);
+  const [discovered, setDiscovered]           = useState([]);
+  const [mineLoaded, setMineLoaded]           = useState(false);
+  const [discoveredLoaded, setDiscoveredLoaded] = useState(false);
+
   useEffect(() => {
-    const communityId = user?.communityId ?? null;
+    if (!communityId) { setMine([]); setMineLoaded(true); return; }
+    setMineLoaded(false);
+    return watchPostsByCommunity(communityId, {
+      onRows: (rows) => { setMine(rows); setMineLoaded(true); },
+      onError: (err) => {
+        logger.error("home.feed.mine", err?.message, { code: err?.code, communityId });
+        setMine([]);
+        setMineLoaded(true);
+      },
+    });
+  }, [communityId]);
+
+  useEffect(() => {
+    setDiscoveredLoaded(false);
+    return watchPublicPosts({
+      onRows: (rows) => { setDiscovered(rows); setDiscoveredLoaded(true); },
+      onError: (err) => {
+        logger.error("home.feed.public", err?.message, { code: err?.code });
+        setDiscovered([]);
+        setDiscoveredLoaded(true);
+      },
+    });
+  }, []);
+
+  const loading = !mineLoaded || !discoveredLoaded;
+
+  const ordered = useMemo(() => {
+    const seen = new Set(mine.map((p) => p.id));
+    return [...mine, ...discovered.filter((p) => !seen.has(p.id))];
+  }, [mine, discovered]);
+
+  // One fetch per distinct community in the feed, not per post — the header
+  // needs a name and a photo, and a page of posts is usually a handful of
+  // communities. Cached across snapshots too: a like changes the posts, never
+  // who published them, so re-fetching on every update would be one round trip
+  // per heart tapped anywhere in the feed. The one already in context is free.
+  const metaCache = useRef(new Map());
+  const [metaById, setMetaById] = useState(() => new Map());
+  const metaKey = useMemo(
+    () => [...new Set(ordered.map((p) => p.communityId).filter(Boolean))].sort().join(","),
+    [ordered]
+  );
+
+  useEffect(() => {
+    if (community?.id) metaCache.current.set(community.id, community);
+    const ids = metaKey ? metaKey.split(",") : [];
+    const missing = ids.filter((id) => !metaCache.current.has(id));
+    if (missing.length === 0) { setMetaById(new Map(metaCache.current)); return; }
+
     let cancelled = false;
-
     (async () => {
-      setLoading(true);
-      try {
-        const [mineResult, publicResult] = await Promise.allSettled([
-          communityId ? listPostsByCommunity(communityId, 100) : Promise.resolve([]),
-          listPublicPosts(),
-        ]);
-
-        if (mineResult.status === "rejected") {
-          logger.error("home.feed.mine", mineResult.reason?.message, {
-            code: mineResult.reason?.code, communityId,
-          });
-        }
-        if (publicResult.status === "rejected") {
-          logger.error("home.feed.public", publicResult.reason?.message, {
-            code: publicResult.reason?.code,
-          });
-        }
-
-        const mine = mineResult.status === "fulfilled" ? mineResult.value : [];
-        const discovered = publicResult.status === "fulfilled" ? publicResult.value : [];
-
-        const seen = new Set(mine.map((p) => p.id));
-        const others = discovered.filter((p) => !seen.has(p.id));
-        const ordered = [...mine, ...others];
-
-        // One fetch per distinct community in the feed, not per post — the
-        // header needs a name and a photo, and a page of posts is usually a
-        // handful of communities. The one already in context is free.
-        const ids = [...new Set(ordered.map((p) => p.communityId).filter(Boolean))];
-        const metaEntries = await Promise.all(
-          ids.map(async (id) => [
-            id,
-            community?.id === id ? community : await getCommunity(id).catch(() => null),
-          ])
-        );
-        if (cancelled) return;
-
-        const metaById = new Map(metaEntries);
-        setFeed(ordered.map((p) => ({ ...p, communityMeta: metaById.get(p.communityId) ?? null })));
-      } catch (err) {
-        if (!cancelled) {
-          logger.error("home.feed", err?.message, { code: err?.code, communityId });
-          setFeed([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      const entries = await Promise.all(
+        missing.map(async (id) => [id, await getCommunity(id).catch(() => null)])
+      );
+      if (cancelled) return;
+      entries.forEach(([id, meta]) => metaCache.current.set(id, meta));
+      setMetaById(new Map(metaCache.current));
     })();
     return () => { cancelled = true; };
-  }, [community, user?.communityId]);
+  }, [metaKey, community]);
+
+  const feed = useMemo(
+    () => ordered.map((p) => ({ ...p, communityMeta: metaById.get(p.communityId) ?? null })),
+    [ordered, metaById]
+  );
 
   // ── Likes ───────────────────────────────────────────────────────────────────
   //
-  // The heart flips on tap and the writes happen behind it. A like is not worth
+  // The heart flips on tap and the write happens behind it. A like is not worth
   // a spinner, and it is not worth a round trip before the UI admits it
   // happened — but it is worth being honest when the write fails, so a failure
   // puts the card back the way it was.
+  //
+  // The total is *not* patched into the feed by hand any more. The feed is a
+  // subscription now, and the number in it is the server's — which is the whole
+  // point, because a hand-patched total was only ever true on the device that
+  // tapped. What is kept here instead is a bump held over the top of the
+  // server's number until the server's number moves off `base`: Firestore
+  // reports its own pending write immediately, so that is usually within a
+  // frame, and the localStorage fallback — which can only poll — is why the
+  // overlay exists at all.
   const [likedIds, setLikedIds] = useState(() => new Set(user?.likedPostIds || []));
   useEffect(() => {
     setLikedIds(new Set(user?.likedPostIds || []));
   }, [user?.likedPostIds]);
 
+  const [pending, setPending] = useState(() => new Map());  // postId -> { delta, base }
+
+  function clearPending(postId) {
+    setPending((prev) => {
+      if (!prev.has(postId)) return prev;
+      const next = new Map(prev);
+      next.delete(postId);
+      return next;
+    });
+  }
+
+  // Drop a bump as soon as the server's own total has moved, or the post it
+  // belonged to has left the feed.
+  useEffect(() => {
+    setPending((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Map(ordered.map((p) => [p.id, p.likeCount || 0]));
+      const next = new Map(prev);
+      for (const [postId, held] of prev) {
+        if (!live.has(postId) || live.get(postId) !== held.base) next.delete(postId);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [ordered]);
+
+  // …and drop it regardless once the write has settled and the fallback has had
+  // time to poll. The rule above handles every ordinary case — under Firestore
+  // it fires in the same frame, because the SDK reports this client's own
+  // pending write — but it is a rule about the number *changing*, and there are
+  // two ways for it never to change: nothing to subtract, and two people
+  // cancelling each other out between the tap and the answer. Without this, one
+  // of those would leave a bump on screen and a heart that could not be tapped
+  // again until the screen was rebuilt.
+  const PENDING_GRACE_MS = 6000;
+  const releaseTimers = useRef(new Map());
+  useEffect(() => () => {
+    releaseTimers.current.forEach((timer) => clearTimeout(timer));
+    releaseTimers.current.clear();
+  }, []);
+
+  function releasePending(postId, afterMs) {
+    const timers = releaseTimers.current;
+    clearTimeout(timers.get(postId));
+    if (!afterMs) { timers.delete(postId); clearPending(postId); return; }
+    timers.set(postId, setTimeout(() => {
+      timers.delete(postId);
+      clearPending(postId);
+    }, afterMs));
+  }
+
   async function onLike(post) {
-    if (!user?.id) return;
+    // One in flight per post: a second tap before the first settles would stack
+    // two bumps on one `base` and undo only one of them.
+    if (!user?.id || pending.has(post.id)) return;
     const wasLiked = likedIds.has(post.id);
 
     setLikedIds((prev) => {
@@ -116,19 +201,22 @@ export default function Home() {
       if (wasLiked) next.delete(post.id); else next.add(post.id);
       return next;
     });
-    setFeed((list) => list.map((p) => (
-      p.id === post.id
-        ? { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (wasLiked ? -1 : 1)) }
-        : p
-    )));
+    setPending((prev) => new Map(prev).set(post.id, {
+      delta: wasLiked ? -1 : 1,
+      base: post.likeCount || 0,
+    }));
 
     try {
-      await togglePostLike({
+      const { likeDelta } = await togglePostLike({
         postId: post.id,
         userId: user.id,
         likedPostIds: user.likedPostIds || [],
         liked: !wasLiked,
       });
+      // A delta of zero means the total was already at zero and there was
+      // nothing to subtract: it will never move off `base`, so the bump comes
+      // down now rather than on the grace timer.
+      releasePending(post.id, likeDelta ? PENDING_GRACE_MS : 0);
       refresh();
     } catch (err) {
       logger.error("home.like", err?.message, { postId: post.id });
@@ -137,11 +225,7 @@ export default function Home() {
         if (wasLiked) next.add(post.id); else next.delete(post.id);
         return next;
       });
-      setFeed((list) => list.map((p) => (
-        p.id === post.id
-          ? { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (wasLiked ? 1 : -1)) }
-          : p
-      )));
+      releasePending(post.id, 0);
     }
   }
 
@@ -310,7 +394,7 @@ export default function Home() {
                         </span>
                         <LikeButton
                           liked={likedIds.has(p.id)}
-                          count={p.likeCount || 0}
+                          count={(p.likeCount || 0) + (pending.get(p.id)?.delta ?? 0)}
                           onClick={() => onLike(p)}
                           disabled={!user?.id}
                         />

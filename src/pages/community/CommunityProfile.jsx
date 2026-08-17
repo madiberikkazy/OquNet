@@ -74,15 +74,28 @@ export default function CommunityProfile() {
 
       // Step 2 — load the rest in the background; errors are swallowed gracefully.
       //
-      // The shelf and the noticeboard belong to the community and are readable
-      // only from inside it, so a visitor gets the header and the member list
-      // and nothing else. Skipping the two queries rather than letting them be
-      // refused keeps a perfectly ordinary page view out of the error log.
+      // The shelf belongs to the community and is readable only from inside it,
+      // so a visitor gets the header, the member list and the noticeboard and
+      // nothing else. Skipping a query rather than letting it be refused keeps a
+      // perfectly ordinary page view out of the error log.
+      //
+      // The noticeboard is *not* members-only, and withholding it here was the
+      // page contradicting both the security rule and the Home feed: a public
+      // community's posts are readable by anyone signed in, and they are already
+      // shown to strangers in discovery. A visitor who followed one of those
+      // posts here used to arrive at "Жазба жоқ".
+      //
+      // The query still asks by `communityId`, so it is refused wholesale if any
+      // one post of a public community is missing its `isPublic` flag — posts
+      // written before the flag existed. That is what
+      // `scripts/backfill-post-visibility.mjs` is for; until it has run, a
+      // visitor loses the tab rather than the page.
       const isMember = user?.communityId === id;
+      const canReadPosts = isMember || c?.isPrivate !== true;
       Promise.allSettled([
         listUsersByCommunity(id),
         isMember ? listBooks({ communityId: id }) : Promise.resolve({ items: [] }),
-        isMember ? listPostsByCommunity(id) : Promise.resolve([]),
+        canReadPosts ? listPostsByCommunity(id) : Promise.resolve([]),
       ]).then(([m, b, p]) => {
         if (m.status === "fulfilled") setMembers(m.value);
         if (b.status === "fulfilled") setBooks(b.value.items);
