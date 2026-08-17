@@ -24,6 +24,7 @@ const {
   createBook, listBooks, listNewBooks, listBooksHeldBy, listBooksOwnedBy,
   updateBook, getBook, createNotification, listNotifications,
   createUserDoc, getUserById, notifyCommunityMembers,
+  createPost, getPost, listPublicPosts, listPostsByCommunity, togglePostLike,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
   createJoinRequest, getRequestById, getPhoneVerification,
   openPickupRequest, getPickupRequest, getPendingPickupForUser,
@@ -61,6 +62,13 @@ const COMMUNITY = "c1";
 function backdate(id, ms) {
   const db = JSON.parse(store.get(LS_KEY));
   db.books.find((b) => b.id === id).createdAt = ms;
+  store.set(LS_KEY, JSON.stringify(db));
+}
+
+/** The same reach-past, for the feed queries that sort posts by their stamp. */
+function backdatePost(id, ms) {
+  const db = JSON.parse(store.get(LS_KEY));
+  db.posts.find((p) => p.id === id).createdAt = ms;
   store.set(LS_KEY, JSON.stringify(db));
 }
 
@@ -315,6 +323,134 @@ describe("notifications", () => {
     const rows = await listNotifications("u1");
     assert.deepEqual(rows.map((n) => n.title), ["n4", "n3", "n2", "n1", "n0"]);
     assert.equal((await listNotifications("u1", 2)).length, 2);
+  });
+});
+
+// The Home feed reads two things off a post that nothing used to guarantee were
+// there: `isPublic`, which decides whether anybody outside the community can see
+// it at all, and `likeCount`, which is the total every reader is shown. Both are
+// now part of what a post is.
+describe("posts", () => {
+  const ADMIN = "admin-1";
+
+  function newPost(over = {}) {
+    return {
+      communityId: COMMUNITY, authorId: ADMIN, authorName: "F L",
+      isPublic: true, body: "Кітап оқимыз", ...over,
+    };
+  }
+
+  it("is born with a visibility and a like total", async () => {
+    const { id } = await createPost(newPost());
+    const post = await getPost(id);
+    assert.equal(post.isPublic, true);
+    assert.equal(post.likeCount, 0, "a post nobody has liked has zero likes, not none");
+  });
+
+  it("refuses a post that does not say who may see it", async () => {
+    // The create rule wants `isPublic` as a bool. Refusing it here names the
+    // field; letting it through would mean a post that is silently invisible to
+    // everyone outside the community, or a write the server rejects.
+    await assert.rejects(() => createPost(newPost({ isPublic: undefined })), /isPublic/);
+    await assert.rejects(() => createPost(newPost({ isPublic: "yes" })), /isPublic/);
+    await assert.rejects(() => createPost(newPost({ body: "" })), /body/);
+  });
+
+  it("discovery returns every public post, newest first, and no private one", async () => {
+    const open = await createPost(newPost({ body: "Ашық" }));
+    const shut = await createPost(newPost({ communityId: "c2", isPublic: false, body: "Жабық" }));
+    const later = await createPost(newPost({ communityId: "c3", body: "Кейінірек" }));
+    backdatePost(open.id, 1000);
+    backdatePost(shut.id, 2000);
+    backdatePost(later.id, 3000);
+
+    const rows = await listPublicPosts();
+    assert.deepEqual(rows.map((p) => p.id), [later.id, open.id]);
+  });
+
+  it("a community's own board carries its private posts too", async () => {
+    const shown = await createPost(newPost({ isPublic: false }));
+    await createPost(newPost({ communityId: "c2" }));
+    const rows = await listPostsByCommunity(COMMUNITY);
+    assert.deepEqual(rows.map((p) => p.id), [shown.id]);
+  });
+});
+
+describe("post likes", () => {
+  const READER = "u-reader";
+  let postId;
+
+  beforeEach(async () => {
+    await createUserDoc({ id: READER, email: "r@example.com", nickname: "reader" });
+    const post = await createPost({
+      communityId: COMMUNITY, authorId: "admin-1", authorName: "F L",
+      isPublic: true, body: "Кітап оқимыз",
+    });
+    postId = post.id;
+  });
+
+  it("moves the profile and the shared total together", async () => {
+    const { likedPostIds, likeDelta } = await togglePostLike({
+      postId, userId: READER, likedPostIds: [], liked: true,
+    });
+
+    assert.deepEqual(likedPostIds, [postId]);
+    assert.equal(likeDelta, 1);
+    // The total is on the post, which is what makes it everybody's total rather
+    // than the liker's — a second reader loading the feed sees this number.
+    assert.equal((await getPost(postId)).likeCount, 1);
+    assert.deepEqual((await getUserById(READER)).likedPostIds, [postId]);
+  });
+
+  it("counts every reader, not the last one", async () => {
+    // Two people liking the same post is the case the old read-add-write lost:
+    // both read 0, both wrote 1, and one like vanished with no error anywhere.
+    await createUserDoc({ id: "u-other", email: "o@example.com", nickname: "other" });
+    await togglePostLike({ postId, userId: READER, likedPostIds: [], liked: true });
+    await togglePostLike({ postId, userId: "u-other", likedPostIds: [], liked: true });
+    assert.equal((await getPost(postId)).likeCount, 2);
+  });
+
+  it("gives the like back on unlike", async () => {
+    await togglePostLike({ postId, userId: READER, likedPostIds: [], liked: true });
+    const { likedPostIds, likeDelta } = await togglePostLike({
+      postId, userId: READER, likedPostIds: [postId], liked: false,
+    });
+
+    assert.deepEqual(likedPostIds, []);
+    assert.equal(likeDelta, -1);
+    assert.equal((await getPost(postId)).likeCount, 0);
+    assert.deepEqual((await getUserById(READER)).likedPostIds, []);
+  });
+
+  it("never takes the total below zero", async () => {
+    // A profile can claim a like the counter never recorded — a post from before
+    // likes existed, or one whose total was lost to the race above. The rules
+    // refuse a counter below zero, so there is nothing to subtract and the
+    // reported delta says so.
+    const { likeDelta } = await togglePostLike({
+      postId, userId: READER, likedPostIds: [postId], liked: false,
+    });
+    assert.equal(likeDelta, 0);
+    assert.equal((await getPost(postId)).likeCount, 0);
+  });
+
+  it("puts a repeat tap through as nothing at all", async () => {
+    await togglePostLike({ postId, userId: READER, likedPostIds: [], liked: true });
+    const again = await togglePostLike({
+      postId, userId: READER, likedPostIds: [postId], liked: true,
+    });
+    assert.equal(again.changed, false);
+    assert.equal((await getPost(postId)).likeCount, 1);
+  });
+
+  it("leaves the profile alone when the counter write is refused", async () => {
+    // The two writes are one action. Leaving the like on the profile after the
+    // total was refused is what used to make a like real to exactly one person.
+    await assert.rejects(() => togglePostLike({
+      postId: "no-such-post", userId: READER, likedPostIds: [], liked: true,
+    }));
+    assert.deepEqual((await getUserById(READER)).likedPostIds, []);
   });
 });
 

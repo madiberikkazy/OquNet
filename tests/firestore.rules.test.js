@@ -19,6 +19,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   query,
   serverTimestamp,
   setDoc,
@@ -1203,6 +1204,43 @@ describe("posts", () => {
       await assertSucceeds(updateDoc(doc(as(MEMBER_B), "users", MEMBER_B), {
         likedPostIds: ["open"],
       }));
+    });
+
+    // The app counts likes with `increment(±1)` rather than a number it worked
+    // out itself, so that two people liking the same post within the same second
+    // both land. That only works if the rules engine sees the *resolved* value
+    // rather than the sentinel — which is a thing reading the rule cannot
+    // settle, and the whole like path depends on.
+    describe("counted as a delta", () => {
+      it("an increment of one is accepted, in both directions", async () => {
+        await assertSucceeds(updateDoc(doc(as(MEMBER_B), "posts", "open"), {
+          likeCount: increment(1),
+        }));
+        await assertSucceeds(updateDoc(doc(as(MEMBER_B), "posts", "open"), {
+          likeCount: increment(-1),
+        }));
+      });
+
+      it("a bigger jump is still refused", async () => {
+        await assertFails(updateDoc(doc(as(MEMBER_B), "posts", "open"), {
+          likeCount: increment(5),
+        }));
+      });
+
+      it("an increment may not take the counter below zero", async () => {
+        // `closed` starts at 0. Its own member may like it, so this is the rule
+        // refusing -1 rather than refusing the caller — which is why the data
+        // layer checks the stored total before it subtracts.
+        await assertFails(updateDoc(doc(as(MEMBER_A), "posts", "closed"), {
+          likeCount: increment(-1),
+        }));
+      });
+
+      it("an outsider still may not touch a post they cannot read", async () => {
+        await assertFails(updateDoc(doc(as(MEMBER_B), "posts", "closed"), {
+          likeCount: increment(1),
+        }));
+      });
     });
   });
 });
