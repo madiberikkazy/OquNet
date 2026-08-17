@@ -67,7 +67,8 @@ export default function Chats() {
   const peers = peersQuery.data ?? {};
 
   return (
-    <MobileShell>
+    <MobileShell
+      header={
       <div className="px-4 pb-2 flex items-center justify-between gap-3">
         <h1 className="text-[22px] font-bold">{t.navChats}</h1>
 
@@ -85,7 +86,8 @@ export default function Chats() {
           </svg>
         </Link>
       </div>
-
+      }
+    >
       {loading && rows.length === 0 ? (
         <ul className="mt-1">
           {[1, 2, 3, 4].map((i) => (

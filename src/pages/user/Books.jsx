@@ -178,17 +178,22 @@ export default function Books() {
   const isInitialLoading = listQuery.isLoading && books.length === 0;
 
   return (
-    <MobileShell>
-      <div className="pb-2">
-        <SearchBar
-          value={search}
-          onChange={setSearch}
-          placeholder={t.searchPlaceholder}
-          onFilterClick={openFilter}
-          filterActive={isFilterActive}
-        />
-      </div>
-
+    <MobileShell
+      header={
+        <div className="pb-2">
+          <SearchBar
+            value={search}
+            onChange={setSearch}
+            placeholder={t.searchPlaceholder}
+            onFilterClick={openFilter}
+            filterActive={isFilterActive}
+          />
+        </div>
+      }
+    >
+      {/* The genre chips scroll away with the shelf rather than joining the
+          bar. They are what you are looking at, not what you are looking
+          with — and a two-storey sticky header eats a third of a phone. */}
       <GenreBar selected={genres} onChange={setGenres} />
 
       {status ? (

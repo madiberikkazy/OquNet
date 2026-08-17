@@ -53,6 +53,15 @@
      surface and the text on it flip together. */
   --tint:     #EDF1FB;
   --tint-ink: #1E3E87;
+
+  /* The sticky bar at the top of Home, Books and Chats.
+     Deliberately a token of its own rather than `--bg-base` at some opacity:
+     Tailwind's `/70` modifier cannot apply to a colour that arrives as a bare
+     `var()`, and the alpha here is load-bearing — it is what the blur has to
+     look through. 0.72 is where iOS sits: solid enough to read a title
+     against, sheer enough that you can see the content move underneath. */
+  --bg-header:       rgba(255, 255, 255, 0.72);
+  --header-hairline: rgba(15, 23, 36, 0.08);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -84,6 +93,11 @@
      the accent text lightened to match. */
   --tint:     #1B2537;
   --tint-ink: #9DBDF5;
+
+  /* Same bar in the dark. The hairline flips to light-on-dark, because a
+     black hairline over a near-black page is not a line, it is nothing. */
+  --bg-header:       rgba(13, 20, 32, 0.72);
+  --header-hairline: rgba(255, 255, 255, 0.08);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -105,6 +119,24 @@
    REUSABLE COMPONENT CLASSES
    ═══════════════════════════════════════════════════════════════════ */
 @layer components {
+  /* The iOS navigation bar: frosted glass rather than a painted strip.
+     `saturate` before `blur` is what stops the colours underneath washing out
+     to grey as they are smeared — it is the pairing Apple uses, and without it
+     a photo scrolling under the bar goes muddy. */
+  .app-header {
+    background: var(--bg-header);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--header-hairline);
+  }
+
+  /* Where there is no backdrop-filter there is no frosting, and a 72%-opaque
+     bar with the page showing through it is not a design, it is a bug. Those
+     browsers get the solid page colour instead. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .app-header { background: var(--bg-base); }
+  }
+
   .card {
     background: var(--bg-surface);
     @apply rounded-2xl;
