@@ -17,7 +17,7 @@ import {
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { t, genreLabel } from "../../utils/i18n.js";
-import { aggregateFromRatings, reviewsFromRatings, formatRating, DEFAULT_RATING } from "../../utils/rating.js";
+import { ratingSummary, reviewsFromRatings, formatRating } from "../../utils/rating.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { holderIdOf, readerHolderIdOf } from "../../utils/bookHolder.js";
 import { isReservedForReturn } from "../../utils/bookReturn.js";
@@ -66,11 +66,17 @@ export default function BookDetail() {
     enabled: !!book?.ownerId,
   });
 
-  // Every rating document for this book: the average, the count and the review
-  // list are all derived from this one fetch.
+  // The review texts. Read on every mount, for the same reason the book itself
+  // is: a review is written on somebody else's phone, and the only thing that
+  // drops this cache is the device that wrote one. Under the app-wide 60s
+  // staleTime with refetchOnMount:false — and an IndexedDB-persisted cache that
+  // outlives an app restart — a reader could open this page for a day and never
+  // see a review anybody else had left.
   const ratingsQuery = useQuery({
     queryKey: qk.ratings.forBook(id),
     queryFn: () => listRatingsForBook(id),
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   // Rating is earned, not offered: you may only score a book you have borrowed
@@ -348,10 +354,21 @@ export default function BookDetail() {
     );
   }
 
-  // Derived straight from the rating documents — this page is the source of
-  // truth that the denormalised counters on the book are trying to mirror.
-  const { count: ratingCount, average } = aggregateFromRatings(ratings);
-  const ratingAvg = ratingCount ? average : DEFAULT_RATING;
+  // The score comes off the book document, through the same helper BookCard
+  // calls — so the number here and the number on the card are the same number,
+  // not two answers that happen to agree.
+  //
+  // This page used to recompute it from the rating documents, on the grounds
+  // that they are the source the counters mirror. They are; but the recompute
+  // read a *cached* copy of those documents, and nothing on this device
+  // invalidates that cache when somebody else rates the book on theirs. The
+  // counters ride along with the book, which this screen re-reads on every
+  // mount, so the card showed 4,5 (2) while the page under it still said 4,0
+  // (1) — the same number disagreeing with itself one tap apart.
+  //
+  // `recalcBookRating` rewrites the counters after every rating write, so the
+  // two cannot drift for longer than the next person to rate.
+  const { count: ratingCount, average: ratingAvg } = ratingSummary(book);
   const reviews = reviewsFromRatings(ratings);
 
   const isOwner     = book.ownerId === user?.id;
