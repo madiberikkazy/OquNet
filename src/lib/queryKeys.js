@@ -43,6 +43,9 @@ export const qk = {
     // pass through this cache — only the profiles behind them do, which change
     // far more slowly than the messages do.
     peers: (idsKey) => ["chats", "peers", idsKey],
+    // People to start a conversation with — the reader's own community, on the
+    // new-chat screen.
+    candidates: (communityId) => ["chats", "candidates", communityId],
   },
   ratings: {
     forBook: (bookId) => ["ratings", bookId],

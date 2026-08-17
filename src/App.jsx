@@ -25,6 +25,7 @@ const Notification       = lazyRoute(() => import("./pages/user/Notification.jsx
 const NotificationDetail = lazyRoute(() => import("./pages/user/NotificationDetail.jsx"));
 const Chats              = lazyRoute(() => import("./pages/user/Chats.jsx"));
 const Chat               = lazyRoute(() => import("./pages/user/Chat.jsx"));
+const NewChat            = lazyRoute(() => import("./pages/user/NewChat.jsx"));
 const Profile            = lazyRoute(() => import("./pages/user/Profile.jsx"));
 const OwnedBooks         = lazyRoute(() => import("./pages/user/OwnedBooks.jsx"));
 const ReadingTimer       = lazyRoute(() => import("./pages/user/ReadingTimer.jsx"));
@@ -118,6 +119,9 @@ export default function App() {
                 id, not the chat's: every entry point already has one, and the
                 chat id is derived from the pair rather than looked up. */}
             <Route path="/chats" element={<Chats />} />
+            {/* Static before dynamic — React Router ranks it that way on its
+                own, and no account id can be the word "new" anyway. */}
+            <Route path="/chats/new" element={<NewChat />} />
             <Route path="/chats/:userId" element={<Chat />} />
 
             <Route path="/notifications" element={<Notification />} />
