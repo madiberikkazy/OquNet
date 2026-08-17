@@ -11,7 +11,7 @@ import {
   signInWithGoogle,
 } from "../../firebase/auth.js";
 import { logger } from "../../utils/logger.js";
-import { uploadImage } from "../../firebase/storage.js";
+import { IMAGE_SIZES, uploadImage } from "../../firebase/storage.js";
 import { getUsernameEntry } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
@@ -214,7 +214,9 @@ export default function Register() {
     try {
       let photoURL = "";
       if (photoFile) {
-        photoURL = await uploadImage(photoFile, `avatars/${form.email}_${Date.now()}`);
+        photoURL = await uploadImage(photoFile, `avatars/${form.email}_${Date.now()}`, {
+          maxDimension: IMAGE_SIZES.avatar,
+        });
       }
       const profile = await finalizeRegistration({
         uid: verifyState.uid,

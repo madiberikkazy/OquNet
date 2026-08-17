@@ -46,18 +46,25 @@ export default function Chats() {
     enabled: peerIds.length > 0,
     staleTime: 60_000,
     queryFn: async () => {
-      // A profile that has been deleted resolves to null and stays in the map
-      // as one: the conversation still happened, and the row says so rather
-      // than vanishing. Settled per id so one missing profile cannot empty the
-      // whole list.
+      // A profile that has been deleted resolves to null and stays in the
+      // lookup as one: the conversation still happened, and the row says so
+      // rather than vanishing. Settled per id so one missing profile cannot
+      // empty the whole list.
       const entries = await Promise.all(
         peerIds.map(async (id) => [id, await getUserById(id).catch(() => null)])
       );
-      return new Map(entries);
+      // A plain object, and it has to stay one. This query is persisted to
+      // IndexedDB, and the persister serializes with JSON — which turns a Map
+      // into `{}`. Nothing fails on the visit that writes it; the next launch
+      // rehydrates the empty object, and `peers.get(...)` takes the whole
+      // screen down with "peers.get is not a function". Same hazard the
+      // Firestore Timestamp note in utils/time.js describes: only what JSON
+      // round-trips may live in cached query data.
+      return Object.fromEntries(entries);
     },
   });
 
-  const peers = peersQuery.data ?? new Map();
+  const peers = peersQuery.data ?? {};
 
   return (
     <MobileShell>
@@ -104,7 +111,7 @@ export default function Chats() {
       ) : (
         <ul>
           {rows.map(({ chat, peerId }) => {
-            const peer = peers.get(peerId) ?? null;
+            const peer = peers[peerId] ?? null;
             const unread = unreadFor(chat, user?.id);
             const mine = chat.lastMessage?.senderId === user?.id;
 
