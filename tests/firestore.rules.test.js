@@ -906,7 +906,97 @@ describe("requests", () => {
   });
 
   it("nobody may open a return in somebody else's name", async () => {
+    // MEMBER_A2 is neither the owner of BOOK_1 nor holding it, so neither lane
+    // is open to them — not the owner's, and not the holder's below.
     await assertFails(setDoc(doc(as(MEMBER_A2), "requests", "rr1"), returnPayload()));
+  });
+
+  // ── returns: the holder offering the book back ──
+  //
+  // The other half of the same handover, and the reason handing a book home
+  // stopped being a button with nobody on the other side of it. The document is
+  // identical — `requesterId` is still whoever collects — so everything
+  // downstream reads it without knowing which end opened it.
+  describe("offered by the holder", () => {
+    // BOOK_1 is owned by MEMBER_A; put it in MEMBER_A2's hands.
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await updateDoc(doc(ctx.firestore(), "books", BOOK_1), { holderId: MEMBER_A2 });
+      });
+    });
+
+    const offerPayload = (over = {}) => returnPayload({
+      requesterId: MEMBER_A, holderId: MEMBER_A2, reservedBook: false,
+      openedBy: "holder", ...over,
+    });
+
+    it("the holder may offer the book back to its owner", async () => {
+      await assertSucceeds(setDoc(doc(as(MEMBER_A2), "requests", "rr2"), offerPayload()));
+    });
+
+    it("the offer must name the book's real owner as the collector", async () => {
+      // Otherwise a holder could point a code and a notification at a stranger.
+      await assertFails(setDoc(doc(as(MEMBER_A2), "requests", "rr2"),
+        offerPayload({ requesterId: MEMBER_B })));
+      await assertFails(setDoc(doc(as(MEMBER_A2), "requests", "rr2"),
+        offerPayload({ requesterId: ADMIN_A })));
+    });
+
+    it("somebody who is not holding the book may NOT offer it back", async () => {
+      // An open return blocks every pickup on the copy, so this lane being open
+      // to any member would be a way to freeze any book for three days.
+      await assertFails(setDoc(doc(as(ADMIN_A), "requests", "rr2"),
+        offerPayload({ holderId: ADMIN_A })));
+    });
+
+    it("the holder may not offer a book back to themselves", async () => {
+      await assertFails(setDoc(doc(as(MEMBER_A2), "requests", "rr2"),
+        offerPayload({ requesterId: MEMBER_A2 })));
+    });
+
+    it("an offer must say it is one", async () => {
+      // Without `openedBy: 'holder'` this is the owner's lane, and the holder
+      // is not the owner — which is also what stops a holder from writing a
+      // request the owner alone is supposed to be able to cancel.
+      await assertFails(setDoc(doc(as(MEMBER_A2), "requests", "rr2"),
+        offerPayload({ openedBy: "owner" })));
+    });
+
+    it("the holder may NOT call off the owner's own request for their book", async () => {
+      // The other direction, and the reason `openedBy` exists: an owner asking
+      // for their property back is not the holder's to cancel — the exit rules
+      // depend on it standing until the book is actually home.
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), "requests", "rr3"), {
+          ...returnPayload({ openedBy: "owner" }), createdAt: Date.now(),
+        });
+      });
+      await assertFails(updateDoc(doc(as(MEMBER_A2), "requests", "rr3"), {
+        status: "cancelled",
+      }));
+    });
+
+    it("the holder may withdraw the offer they made", async () => {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), "requests", "rr2"), {
+          ...offerPayload(), createdAt: Date.now(),
+        });
+      });
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A2), "requests", "rr2"), {
+        status: "cancelled",
+      }));
+    });
+
+    it("an unrelated member may not touch it", async () => {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), "requests", "rr2"), {
+          ...offerPayload(), createdAt: Date.now(),
+        });
+      });
+      await assertFails(updateDoc(doc(as(MEMBER_B), "requests", "rr2"), {
+        status: "cancelled",
+      }));
+    });
   });
 
   it("a return may not name the requester as its own holder", async () => {
@@ -917,6 +1007,23 @@ describe("requests", () => {
   it("a return may not be opened into another community", async () => {
     await assertFails(setDoc(doc(as(MEMBER_A), "requests", "rr1"),
       returnPayload({ communityId: C2 })));
+  });
+
+  it("a member may list the returns where they are the one handing a book over", async () => {
+    // The leave screen's second list. A return names its collector in
+    // `requesterId`, so this query cannot lean on that disjunct — it is the
+    // community scope that makes it acceptable, exactly as above.
+    await assertSucceeds(getDocs(query(
+      collection(as(MEMBER_A2), "requests"),
+      where("communityId", "==", C1),
+      where("type", "==", "return"), where("status", "==", "pending"),
+      where("holderId", "==", MEMBER_A2))));
+  });
+
+  it("but not by holderId alone, which names no scope the rules accept", async () => {
+    await assertFails(getDocs(query(
+      collection(as(MEMBER_A2), "requests"),
+      where("holderId", "==", MEMBER_A2))));
   });
 
   it("a member may ask whether a copy in their community is going home", async () => {

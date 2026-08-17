@@ -3,13 +3,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import BookCard from "../../components/BookCard.jsx";
+import CurrentBookCard from "../../components/CurrentBookCard.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import ProfileHeader, { CommunityRankChip } from "../../components/ProfileHeader.jsx";
-import ProfileStatCards from "../../components/ProfileStatCards.jsx";
+import ProfileStatsRow, { MEMBER_STATS } from "../../components/ProfileStatsRow.jsx";
 import ReadingWeek from "../../components/ReadingWeek.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
-  getBooksByIds, getCommunity, getCommunityReadingRank, getUserById,
+  getBook, getBooksByIds, getCommunity, getCommunityReadingRank, getUserById,
   listBooksHeldBy, listBooksOwnedBy, listBorrowingsForUser,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
@@ -22,13 +23,22 @@ const EMPTY_LISTS = { held: [], owned: [], reading: [], completed: [], saved: []
  * Another member's profile — the same screen as the reader's own, seen from
  * outside.
  *
- * It shows everything the design puts on a profile: the week's reading, the
- * standing in the community, and all five shelves. The one structural
- * difference is what a counter does when tapped. On your own profile it opens a
- * screen, because those screens can act on the books — return one, unsave one.
- * Here there is nothing to act on, so the counter expands its list in place
- * instead, and five more routes that would each render a read-only list never
- * have to exist.
+ * "The same screen" is meant literally, and used not to be. This page had a
+ * banner and a reading week in common with the reader's own profile and then
+ * diverged: a grid of five coloured cards where the reader's own has a row of
+ * counters, no role badge, no card for the book in their hands, and the reading
+ * section above the shelves rather than below. Two designs for one object.
+ *
+ * It is now the reader's own layout, in the reader's own order — header,
+ * counters, current book, reading week — built from the same components, with
+ * exactly two differences, both of which are about who is looking:
+ *
+ *   · A counter expands its list in place instead of navigating. Your own
+ *     counters open screens because those screens can *act* on the books —
+ *     return one, unsave one. Here there is nothing to act on, so five
+ *     read-only routes never have to exist.
+ *   · There is no reading-timer launcher. That button starts *your* timer, and
+ *     it means nothing on somebody else's page.
  */
 export default function UserProfile() {
   const { id } = useParams();
@@ -91,6 +101,20 @@ export default function UserProfile() {
     queryFn: () => getCommunityReadingRank({ communityId: member.communityId, userId: member.id }),
   });
 
+  // The book this member has open. One active loan at a time is the rule the
+  // whole app is built on, so the first is the one — same as the reader's own
+  // profile does with the same list.
+  const activeBorrowing = lists.reading[0] ?? null;
+
+  // The loan names the book; the book carries the cover, the score and the days
+  // allowed. Only worth a read once there is a loan to describe.
+  const bookQuery = useQuery({
+    queryKey: qk.books.detail(activeBorrowing?.bookId),
+    enabled: !!activeBorrowing?.bookId,
+    staleTime: 60_000,
+    queryFn: () => getBook(activeBorrowing.bookId),
+  });
+
   if (memberQuery.isLoading) {
     return <MobileShell><p className="px-6 py-12 text-center text-ink-500">{t.loading}</p></MobileShell>;
   }
@@ -110,11 +134,45 @@ export default function UserProfile() {
     saved: lists.saved.length,
   };
 
+  // Every measurement below is the reader's own profile's, deliberately: the two
+  // screens are one design, so the spacing is copied rather than re-chosen.
   return (
     <MobileShell>
-      <ProfileHeader user={member} onBack={() => navigate(-1)} />
+      <ProfileHeader
+        user={member}
+        onBack={() => navigate(-1)}
+        badge={
+          member.role === "admin"
+            ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span>
+            : null
+        }
+      />
 
-      <div className="px-4 mt-5 flex items-center justify-between gap-3">
+      {/* The counters and the book in their hands are their community's business,
+          so both sit behind the same gate the shelves do. */}
+      {sameCommunity ? (
+        <>
+          <div className="px-5 mt-4">
+            <ProfileStatsRow
+              stats={stats}
+              columns={MEMBER_STATS}
+              active={selected}
+              onSelect={setSelected}
+            />
+          </div>
+
+          <div className="px-4 mt-5">
+            <CurrentBookCard
+              borrowing={activeBorrowing}
+              book={bookQuery.data}
+              emptyTitle={t.memberNoReadingBook}
+              emptyHint={null}
+            />
+          </div>
+        </>
+      ) : null}
+
+      <div className="px-4 mt-6 flex items-center justify-between gap-3">
         <h3 className="text-[17px] font-bold truncate">{t.readingSectionTitle}</h3>
         <CommunityRankChip community={community} rank={rankQuery.data} />
       </div>
@@ -124,15 +182,10 @@ export default function UserProfile() {
       </div>
 
       {sameCommunity ? (
-        <>
-          <div className="px-4 mt-4">
-            <ProfileStatCards stats={stats} active={selected} onSelect={setSelected} />
-          </div>
-          <section className="mt-5">
-            <h3 className="section-title px-4 mb-1">{t[SECTION_TITLE_KEY[selected]]}</h3>
-            <MemberList kind={selected} items={lists[selected]} onOpen={(bookId) => navigate(`/books/${bookId}`)} />
-          </section>
-        </>
+        <section className="mt-5">
+          <h3 className="section-title px-4 mb-1">{t[SECTION_TITLE_KEY[selected]]}</h3>
+          <MemberList kind={selected} items={lists[selected]} onOpen={(bookId) => navigate(`/books/${bookId}`)} />
+        </section>
       ) : (
         // Not a permissions error to apologise for — the shelves of a community
         // you are not in are simply not yours to read.
@@ -148,26 +201,27 @@ export default function UserProfile() {
   );
 }
 
+// One title per selectable counter. `reading` is absent because it is no longer
+// one: the book being read now is the CurrentBookCard above, which names it.
 const SECTION_TITLE_KEY = Object.freeze({
+  saved:     "saved",
+  completed: "completed",
   held:      "memberHeldTitle",
   owned:     "memberOwnedTitle",
-  reading:   "memberReadingTitle",
-  completed: "completed",
-  saved:     "saved",
 });
 
 /**
- * Two shapes behind five counters: three of them are books, two are loans. A
- * loan carries the book's name at the time it was taken, so it renders without
- * a second fetch per row — which is the reason these are not normalised into
- * book documents first.
+ * Two shapes behind the four counters: three are books, and `completed` is a
+ * list of loans. A loan carries the book's name as it was when it was taken, so
+ * it renders without a second fetch per row — which is the reason these are not
+ * normalised into book documents first.
  */
 function MemberList({ kind, items, onOpen }) {
   if (!items?.length) {
     return <p className="px-4 text-[13px] text-ink-500">{t.nothingHereYet}</p>;
   }
 
-  if (kind === "reading" || kind === "completed") {
+  if (kind === "completed") {
     return (
       <ul className="px-4 divide-y divide-ink-100">
         {items.map((loan) => (
@@ -177,9 +231,7 @@ function MemberList({ kind, items, onOpen }) {
               className="w-full text-left py-3 active:bg-ink-100/40 transition rounded-xl px-1"
             >
               <p className="font-medium text-[15px] truncate">{loan.bookName || t.book}</p>
-              <p className="text-[12px] text-ink-500 mt-0.5">
-                {kind === "completed" ? t.completedLoanLabel : t.activeLoanLabel}
-              </p>
+              <p className="text-[12px] text-ink-500 mt-0.5">{t.completedLoanLabel}</p>
             </button>
           </li>
         ))}

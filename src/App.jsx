@@ -19,6 +19,7 @@ const Home               = lazyRoute(() => import("./pages/user/Home.jsx"));
 const Books              = lazyRoute(() => import("./pages/user/Books.jsx"));
 const BookDetail         = lazyRoute(() => import("./pages/user/BookDetail.jsx"));
 const PickupBook         = lazyRoute(() => import("./pages/user/PickupBook.jsx"));
+const ReturnToOwner      = lazyRoute(() => import("./pages/user/ReturnToOwner.jsx"));
 const Notification       = lazyRoute(() => import("./pages/user/Notification.jsx"));
 const NotificationDetail = lazyRoute(() => import("./pages/user/NotificationDetail.jsx"));
 const Profile            = lazyRoute(() => import("./pages/user/Profile.jsx"));
@@ -92,6 +93,14 @@ export default function App() {
 
             {/* Pickup flow — replaces the old /request route */}
             <Route path="/books/:id/pickup" element={<PickupBook />} />
+
+            {/* Handing a book back, in two halves — the same shape as a pickup,
+                run in the other direction. The holder offers and carries the
+                code; the owner accepts and types it. `ReturnBook` is the same
+                component the leave flow uses; only what surrounds the four
+                digits differs, which is what `mode` selects. */}
+            <Route path="/books/:id/return" element={<ReturnToOwner />} />
+            <Route path="/books/:bookId/return/confirm" element={<ReturnBook mode="handover" />} />
 
             {/* Admin-only routes — gated by the real DB role */}
             <Route element={<ProtectedRoute adminOnly />}>

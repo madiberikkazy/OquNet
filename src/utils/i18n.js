@@ -276,6 +276,12 @@ const kz = {
   statSaved: "Сақталған",
   statCompleted: "Аяқталған",
   statHeld: "Қазір бар",
+  // Fourth counter, member profiles only — how many books belong to them.
+  statOwned: "Кітаптары",
+  // The empty reading card on somebody else's profile. The reader's own says
+  // "open the library and borrow one"; that is an instruction, and an
+  // instruction addressed to a person who is not looking at the screen.
+  memberNoReadingBook: "Қазір кітап оқымайды",
   placeShort: "орын",
   hoursShort: "сағ",
   minutesShort: "мин",
@@ -336,8 +342,13 @@ const kz = {
   leavePending: "Өтінішіңіз жіберілді. Администратор жауабын күтіңіз…",
   exitCommunity: "Шығу",
   leaveTitle: "Қоғамдастықтан шығу",
-  leaveIntro: "Шығу үшін алдымен өз кітаптарыңызды жинап алыңыз. Әр кітап үшін ұстаушыға код жіберіп, кітапты алғанда сол кодты енгізіңіз.",
+  leaveIntro: "Шығу алдында кітаптарды екі жағынан да реттеңіз: қолыңыздағы бөтен кітаптарды иесіне қайтарыңыз, өз кітаптарыңызды жинап алыңыз. Әрқайсысы код арқылы расталады.",
   leaveNoBooks: "Қоғамдастықта сіздің кітабыңыз жоқ.",
+  // Шығу бетіндегі екі тізімнің тақырыптары.
+  leaveHandBackTitle: "Қайтаруға тиіс кітаптар",
+  leaveCollectTitle: "Жинап алуға тиіс кітаптар",
+  leaveHandBackPending: "Сізде тұр",
+  leaveHandBackHint: "Кодты алып, иесімен кездесіңіз. Кодты иесі енгізгенде, кітап қайтарылды деп есептеледі.",
   bookWithYou: "Сіздің қолыңызда",
   bookOutOnLoan: "Оқырманда",
   sendReturnRequest: "Қайтаруды сұрау",
@@ -374,6 +385,7 @@ const kz = {
   returnRemaining: (n) => `Қайтарылмаған кітап: ${n}`,
   returnAllHome: "Барлық кітабыңыз қолыңызда.",
   backToLeave: "Шығу бетіне қайту",
+  backToBook: "Кітапқа қайту",
   bookBeingReturned: "Бұл кітапты иесі қайтарып алуда.",
   reservedStatus: "Қайтарылуда",
   returnCodeResentTitle: "Жаңа код: кітапты қайтару",
@@ -402,6 +414,27 @@ const kz = {
   yourBookHint: "Бұл — сіздің кітабыңыз",
   bookReturnedNotifTitle: "Кітабыңыз қайтарылды",
   bookReturnedNotifBody: (name, book) => `${name} «${book}» кітабыңызды сізге қайтарды.`,
+
+  // ── Кітапты иесіне қайтару: ұстаушының жағы ──
+  returnOfferTitle: "Кітапты қайтару",
+  returnOfferIntro: "Кітапты иесіне қайтару үшін кездесіңіз де, осы кодты айтыңыз. Кодты иесі енгізгенде, кітап қайтарылды деп есептеледі.",
+  returnOfferWhoCollects: "Кітапты кім қабылдайды",
+  returnOfferSend: "Иесіне хабарлау",
+  returnOfferCodeTitle: "Сіздің кодыңыз",
+  returnOfferCodeNote: "Бұл кодты тек кітапты қолма-қол бергенде айтыңыз.",
+  returnOfferWaiting: "Иесінің растауын күтуде",
+  returnOfferCancel: "Қайтаруды тоқтату",
+  returnOfferAlreadyHome: "Бұл кітап әлдеқашан иесінде.",
+  returnOfferExisting: "Бұл кітап бойынша қайтару басталып қойған — коды төменде.",
+  // Иесіне баратын хабарлама. Код мұнда әдейі жоқ: кодты енгізетін адам —
+  // иесі, ал өзіне жіберілген кодты өзі енгізу ешнәрсені растамайды.
+  returnOfferNotifTitle: "Кітабыңызды қайтармақ",
+  returnOfferNotifBody: (name, book) =>
+    `${name} «${book}» кітабыңызды қайтарғысы келеді. Кездескенде одан 4 таңбалы кодты сұрап, осы қосымшаға енгізіңіз.`,
+  returnOfferConfirmAction: "Қабылдау — кодты енгізу",
+  returnOfferCancelledNotifTitle: "Қайтару тоқтатылды",
+  returnOfferCancelledNotifBody: (name, book) =>
+    `${name} «${book}» кітабын қайтаруды тоқтатты.`,
   appSection: "Қосымша",
   createCommunity: "Қауымдастық құру",
   becomeCommunityAdmin: "Қауымдастық құру",
@@ -851,6 +884,8 @@ const ru = {
   statSaved: "Сохранено",
   statCompleted: "Завершено",
   statHeld: "Сейчас есть",
+  statOwned: "Книги",
+  memberNoReadingBook: "Сейчас ничего не читает",
   placeShort: "место",
   hoursShort: "ч",
   minutesShort: "мин",
@@ -910,8 +945,13 @@ const ru = {
   leaveCommunity: "Покинуть сообщество",
   exitCommunity: "Выйти",
   leaveTitle: "Выход из сообщества",
-  leaveIntro: "Перед выходом заберите свои книги. По каждой отправьте код держателю и введите его, когда книга окажется у вас.",
+  leaveIntro: "Перед выходом закройте книги с обеих сторон: верните чужие книги владельцам и заберите свои. Каждая передача подтверждается кодом.",
   leaveNoBooks: "В этом сообществе нет ваших книг.",
+  // Заголовки двух списков на экране выхода.
+  leaveHandBackTitle: "Книги, которые нужно вернуть",
+  leaveCollectTitle: "Книги, которые нужно забрать",
+  leaveHandBackPending: "У вас на руках",
+  leaveHandBackHint: "Получите код и встретьтесь с владельцем. Возврат завершится, когда владелец введёт его.",
   bookWithYou: "У вас",
   bookOutOnLoan: "У читателя",
   sendReturnRequest: "Запросить возврат",
@@ -948,6 +988,7 @@ const ru = {
   returnRemaining: (n) => `Не возвращено книг: ${n}`,
   returnAllHome: "Все ваши книги у вас на руках.",
   backToLeave: "Вернуться к выходу",
+  backToBook: "Вернуться к книге",
   bookBeingReturned: "Владелец забирает эту книгу.",
   reservedStatus: "Возвращается",
   returnCodeResentTitle: "Новый код: возврат книги",
@@ -975,6 +1016,28 @@ const ru = {
   returnToOwnerFinishFirst: "Сначала дочитайте",
   returnedToOwner: "Возвращена владельцу",
   yourBookHint: "Это ваша книга",
+
+  // ── Возврат книги владельцу: сторона держателя ──
+  returnOfferTitle: "Возврат книги",
+  returnOfferIntro: "Чтобы вернуть книгу, встретьтесь с владельцем и назовите этот код. Возврат завершится, когда владелец введёт его.",
+  returnOfferWhoCollects: "Кто примет книгу",
+  returnOfferSend: "Сообщить владельцу",
+  returnOfferCodeTitle: "Ваш код",
+  returnOfferCodeNote: "Называйте код только при личной передаче книги.",
+  returnOfferWaiting: "Ждём подтверждения владельца",
+  returnOfferCancel: "Отменить возврат",
+  returnOfferAlreadyHome: "Эта книга уже у владельца.",
+  returnOfferExisting: "Возврат этой книги уже начат — код ниже.",
+  // Уведомление владельцу. Кода здесь намеренно нет: код вводит владелец, а
+  // код, присланный ему самому, ничего не подтверждает.
+  returnOfferNotifTitle: "Вам хотят вернуть книгу",
+  returnOfferNotifBody: (name, book) =>
+    `${name} хочет вернуть вашу книгу «${book}». При встрече спросите 4-значный код и введите его в приложении.`,
+  returnOfferConfirmAction: "Принять — ввести код",
+  returnOfferCancelledNotifTitle: "Возврат отменён",
+  returnOfferCancelledNotifBody: (name, book) =>
+    `${name} отменил возврат книги «${book}».`,
+
   bookReturnedNotifTitle: "Вашу книгу вернули",
   bookReturnedNotifBody: (name, book) => `${name} вернул(а) вам книгу «${book}».`,
   appSection: "Приложение",
@@ -1427,6 +1490,8 @@ const en = {
   statSaved: "Saved",
   statCompleted: "Finished",
   statHeld: "In hand",
+  statOwned: "Owns",
+  memberNoReadingBook: "Not reading anything right now",
   placeShort: "place",
   hoursShort: "h",
   minutesShort: "min",
@@ -1486,8 +1551,13 @@ const en = {
   leaveCommunity: "Leave community",
   exitCommunity: "Leave",
   leaveTitle: "Leaving the community",
-  leaveIntro: "Before you leave, collect the books you own. Send each holder a code, and enter it once the book is in your hands.",
+  leaveIntro: "Before you leave, settle the books both ways: hand back the ones you are holding, and collect the ones you own. Every handover is confirmed with a code.",
   leaveNoBooks: "You have no books in this community.",
+  // The two list headings on the leave screen.
+  leaveHandBackTitle: "Books to hand back",
+  leaveCollectTitle: "Books to collect",
+  leaveHandBackPending: "In your hands",
+  leaveHandBackHint: "Get a code, then meet the owner. The return completes when they enter it.",
   bookWithYou: "With you",
   bookOutOnLoan: "With reader",
   sendReturnRequest: "Request return",
@@ -1524,6 +1594,7 @@ const en = {
   returnRemaining: (n) => `Books still out: ${n}`,
   returnAllHome: "Every book you own is with you.",
   backToLeave: "Back to leaving",
+  backToBook: "Back to the book",
   bookBeingReturned: "The owner is collecting this book.",
   reservedStatus: "Going home",
   returnCodeResentTitle: "New code: book return",
@@ -1551,6 +1622,28 @@ const en = {
   returnToOwnerFinishFirst: "Finish reading first",
   returnedToOwner: "Returned to owner",
   yourBookHint: "This is your own book",
+
+  // ── Returning a book to its owner: the holder's side ──
+  returnOfferTitle: "Return the book",
+  returnOfferIntro: "To return this book, meet its owner and read out this code. The return completes when the owner enters it.",
+  returnOfferWhoCollects: "Who is collecting it",
+  returnOfferSend: "Tell the owner",
+  returnOfferCodeTitle: "Your code",
+  returnOfferCodeNote: "Only read this out when you are handing the book over in person.",
+  returnOfferWaiting: "Waiting for the owner to confirm",
+  returnOfferCancel: "Call off the return",
+  returnOfferAlreadyHome: "This book is already with its owner.",
+  returnOfferExisting: "A return is already open on this book — its code is below.",
+  // The owner's notification. It deliberately carries no code: the owner is the
+  // one who types it, and a code sent to the person entering it confirms nothing.
+  returnOfferNotifTitle: "Someone wants to return your book",
+  returnOfferNotifBody: (name, book) =>
+    `${name} would like to return your book “${book}”. When you meet, ask them for the 4-digit code and enter it here.`,
+  returnOfferConfirmAction: "Accept — enter the code",
+  returnOfferCancelledNotifTitle: "Return called off",
+  returnOfferCancelledNotifBody: (name, book) =>
+    `${name} called off returning “${book}”.`,
+
   bookReturnedNotifTitle: "Your book is back",
   bookReturnedNotifBody: (name, book) => `${name} returned your book "${book}".`,
   appSection: "App",

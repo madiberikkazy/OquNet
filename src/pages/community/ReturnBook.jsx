@@ -39,11 +39,22 @@ import { logger } from "../../utils/logger.js";
  * Everything it can find on arrival is already decided elsewhere: the request
  * comes from the data layer, the state from `returnStateFor`. What is left here
  * is the four inputs, and what to do when the answer is right.
+ *
+ * @param mode  Which errand brought the owner here — the code and the write are
+ *   identical either way, and only what surrounds them differs.
+ *   "leave" — from the leave screen, where collecting every copy is what stands
+ *   between this member and the way out; the success screen reports what is
+ *   left and offers the exit.
+ *   "handover" — from a notification, because whoever is holding the book
+ *   offered it back (pages/user/ReturnToOwner.jsx). This owner is not going
+ *   anywhere, so there is no exit to offer and nowhere to go back to but the
+ *   book. Both routes render this one component; see App.jsx.
  */
-export default function ReturnBook() {
+export default function ReturnBook({ mode = "leave" }) {
   const { id: communityId, bookId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const isLeaveErrand = mode === "leave";
 
   const [book, setBook]       = useState(null);
   const [holder, setHolder]   = useState(null);
@@ -64,7 +75,13 @@ export default function ReturnBook() {
   // are clear, and never taken automatically — see the success screen below.
   const leaveMutation = useLeaveCommunity(communityId);
 
-  const backToLeave = () => navigate(`/community/${communityId}/leave`, { replace: true });
+  // Where "done" and "back" lead. An owner collecting on their way out belongs
+  // on the leave screen; an owner who just accepted a book somebody offered
+  // back belongs with the book.
+  const goBack = () => navigate(
+    isLeaveErrand ? `/community/${communityId}/leave` : `/books/${bookId}`,
+    { replace: true }
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -218,7 +235,7 @@ export default function ReturnBook() {
       logger.error("returnBook.cancel", err?.message, { code: err?.code, bookId });
     } finally {
       setBusy("");
-      backToLeave();
+      goBack();
     }
   }
 
@@ -285,8 +302,14 @@ export default function ReturnBook() {
       // Whether this was the last errand. Read from the server rather than from
       // the list this screen was opened from: collecting a book takes a walk,
       // and a lot can have changed by the time it is confirmed.
-      const verdict = await checkCommunityExit({ userId: user.id, communityId })
-        .catch(() => ({ canLeave: false }));
+      //
+      // Only asked on the way out. An owner who accepted a book somebody
+      // offered back is not leaving anything, and telling them they are now
+      // free to go would answer a question they never asked.
+      const verdict = isLeaveErrand
+        ? await checkCommunityExit({ userId: user.id, communityId })
+            .catch(() => ({ canLeave: false }))
+        : { canLeave: false };
       setDone({ closedBorrowing, canLeave: verdict.canLeave });
     } catch (err) {
       logger.error("returnBook.confirm", err?.message, { code: err?.code, bookId });
@@ -325,9 +348,13 @@ export default function ReturnBook() {
             {done.closedBorrowing ? (
               <p className="text-[13px] text-ink-500">{t.returnDoneLoanClosed}</p>
             ) : null}
-            <p className="text-[14px] font-medium">
-              {done.canLeave ? t.returnAllHome : t.waitingReturnsBody}
-            </p>
+            {/* What is left to collect is only a question for somebody on their
+                way out. An owner who just took a book back has finished. */}
+            {isLeaveErrand ? (
+              <p className="text-[14px] font-medium">
+                {done.canLeave ? t.returnAllHome : t.waitingReturnsBody}
+              </p>
+            ) : null}
           </div>
 
           {/* The last book closes the last condition, so the exit is offered
@@ -350,13 +377,13 @@ export default function ReturnBook() {
               >
                 {leaveMutation.isPending ? "…" : t.leaveNow}
               </button>
-              <button onClick={backToLeave} className="btn-secondary">
-                {t.backToLeave}
+              <button onClick={goBack} className="btn-secondary">
+                {isLeaveErrand ? t.backToLeave : t.backToBook}
               </button>
             </div>
           ) : (
-            <button onClick={backToLeave} className="btn-primary">
-              {t.backToLeave}
+            <button onClick={goBack} className="btn-primary">
+              {isLeaveErrand ? t.backToLeave : t.backToBook}
             </button>
           )}
         </div>
@@ -372,7 +399,7 @@ export default function ReturnBook() {
   return (
     <MobileShell withNav={false}>
       <div className="relative flex items-center justify-center px-4 pt-2 pb-1">
-        <button onClick={backToLeave} className="absolute left-4 icon-btn" aria-label={t.back}>
+        <button onClick={goBack} className="absolute left-4 icon-btn" aria-label={t.back}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
             <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
@@ -500,8 +527,8 @@ export default function ReturnBook() {
             >
               {busy === "resend" ? "…" : t.sendCode}
             </button>
-            <button type="button" onClick={backToLeave} className="btn-secondary">
-              {t.backToLeave}
+            <button type="button" onClick={goBack} className="btn-secondary">
+              {isLeaveErrand ? t.backToLeave : t.backToBook}
             </button>
           </div>
         )}

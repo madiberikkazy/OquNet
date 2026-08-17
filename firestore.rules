@@ -552,10 +552,33 @@ service cloud.firestore {
              // "is this copy already on its way home?", and a `list` rule can
              // only accept a query it can scope.
           || (request.resource.data.type == 'return'
+              && request.resource.data.get('openedBy', 'owner') == 'owner'
               && request.resource.data.requesterId == uid()
               && request.resource.data.bookId is string
               && request.resource.data.holderId is string
               && request.resource.data.holderId != uid()
+              && request.resource.data.communityId == myCommunity())
+             // The same handover offered from the other end: the holder saying
+             // "come and get it". One document, one shape — `requesterId` is
+             // still the person collecting, so everything downstream cannot
+             // tell which end opened it.
+             //
+             // Both parties are read off the book rather than taken on the
+             // caller's word, and neither check is optional. Without the owner
+             // check a holder could name anybody as the collector — a code and
+             // a notification sent to a stranger about somebody else's book.
+             // Without the holder check any member could open a return on any
+             // book in the community, and since an open return blocks every
+             // pickup on that copy, that is a way to freeze any book on the
+             // shelf for three days. The two `get()`s are the same path, which
+             // the rules engine caches, so this costs one read.
+          || (request.resource.data.type == 'return'
+              && request.resource.data.openedBy == 'holder'
+              && request.resource.data.bookId is string
+              && request.resource.data.holderId == uid()
+              && request.resource.data.requesterId != uid()
+              && request.resource.data.requesterId == bookOf(request.resource.data.bookId).ownerId
+              && uid() == holderOfBook(request.resource.data.bookId)
               && request.resource.data.communityId == myCommunity())
           || ((request.resource.data.type == 'join'
                || request.resource.data.type == 'leave')
@@ -572,9 +595,29 @@ service cloud.firestore {
           || (requestSubject() && !decidesOwnRequest())
         );
 
+      function bookOf(bookId) {
+        return get(/databases/$(database)/documents/books/$(bookId)).data;
+      }
+
+      // Mirrors utils/bookHolder.js, same as `currentHolder()` on books: a book
+      // with no holderId is with its owner.
+      function holderOfBook(bookId) {
+        return bookOf(bookId).get('holderId', bookOf(bookId).ownerId);
+      }
+
       function requestSubject() {
         return resource.data.get('userId', '') == uid()
-            || resource.data.get('requesterId', '') == uid();
+            || resource.data.get('requesterId', '') == uid()
+            // A return has two parties, and the holder is the other one — but
+            // only over an offer they made themselves. An owner asking for
+            // their own property back is not something the person holding it
+            // gets to cancel; that request is the owner's, and the exit rules
+            // depend on it staying open until the book actually comes home.
+            // `openedBy` is the field that tells the two apart, and it defaults
+            // to the owner for every request written before this existed.
+            || (resource.data.get('type', '') == 'return'
+                && resource.data.get('openedBy', 'owner') == 'holder'
+                && resource.data.get('holderId', '') == uid());
       }
 
       // A verdict is not the applicant's to write. Two other rules read this

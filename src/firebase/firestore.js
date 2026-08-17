@@ -1471,6 +1471,31 @@ export async function listPendingReturnsForUser(requesterId) {
   });
 }
 
+/**
+ * The other side of the same list: every return where this member is the one
+ * handing a book over, rather than the one collecting it.
+ *
+ * A return names the collector in `requesterId`, so the query above cannot see
+ * these — the leave screen was blind to exactly the errands its own rules block
+ * on, and sent the member to another screen to find them.
+ *
+ * Scoped by community because the rules require it. A `list` is checked against
+ * the query, and `holderId` is not one of the disjuncts it accepts; the
+ * community equality is, and it is also the only scope in which the answer means
+ * anything — a handover is always inside one community.
+ */
+export async function listPendingReturnsForHolder({ holderId, communityId } = {}) {
+  if (!holderId || !communityId) return [];
+  return getCollection("requests", {
+    where: [
+      ["communityId", "==", communityId],
+      ["type", "==", "return"],
+      ["status", "==", "pending"],
+      ["holderId", "==", holderId],
+    ],
+  });
+}
+
 export async function updateReturnRequest(id, patch) {
   return updateOne("requests", id, patch);
 }
@@ -1560,6 +1585,7 @@ export async function openReturnRequest({
     bookName: book.name,
     returnCode: returnCode || newPickupCode(),
     reservedBook,
+    openedBy: "owner",
   });
 
   if (reservedBook) {
@@ -1573,6 +1599,85 @@ export async function openReturnRequest({
   }
 
   return { request, created: true, book };
+}
+
+/**
+ * The same handover, offered from the other end: the holder wants to give the
+ * book back.
+ *
+ * Until this existed, that was the one handoff in the app with no code in it.
+ * A pickup is two people agreeing; the owner asking for a book back is two
+ * people agreeing; and handing a book home was one person pressing a button and
+ * the app telling its owner afterwards that it had happened. The owner had no
+ * say in a claim about where their own property physically was.
+ *
+ * So it opens the *same document* the owner's own flow opens, with the same
+ * fields in the same places: `requesterId` is the owner, because they are the
+ * one collecting, and `holderId` is whoever is handing it over. Everything
+ * downstream — the code screen, `completeReturnToOwner`, the sweep of stale and
+ * expired requests, the pickup screen's "is this copy already going home?" —
+ * therefore works on it unchanged, and cannot tell which end started it.
+ *
+ * Who ends up with the four digits is not a detail. They go to the person
+ * handing the book over, and the person receiving it types them in; that is
+ * what makes the code a handshake rather than a confirm button, and it is the
+ * arrangement a pickup already uses. Here the giver is the caller, so the code
+ * comes back in the return value for their own screen to show, and the owner is
+ * merely told that a return is waiting for them.
+ *
+ * The book is NOT reserved. That lane belongs to the owner in the security
+ * rules, and it is not needed: `openPickupRequest` refuses any book with an
+ * open return, so the copy is already out of reach of a third reader.
+ *
+ * @returns `{ request, created, book, alreadyHome }` — when `created` is false
+ *   a return was already open, and the caller must NOT notify again.
+ */
+export async function offerReturnToOwner({ bookId, holderId } = {}) {
+  if (!bookId || !holderId) {
+    throw new Error("offerReturnToOwner: bookId and holderId are required");
+  }
+
+  const book = await getBook(bookId);
+  if (!book) throw new Error("offerReturnToOwner: book not found");
+
+  const ownerId = book.ownerId;
+  if (!ownerId) throw new Error("offerReturnToOwner: book has no owner");
+
+  // Already home — the caller's goal is met. Not an error, and not a request:
+  // there is nobody on the other side of this handover.
+  if (ownerId === holderId) {
+    return { request: null, created: false, book, alreadyHome: true };
+  }
+  if (holderIdOf(book) !== holderId) {
+    throw new Error("offerReturnToOwner: only the current holder may hand a book back");
+  }
+
+  // Idempotent against *any* open return on this book, not just one this holder
+  // opened. The owner may have asked for it first, in which case a code is
+  // already out with somebody — and two codes for one handover is one code that
+  // does not work.
+  const existing = await getPendingReturnForBook({ bookId, communityId: book.communityId });
+  if (existing) return { request: existing, created: false, book, alreadyHome: false };
+
+  const request = await createReturnRequest({
+    bookId,
+    communityId: book.communityId,
+    // The collector is the owner named on the book, never the caller's idea of
+    // who that is — the security rule checks this against the book document for
+    // the same reason.
+    requesterId: ownerId,
+    holderId,
+    bookName: book.name,
+    returnCode: newPickupCode(),
+    reservedBook: false,
+    // The one field that records which end opened this, and the only thing the
+    // two flows disagree about: an offer may be withdrawn by whoever made it,
+    // and an owner's demand for their own property may not be called off by the
+    // person holding it. See schema.js.
+    openedBy: "holder",
+  });
+
+  return { request, created: true, book, alreadyHome: false };
 }
 
 /**

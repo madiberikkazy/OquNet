@@ -11,7 +11,9 @@ import {
   getUserById,
   createNotification,
   listPendingReturnsForUser,
+  listPendingReturnsForHolder,
   openReturnRequest,
+  offerReturnToOwner,
   cancelReturnRequest,
   expireReturnRequest,
   completeReturnToOwner,
@@ -26,7 +28,7 @@ import {
   RETURN_STATE, needsSweep, returnStateFor, returnStateMessage,
 } from "../../utils/bookReturn.js";
 import {
-  EXIT_BLOCK, evaluateExit, exitBlockMessage, loadExitBooks,
+  EXIT_BLOCK, booksHeldFromOthers, evaluateExit, exitBlockMessage, loadExitBooks,
 } from "../../utils/communityExit.js";
 import { useLeaveCommunity } from "../../utils/useLeaveCommunity.js";
 
@@ -36,12 +38,25 @@ const EMPTY_BOOKS = [];
 const EMPTY_RETURNS = [];
 
 /**
- * Step one of leaving: collecting the books you own.
+ * Step one of leaving: the books, in both directions.
  *
- * The screen is a list of the member's own books and, for each one that is with
- * somebody else, everything they need to go and get it — who has it, how to
- * reach them, and the button that sends that person a four-digit code. The code
- * itself is entered on the next screen, once the book is physically in hand.
+ * Two lists, because leaving has two kinds of errand and both are handshakes:
+ *
+ *   · the member's own copies that are with other people — they go and collect
+ *     each one, and the code is entered here once it is in hand;
+ *   · other people's copies in the member's hands — they hand each one back,
+ *     and the code is the four digits they read out when they do.
+ *
+ * The second list used to be a red banner with a count and a link to another
+ * screen. That was the one blocking rule this page could state but not clear,
+ * and it sent the member away from the errand list to find the errands. Both
+ * halves now sit here, each with the same three states: send the code, wait
+ * while it is out, or call it off.
+ *
+ * Which end holds the code is the same rule as everywhere else in the app —
+ * whoever is handing the book over carries it, and whoever is receiving it
+ * types it. So the member reads a code out for the books they are giving back,
+ * and types one in for the books they are collecting.
  *
  * Nothing here decides *whether* they may leave: that verdict comes from
  * `evaluateExit` and is re-read from the server at the moment of the write. All
@@ -94,8 +109,20 @@ export default function LeaveCommunity() {
     refetchOnMount: "always",
   });
 
+  // The mirror of the query above: returns where this member is the one handing
+  // a book over rather than the one collecting it. A return names its collector
+  // in `requesterId`, so the two lists genuinely need two queries.
+  const handoversQuery = useQuery({
+    queryKey: qk.returnRequest.byHolder(user?.id, id),
+    queryFn: () => listPendingReturnsForHolder({ holderId: user.id, communityId: id }),
+    enabled: !!user?.id && !!id,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
   const allBooks = booksQuery.data ?? EMPTY_BOOKS;
   const returns = returnsQuery.data ?? EMPTY_RETURNS;
+  const handovers = handoversQuery.data ?? EMPTY_RETURNS;
 
   // A filter over a set already scoped to this user by query — a handful of
   // rows, not a shelf.
@@ -126,6 +153,48 @@ export default function LeaveCommunity() {
   );
 
   const away = useMemo(() => rows.filter((row) => row.state !== RETURN_STATE.HOME), [rows]);
+
+  // ── The other direction: books of other people's, in this member's hands ──
+  const handoverByBook = useMemo(() => {
+    const map = new Map();
+    for (const r of handovers) if (r.bookId) map.set(r.bookId, r);
+    return map;
+  }, [handovers]);
+
+  // Derived from the books rather than from `exit`, which is computed further
+  // down — and from the same helper the gate itself uses, so the list and the
+  // rule that blocks on it can never count different books.
+  //
+  // `returnStateFor` reads the same two documents either way round: it asks
+  // where the book is and whether a request is live, not who is asking.
+  const heldRows = useMemo(
+    () =>
+      booksHeldFromOthers(allBooks, user?.id).map((book) => ({
+        book,
+        ...returnStateFor({
+          book,
+          request: handoverByBook.get(book.id) ?? null,
+          userId: user?.id,
+        }),
+      })),
+    [allBooks, handoverByBook, user?.id]
+  );
+
+  // Who each of those copies goes back to. Same shape as `holders` below, one
+  // fetch per person rather than per book.
+  const ownerIds = useMemo(
+    () => [...new Set(heldRows.map((row) => row.book.ownerId).filter(Boolean))].sort(),
+    [heldRows]
+  );
+  const ownersQuery = useQuery({
+    queryKey: ["users", "owners", ownerIds.join(",")],
+    queryFn: async () => {
+      const people = await Promise.all(ownerIds.map((uid) => getUserById(uid).catch(() => null)));
+      return Object.fromEntries(ownerIds.map((uid, i) => [uid, people[i]]));
+    },
+    enabled: ownerIds.length > 0,
+  });
+  const owners = ownersQuery.data ?? {};
 
   // Whoever is holding each of those copies. Fetched by id — the list is the
   // handful of people this member has to go and meet, not the community.
@@ -226,6 +295,95 @@ export default function LeaveCommunity() {
     },
     onError: (err) => {
       logger.error("leave.sendReturnCode", err?.message, { code: err?.code });
+      setError(writeError(err));
+    },
+    onSettled: () => setBusyBookId(null),
+  });
+
+  /**
+   * The same errand in the other direction: offer a book back to its owner.
+   *
+   * The code this mints stays with the member — they are the one handing the
+   * book over — and the owner is told a return is waiting, without the digits,
+   * so that confirming it still takes the two of them meeting. Same call the
+   * "books you have now" screen makes; the leave screen is simply where it
+   * matters most, because this is the rule that stops the exit.
+   */
+  const offerBack = useMutation({
+    mutationFn: async (row) => {
+      const { book, request, state } = row;
+
+      // A lapsed or stale offer is closed before a new one opens, for the same
+      // reason a lapsed collection is: its digits are with somebody who has
+      // stopped expecting them.
+      if (needsSweep(state) && request?.id) {
+        await (state === RETURN_STATE.EXPIRED
+          ? expireReturnRequest(request.id)
+          : cancelReturnRequest(request.id));
+      }
+
+      const { request: opened, created, alreadyHome } = await offerReturnToOwner({
+        bookId: book.id,
+        holderId: user.id,
+      });
+      if (alreadyHome || !opened) return { bookId: book.id, sent: false };
+
+      // Announced exactly once per request — `created` can only be true for the
+      // call that wrote it, so a second tap cannot produce a second message.
+      if (created && book.ownerId && book.ownerId !== user.id) {
+        await createNotification({
+          recipientId: book.ownerId,
+          title: t.returnOfferNotifTitle,
+          body: t.returnOfferNotifBody(
+            `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || `@${user.nickname ?? ""}`,
+            book.name
+          ),
+          read: false,
+          type: "return-offer",
+          bookId: book.id,
+          bookName: book.name,
+          holderId: user.id,
+          // Deliberately no code: the owner is the one who types it.
+        });
+      }
+      return { bookId: book.id, sent: true };
+    },
+    onSuccess: () => refreshAll(),
+    onError: (err) => {
+      logger.error("leave.offerReturn", err?.message, { code: err?.code });
+      setError(writeError(err));
+    },
+    onSettled: () => setBusyBookId(null),
+  });
+
+  /** Withdraw an offer. Nothing moved, so nothing has to move back. */
+  const cancelOffer = useMutation({
+    mutationFn: async (row) => {
+      const { book, request } = row;
+      if (!request?.id) return null;
+      await cancelReturnRequest(request.id);
+      if (book.ownerId && book.ownerId !== user.id) {
+        await createNotification({
+          recipientId: book.ownerId,
+          title: t.returnOfferCancelledNotifTitle,
+          body: t.returnOfferCancelledNotifBody(
+            `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || `@${user.nickname ?? ""}`,
+            book.name
+          ),
+          read: false,
+          type: "return-offer-cancelled",
+          bookId: book.id,
+          bookName: book.name,
+        });
+      }
+      return book.id;
+    },
+    onSuccess: (bookId) => {
+      if (bookId) invalidateHolderCaches(bookId);
+      refreshAll();
+    },
+    onError: (err) => {
+      logger.error("leave.cancelOffer", err?.message, { code: err?.code });
       setError(writeError(err));
     },
     onSettled: () => setBusyBookId(null),
@@ -372,7 +530,8 @@ export default function LeaveCommunity() {
   const blockedByHeld = exit.blockedBy === EXIT_BLOCK.HELD;
   const mandatoryBlocked = blockedByReading || blockedByHeld;
   const anyBusy =
-    sendCode.isPending || cancelReturn.isPending || resetRequest.isPending;
+    sendCode.isPending || cancelReturn.isPending || resetRequest.isPending ||
+    offerBack.isPending || cancelOffer.isPending;
 
   return (
     <MobileShell>
@@ -407,42 +566,74 @@ export default function LeaveCommunity() {
         </div>
       )}
 
+      {/* No link out of here any more. This rule used to be stated with a
+          count and a button to another screen; the books it counts are now
+          listed below it, with the same handshake as everything else. */}
       {blockedByHeld && (
         <div className="mx-4 mt-4 rounded-2xl bg-badSoft px-4 py-3">
           <p className="text-[13px] text-bad leading-relaxed">{t.exitBlockedHeld}</p>
           <p className="text-[12px] text-bad/80 mt-1">
-            {t.exitHeldCount(exit.heldFromOthers.length)}
+            {t.exitHeldCount(heldRows.length)}
           </p>
-          <button
-            onClick={() => navigate("/profile/owned")}
-            className="mt-2 text-[13px] font-semibold text-bad underline underline-offset-2"
-          >
-            {t.openHeldBooks}
-          </button>
         </div>
       )}
 
       {booksQuery.isLoading ? (
         <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && heldRows.length === 0 ? (
         <p className="px-6 py-10 text-center text-ink-500">{t.leaveNoBooks}</p>
       ) : (
-        <ul className="mt-4 px-4 space-y-3">
-          {rows.map((row) => (
-            <BookRow
-              key={row.book.id}
-              row={row}
-              holder={holders[row.holderId] ?? null}
-              busy={busyBookId === row.book.id || anyBusy}
-              onSendCode={() => run(sendCode, row)}
-              onCancel={() => run(cancelReturn, row)}
-              onReset={() => run(resetRequest, row)}
-              onEnterCode={() =>
-                navigate(`/community/${id}/leave/return/${row.book.id}`)
-              }
-            />
-          ))}
-        </ul>
+        <>
+          {/* ── Books to hand back ──
+              First, because it is the blocking rule: the exit will not open
+              while any of these is still in this member's hands. */}
+          {heldRows.length > 0 && (
+            <section className="mt-4">
+              <h2 className="px-4 text-[13px] font-semibold text-ink-500">
+                {t.leaveHandBackTitle}
+              </h2>
+              <ul className="mt-2 px-4 space-y-3">
+                {heldRows.map((row) => (
+                  <HandBackRow
+                    key={row.book.id}
+                    row={row}
+                    owner={owners[row.book.ownerId] ?? null}
+                    busy={busyBookId === row.book.id || anyBusy}
+                    onOffer={() => run(offerBack, row)}
+                    onCancel={() => run(cancelOffer, row)}
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* ── Books to collect ── */}
+          {rows.length > 0 && (
+            <section className="mt-5">
+              {heldRows.length > 0 && (
+                <h2 className="px-4 text-[13px] font-semibold text-ink-500">
+                  {t.leaveCollectTitle}
+                </h2>
+              )}
+              <ul className="mt-2 px-4 space-y-3">
+                {rows.map((row) => (
+                  <BookRow
+                    key={row.book.id}
+                    row={row}
+                    holder={holders[row.holderId] ?? null}
+                    busy={busyBookId === row.book.id || anyBusy}
+                    onSendCode={() => run(sendCode, row)}
+                    onCancel={() => run(cancelReturn, row)}
+                    onReset={() => run(resetRequest, row)}
+                    onEnterCode={() =>
+                      navigate(`/community/${id}/leave/return/${row.book.id}`)
+                    }
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
       )}
 
       {/* Status band: still waiting on at least one copy. Suppressed while a
@@ -496,6 +687,115 @@ export default function LeaveCommunity() {
  * primary action — which is the point of deriving them centrally: the row does
  * not decide anything, it renders a decision.
  */
+/**
+ * One book of somebody else's, in this member's hands, on its way back.
+ *
+ * The mirror of `BookRow`: same card, same three states, everything pointing
+ * the other way. The member is handing this one over, so the four digits are
+ * *shown* here rather than typed — they read them out at the handover and the
+ * owner enters them. Which is why there is no "enter code" button on this row
+ * and no route out of this screen: the member's part is done once the code is
+ * out, and the rest is the owner's.
+ */
+function HandBackRow({ row, owner, busy, onOffer, onCancel }) {
+  const { book, state, request } = row;
+  const pending = state === RETURN_STATE.PENDING;
+  const stale = needsSweep(state);
+
+  const ownerName = owner
+    ? `${owner.firstName || ""} ${owner.lastName || ""}`.trim() || `@${owner.nickname}`
+    : null;
+
+  return (
+    <li className="card p-4">
+      <div className="flex items-start gap-3">
+        {book.coverUrl ? (
+          <img src={book.coverUrl} alt="" className="w-11 h-16 rounded-lg object-cover bg-ink-100 shrink-0" />
+        ) : (
+          <div className="w-11 h-16 rounded-lg bg-ink-100 shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-[15px] truncate">{book.name}</p>
+          <p className="text-[13px] text-ink-500 truncate">{book.author}</p>
+          <div className="mt-1.5">
+            <span
+              className={
+                "pill text-[12px] " +
+                (pending ? "bg-warnSoft text-warn" : "bg-ink-100 text-ink-700")
+              }
+            >
+              {pending ? t.returnOfferWaiting : t.leaveHandBackPending}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Who it goes back to, and how to reach them — the handover happens in
+          person, and saying where is the whole job of this card. */}
+      <div className="mt-3 rounded-2xl bg-ink-100/60 px-3.5 py-3">
+        <p className="text-[12px] text-ink-500 mb-2">{t.returnOfferWhoCollects}</p>
+        {owner ? (
+          <>
+            <div className="flex items-center gap-3">
+              <Avatar src={owner.photoURL} name={ownerName} size={36} />
+              <div className="min-w-0">
+                <p className="font-medium text-[14px] truncate">{ownerName}</p>
+                <p className="text-[12px] text-ink-500 truncate">@{owner.nickname}</p>
+              </div>
+            </div>
+            <dl className="mt-2.5 space-y-1.5">
+              <ContactRow label={t.phone} value={owner.phone || t.contactNotSet} />
+              <ContactRow label={t.address} value={owner.address || t.contactNotSet} />
+            </dl>
+          </>
+        ) : (
+          <p className="text-[13px] text-bad">{t.returnHolderMissing}</p>
+        )}
+      </div>
+
+      {pending && request?.returnCode ? (
+        <div className="mt-3 rounded-2xl bg-brand-50 px-3.5 py-3 flex flex-col items-center gap-2">
+          <p className="text-[12px] text-ink-500">{t.returnOfferCodeTitle}</p>
+          <div className="flex gap-2">
+            {String(request.returnCode).split("").map((digit, i) => (
+              <span
+                key={i}
+                className="w-10 h-12 flex items-center justify-center rounded-xl bg-base text-brand-500 text-xl font-bold"
+              >
+                {digit}
+              </span>
+            ))}
+          </div>
+          <p className="text-[12px] text-ink-500 text-center leading-snug">
+            {t.returnOfferCodeNote}
+          </p>
+        </div>
+      ) : (
+        <p className="mt-2.5 text-[12px] text-ink-500 leading-snug">{t.leaveHandBackHint}</p>
+      )}
+
+      <div className="mt-3 space-y-2">
+        {pending ? (
+          <button onClick={onCancel} disabled={busy} className="btn-secondary">
+            {busy ? "…" : t.returnOfferCancel}
+          </button>
+        ) : (
+          <>
+            <button onClick={onOffer} disabled={busy} className="btn-primary">
+              {busy ? "…" : t.returnOfferSend}
+            </button>
+            {stale ? (
+              <p className="text-[12px] text-ink-500 text-center">
+                {returnStateMessage(state)}
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+    </li>
+  );
+}
+
 function BookRow({ row, holder, busy, onSendCode, onCancel, onEnterCode, onReset }) {
   const { book, state, onLoan } = row;
   const home = state === RETURN_STATE.HOME;
