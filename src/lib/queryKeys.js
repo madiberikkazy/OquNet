@@ -8,6 +8,11 @@ export const qk = {
     /** The paged shelf. Owned by an *infinite* query — see `forExit` below. */
     list: (communityId, filters) => ["books", "list", communityId, filters],
     detail: (id) => ["books", "detail", id],
+    // Every loan of one book, oldest first — the Book Journey screen. Under
+    // `books` so a handoff invalidates it with everything else about the book.
+    journey: (id) => ["books", "journey", id],
+    /** The readers in one journey, keyed on the set of them. */
+    journeyPeople: (idsKey) => ["books", "journey", "people", idsKey],
     // Recently added books — the horizontal rail above the main list.
     recent: (communityId) => ["books", "recent", communityId],
     // Books physically with a user right now — the "Сізде қазір бар кітаптар"

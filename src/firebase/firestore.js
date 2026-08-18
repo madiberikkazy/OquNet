@@ -2224,6 +2224,59 @@ export async function getLastCompletedBorrowingByBook(bookId) {
   });
   return rows[0] || null;
 }
+/** How many stops of a book's history one screen will draw. */
+export const BOOK_JOURNEY_MAX = 60;
+
+/**
+ * Every loan of one book, oldest first — the book's journey.
+ *
+ * Ascending, unlike every other list in this file, because this one is read as
+ * a story rather than a feed: a book starts with its owner and passes from hand
+ * to hand, and the interesting end of that is where it is *now*, at the bottom.
+ *
+ * Capped rather than paged. Sixty stops is a book that has been round a
+ * community for years, and a journey is a thing you look at, not a thing you
+ * scroll for ever — the alternative is a cursor and a "load more" on a screen
+ * nobody will reach the bottom of.
+ *
+ * Loans are readable by any signed-in caller (see limit (1) in the rules
+ * header), so this needs no community filter to be *allowed* — but the book
+ * itself is community-scoped, so a caller who cannot read the book never gets
+ * as far as asking.
+ */
+export async function listBorrowingsForBook(bookId, { pageSize = BOOK_JOURNEY_MAX } = {}) {
+  if (!bookId) return [];
+  return getCollection("borrowings", {
+    where: [["bookId", "==", bookId]],
+    orderByField: "createdAt",
+    pageSize,
+  });
+}
+
+/**
+ * The people in a journey, fetched once each.
+ *
+ * A book that has been round a community of ten twenty times names ten people
+ * across twenty loans, and a lookup per loan would be twenty reads for ten
+ * answers. Mirrors `getBooksByIds`: bounded concurrency, misses dropped rather
+ * than failing the batch — a reader whose account is gone should leave a gap in
+ * the story, not break the screen.
+ */
+export async function getUsersByIds(userIds, concurrency = 5) {
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  if (ids.length === 0) return {};
+
+  const found = {};
+  for (let i = 0; i < ids.length; i += concurrency) {
+    const batch = ids.slice(i, i + concurrency);
+    const rows = await Promise.all(batch.map((id) => getUserById(id).catch(() => null)));
+    batch.forEach((id, n) => { found[id] = rows[n] ?? null; });
+  }
+  // A plain object, not a Map: this is cached by React Query and persisted to
+  // IndexedDB through a JSON serializer, which turns a Map into `{}`.
+  return found;
+}
+
 export async function listBorrowingsForUser(userId, status) {
   const wheres = [["borrowerId", "==", userId]];
   if (status) wheres.push(["status", "==", status]);

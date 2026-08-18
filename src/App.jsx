@@ -19,6 +19,7 @@ import ProtectedRoute from "./components/ProtectedRoute.jsx";
 const Home               = lazyRoute(() => import("./pages/user/Home.jsx"));
 const Books              = lazyRoute(() => import("./pages/user/Books.jsx"));
 const BookDetail         = lazyRoute(() => import("./pages/user/BookDetail.jsx"));
+const BookJourney        = lazyRoute(() => import("./pages/user/BookJourney.jsx"));
 const PickupBook         = lazyRoute(() => import("./pages/user/PickupBook.jsx"));
 const ReturnToOwner      = lazyRoute(() => import("./pages/user/ReturnToOwner.jsx"));
 const Notification       = lazyRoute(() => import("./pages/user/Notification.jsx"));
@@ -97,6 +98,8 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/books" element={<Books />} />
             <Route path="/books/:id" element={<BookDetail />} />
+            {/* Where the book has been, read off its loans. */}
+            <Route path="/books/:id/journey" element={<BookJourney />} />
 
             {/* Pickup flow — replaces the old /request route */}
             <Route path="/books/:id/pickup" element={<PickupBook />} />

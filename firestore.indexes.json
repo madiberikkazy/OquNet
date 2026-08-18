@@ -155,6 +155,19 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "_comment": [
+        "listBorrowingsForBook — the Book Journey screen, oldest first.",
+        "Not served by the index above: `status` sits between the two fields",
+        "this query uses, and Firestore cannot skip a middle field."
+      ],
+      "collectionGroup": "borrowings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "bookId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
