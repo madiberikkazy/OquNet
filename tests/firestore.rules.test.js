@@ -1845,6 +1845,24 @@ describe("readingSessions", () => {
 // subcollection whose permission comes from that id rather than from a read of
 // the parent document. These tests are mostly about the second half: the id is
 // load-bearing, so every way of lying about it has to fail.
+// Presence is a stamp a user writes on their own profile every half minute.
+// It goes through the ordinary self-update lane, so what matters is that the
+// lane still refuses it on somebody else's profile.
+describe("presence", () => {
+  it("lets a user stamp their own heartbeat", async () => {
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), {
+      lastActiveAt: serverTimestamp(),
+    }));
+  });
+
+  it("refuses a heartbeat written onto somebody else", async () => {
+    // Otherwise anybody could keep anybody else looking permanently online.
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "users", MEMBER_A), {
+      lastActiveAt: serverTimestamp(),
+    }));
+  });
+});
+
 describe("chats", () => {
   // MEMBER_A and MEMBER_A2, sorted — the id the app derives for this pair.
   const PAIR = [MEMBER_A, MEMBER_A2].sort();
@@ -1935,6 +1953,108 @@ describe("chats", () => {
       await assertFails(getDocs(query(
         collection(as(MEMBER_B), "chats"), where("memberIds", "array-contains", MEMBER_A))));
       await assertFails(getDocs(collection(as(MEMBER_A), "chats")));
+    });
+
+    // ── Receipts ──
+    //
+    // Both ticks are a watermark the member writes on themselves. The rules
+    // have to make sure a member can only ever move their *own*, and only to
+    // the server's clock — a forged or rewindable mark is a receipt that says
+    // nothing.
+    describe("read and delivery receipts", () => {
+      it("lets a member stamp their own read mark when they open the thread", async () => {
+        await seedChat();
+        await assertSucceeds(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+          [`unread.${MEMBER_A2}`]: 0,
+          [`readAt.${MEMBER_A2}`]: serverTimestamp(),
+        }));
+      });
+
+      it("lets the receiving device stamp delivery on its own", async () => {
+        await seedChat();
+        await assertSucceeds(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+          [`deliveredAt.${MEMBER_A2}`]: serverTimestamp(),
+        }));
+      });
+
+      it("refuses a receipt written on the other person's behalf", async () => {
+        await seedChat();
+        // The whole point: A cannot decide that A2 has read or received A's
+        // own message. That is what would make the ticks a lie.
+        await assertFails(updateDoc(doc(as(MEMBER_A), "chats", CHAT), {
+          [`readAt.${MEMBER_A2}`]: serverTimestamp(),
+        }));
+        await assertFails(updateDoc(doc(as(MEMBER_A), "chats", CHAT), {
+          [`deliveredAt.${MEMBER_A2}`]: serverTimestamp(),
+        }));
+      });
+
+      it("refuses a mark the client chose the time for", async () => {
+        await seedChat();
+        // Backdated — "I have not seen anything since yesterday".
+        await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+          [`readAt.${MEMBER_A2}`]: new Date(Date.now() - 86_400_000),
+        }));
+        // Post-dated — marks tomorrow's messages read before they are sent.
+        await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+          [`deliveredAt.${MEMBER_A2}`]: new Date(Date.now() + 86_400_000),
+        }));
+      });
+
+      it("refuses a receipt that quietly edits the other person's mark", async () => {
+        await testEnv.withSecurityRulesDisabled(async (ctx) => {
+          await setDoc(doc(ctx.firestore(), "chats", CHAT), {
+            memberIds: PAIR,
+            lastMessage: { senderId: MEMBER_A, text: "hello", at: Date.now() },
+            updatedAt: Date.now(),
+            unread: { [MEMBER_A]: 0, [MEMBER_A2]: 1 },
+            readAt: { [MEMBER_A]: Date.now() },
+          });
+        });
+        await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+          readAt: { [MEMBER_A2]: serverTimestamp(), [MEMBER_A]: 0 },
+        }));
+      });
+
+      it("refuses a receipt that also moves the conversation", async () => {
+        // Both badges non-zero, deliberately. The first version of this test
+        // cleared a counter that was already 0, which Firestore does not count
+        // as a change at all — so the write it was checking was in truth a
+        // plain delivery receipt, and it passed for the right reason while the
+        // test claimed it had proved something else.
+        await testEnv.withSecurityRulesDisabled(async (ctx) => {
+          await setDoc(doc(ctx.firestore(), "chats", CHAT), {
+            memberIds: PAIR,
+            lastMessage: { senderId: MEMBER_A, text: "hello", at: Date.now() },
+            updatedAt: Date.now(),
+            unread: { [MEMBER_A]: 2, [MEMBER_A2]: 1 },
+          });
+        });
+
+        // A delivery receipt is an acknowledgement, not a licence to rewrite
+        // the preview or clear the other person's badge.
+        await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+          [`deliveredAt.${MEMBER_A2}`]: serverTimestamp(),
+          lastMessage: { senderId: MEMBER_A2, text: "sneaky", at: serverTimestamp() },
+        }));
+        await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+          [`deliveredAt.${MEMBER_A2}`]: serverTimestamp(),
+          [`unread.${MEMBER_A}`]: 0,
+        }));
+        // …and the same clearing attempt dressed as a read receipt.
+        await assertFails(updateDoc(doc(as(MEMBER_A2), "chats", CHAT), {
+          [`unread.${MEMBER_A2}`]: 0,
+          [`unread.${MEMBER_A}`]: 0,
+          [`readAt.${MEMBER_A2}`]: serverTimestamp(),
+        }));
+      });
+
+      it("still refuses an outsider entirely", async () => {
+        await seedChat();
+        await assertFails(updateDoc(doc(as(MEMBER_B), "chats", CHAT), {
+          [`deliveredAt.${MEMBER_B}`]: serverTimestamp(),
+        }));
+      });
     });
 
     it("moves its rollup when a member sends, one unread at a time", async () => {

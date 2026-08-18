@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext.jsx";
-import { getUserById, watchChatsForUser, unreadFor } from "../firebase/firestore.js";
+import {
+  getUserById, markChatDelivered, needsDeliveryReceipt, PRESENCE_HEARTBEAT_MS,
+  touchPresence, unreadFor, watchChatsForUser,
+} from "../firebase/firestore.js";
 import { sendNotification } from "../utils/notificationService.js";
 import { peerName } from "../utils/chatPeer.js";
 import { toMillis } from "../utils/time.js";
@@ -63,6 +66,8 @@ export function ChatProvider({ children }) {
   );
 
   useMessageNotifications(ordered, userId);
+  useDeliveryReceipts(ordered, userId);
+  usePresenceHeartbeat(userId);
 
   const value = useMemo(
     () => ({ chats: ordered, loading, unreadTotal }),
@@ -171,4 +176,74 @@ async function announce(chat, senderId, peerCache) {
   } catch (err) {
     logger.warn("chats.notify", err?.message, { chatId: chat.id });
   }
+}
+
+/**
+ * The second tick, sent from the device that received the message.
+ *
+ * This subscription is the only thing in the app that sees a message arrive
+ * without the reader having opened anything, which makes it the only honest
+ * place to say "it got here". One write per arrival, not per message: the
+ * watermark covers everything older than itself.
+ *
+ * Attempts are remembered so a failed write is not retried on every snapshot —
+ * a chat whose receipt is refused (an old ruleset, say) would otherwise write
+ * once per update for as long as the app is open. The next new message moves
+ * the stamp and lets it try again, which is the right amount of retry.
+ */
+function useDeliveryReceipts(chats, userId) {
+  const attempted = useRef(new Map());
+
+  useEffect(() => {
+    attempted.current = new Map();
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    for (const chat of chats) {
+      if (!needsDeliveryReceipt(chat, userId)) continue;
+      const at = toMillis(chat.lastMessage?.at);
+      if (attempted.current.get(chat.id) === at) continue;
+      attempted.current.set(chat.id, at);
+
+      markChatDelivered({ chatId: chat.id, userId }).catch((err) =>
+        logger.warn("chats.delivered", err?.message, { chatId: chat.id, code: err?.code })
+      );
+    }
+  }, [chats, userId]);
+}
+
+/**
+ * "Online", as far as a web app can honestly claim it.
+ *
+ * A stamp on the reader's own profile every PRESENCE_HEARTBEAT_MS while the app
+ * is open and visible. Hidden tabs stop beating — a phone in a pocket is not
+ * somebody who is available to talk, and it is also where the writes would be
+ * pure waste — and coming back to the foreground beats immediately rather than
+ * waiting out the interval, so returning to the app looks instant to whoever is
+ * waiting on the other side.
+ *
+ * See the presence note in firebase/firestore.js for what this cannot do:
+ * nothing here fires when the app is closed or killed, so leaving is a stamp
+ * going stale rather than an event.
+ */
+function usePresenceHeartbeat(userId) {
+  useEffect(() => {
+    if (!userId) return undefined;
+
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      touchPresence(userId).catch((err) =>
+        logger.warn("presence.beat", err?.message, { code: err?.code })
+      );
+    };
+
+    beat();
+    const id = setInterval(beat, PRESENCE_HEARTBEAT_MS);
+    document.addEventListener("visibilitychange", beat);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", beat);
+    };
+  }, [userId]);
 }

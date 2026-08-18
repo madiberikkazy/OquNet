@@ -863,13 +863,48 @@ service cloud.firestore {
         && request.resource.data.unread.get(other, 0) == resource.data.unread.get(other, 0) + 1;
     }
 
-    // Opening the thread: a member zeroes their own counter and may not touch
-    // the other's — reading your messages is not a way to clear somebody else's.
+    // Opening the thread: a member zeroes their own counter, stamps their own
+    // read watermark, and may touch neither of the other's — reading your
+    // messages is not a way to clear somebody else's badge, and it is certainly
+    // not a way to claim they read yours.
+    //
+    // `== request.time` is what makes a watermark trustworthy. A client-chosen
+    // value could be rewound to un-read a message, or pushed into the future to
+    // mark as read things that have not been sent yet; the server's own clock
+    // can do neither, and only ever moves forward.
+    // The watermark is optional here: clearing the badge without stamping one
+    // is a legitimate write, and demanding both would reject it. What is not
+    // optional is that a stamped mark be the caller's own and be the server's
+    // clock — hence the implication rather than a plain conjunction.
     function chatMarkRead() {
       let other = otherMember(resource.data.memberIds);
-      return touchesOnly(['unread'].toSet())
+      return touchesOnly(['unread', 'readAt'].toSet())
         && request.resource.data.unread.get(uid(), 0) == 0
-        && request.resource.data.unread.get(other, 0) == resource.data.unread.get(other, 0);
+        && request.resource.data.unread.get(other, 0) == resource.data.unread.get(other, 0)
+        && (!changed().hasAny(['readAt'].toSet()) || ownWatermarkOnly('readAt', other));
+    }
+
+    // The second tick, written by the device that received the message — the
+    // only party in a position to say it arrived. Nothing else may move: a
+    // delivery receipt that could also touch the counter or the preview would
+    // be a way to edit somebody else's conversation while acknowledging it.
+    function chatMarkDelivered() {
+      return touchesOnly(['deliveredAt'].toSet())
+        && ownWatermarkOnly('deliveredAt', otherMember(resource.data.memberIds));
+    }
+
+    /**
+     * My mark is the server's clock; theirs is exactly what it already was.
+     *
+     * Every lookup goes through `get` with a default. Indexing a map that the
+     * write does not carry — a chat with no receipts on it yet, or a member
+     * clearing their badge without stamping — is not "false" in this language,
+     * it is an evaluation error that denies the write for the wrong reason.
+     */
+    function ownWatermarkOnly(field, other) {
+      return request.resource.data.get(field, {}).get(uid(), null) == request.time
+        && request.resource.data.get(field, {}).get(other, null)
+           == resource.data.get(field, {}).get(other, null);
     }
 
     match /chats/{chatId} {
@@ -889,7 +924,7 @@ service cloud.firestore {
       allow update: if inChatId(chatId)
         && uid() in resource.data.memberIds
         && frozen(['memberIds'].toSet())
-        && (chatSend() || chatMarkRead());
+        && (chatSend() || chatMarkRead() || chatMarkDelivered());
 
       // No delete. One member removing the conversation would remove it for
       // both, and there is no such button in the app — a thread that needs to

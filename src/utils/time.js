@@ -1,5 +1,7 @@
 // One way to read a timestamp, for the whole app.
 
+// i18n is safe to import here and not a cycle: the dictionaries import nothing.
+import { t } from "./i18n.js";
 /**
  * Milliseconds since the epoch, from whatever shape a timestamp arrived in.
  *
@@ -120,3 +122,28 @@ export function toMillis(value, fallback = 0) {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : fallback;
 }
+
+/**
+ * How long ago somebody was last seen, for the chat header.
+ *
+ * Coarse on purpose. "Last seen 3 minutes ago" is a fact about a person, and
+ * reporting it to the second would be both useless and faintly unpleasant; the
+ * bands here are the ones every messaging app settled on. Anything older than a
+ * day hands back to `formatChatStamp`, which already knows how to write a date.
+ *
+ * Returns "" for a timestamp that never resolved, so a caller can leave the
+ * whole line out rather than print a lie about 1970.
+ */
+export function formatLastSeen(value, now = Date.now()) {
+  const ms = toMillis(value, 0);
+  if (!ms) return "";
+
+  const seconds = Math.max(0, Math.round((now - ms) / 1000));
+  if (seconds < 60) return t.lastSeenJustNow;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return t.lastSeenMinutes(minutes);
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return t.lastSeenHours(hours);
+  return formatChatStamp(ms);
+}
+

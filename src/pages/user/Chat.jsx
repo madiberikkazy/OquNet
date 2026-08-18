@@ -5,12 +5,14 @@ import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useChats } from "../../contexts/ChatContext.jsx";
 import {
-  chatIdFor, getUserById, markChatRead, sendMessage, unreadFor, watchMessages,
+  chatIdFor, getUserById, isOnline, lastSeenAt, markChatRead, messageStatus,
+  needsReadReceipt, PRESENCE_HEARTBEAT_MS, sendMessage, unreadFor, watchMessages,
 } from "../../firebase/firestore.js";
+import MessageTicks from "../../components/MessageTicks.jsx";
 import { qk } from "../../lib/queryKeys.js";
 import { peerName } from "../../utils/chatPeer.js";
 import { logger } from "../../utils/logger.js";
-import { dayStamp, formatClock, formatDayLabel, toMillis } from "../../utils/time.js";
+import { dayStamp, formatClock, formatDayLabel, formatLastSeen, toMillis } from "../../utils/time.js";
 import { t } from "../../utils/i18n.js";
 import { LIMITS } from "../../utils/validators.js";
 
@@ -60,7 +62,14 @@ export default function Chat() {
   const peerQuery = useQuery({
     queryKey: qk.users.byId(peerId),
     enabled: !!peerId,
-    staleTime: 60_000,
+    // Short, and re-read on a timer, because this document now carries
+    // something that changes while the screen is open: the other person's
+    // heartbeat. A minute of staleness was fine for a name and a photo; it
+    // would make "online" mean "was online a minute ago". The interval matches
+    // the heartbeat itself, and React Query pauses it for a hidden tab, so a
+    // backgrounded chat costs nothing.
+    staleTime: PRESENCE_HEARTBEAT_MS,
+    refetchInterval: PRESENCE_HEARTBEAT_MS,
     queryFn: () => getUserById(peerId),
   });
   const peer = peerQuery.data ?? null;
@@ -99,12 +108,18 @@ export default function Chat() {
   const chat = useMemo(() => chats.find((c) => c.id === chatId) ?? null, [chats, chatId]);
   const unread = unreadFor(chat, selfId);
 
+  // Opening the thread clears the badge *and* stamps the read watermark, which
+  // is what turns the other person's ticks blue. Driven by `needsReadReceipt`
+  // rather than the badge alone: a message arriving while the reader is already
+  // sitting in the thread never raises the counter, and without the second half
+  // of that check its sender would never see it marked read.
+  const owesReceipt = needsReadReceipt(chat, selfId);
   useEffect(() => {
-    if (!chatId || !selfId || unread === 0) return;
+    if (!chatId || !selfId || !owesReceipt) return;
     markChatRead({ chatId, userId: selfId }).catch((err) =>
       logger.error("chat.markRead", err?.message, { code: err?.code, chatId })
     );
-  }, [chatId, selfId, unread]);
+  }, [chatId, selfId, owesReceipt]);
 
   // ── Sticking to the bottom ──────────────────────────────────────────────────
   //
@@ -201,9 +216,11 @@ export default function Chat() {
             <Avatar src={peer?.photoURL} name={peerName(peer)} size={38} />
             <span className="min-w-0">
               <span className="block font-semibold text-[15px] truncate">{peerName(peer)}</span>
-              {peer?.nickname ? (
-                <span className="block text-[12px] text-ink-500 truncate">@{peer.nickname}</span>
-              ) : null}
+              {/* Presence replaces the handle rather than joining it: two lines
+                  is what the header has room for, and "online" is the more
+                  useful of the two while you are talking to somebody. The
+                  handle is one tap away on the profile this row opens. */}
+              <PeerPresence peer={peer} />
             </span>
           </Link>
         </div>
@@ -255,11 +272,16 @@ export default function Chat() {
                               a column of messages. */}
                           <span
                             className={
-                              "block text-[10px] mt-1 tabular-nums text-right " +
+                              "flex items-center justify-end gap-1 text-[10px] mt-1 tabular-nums " +
                               (mine ? "text-white/70" : "text-ink-500")
                             }
                           >
                             {formatClock(m.createdAt) || t.chatSendingMark}
+                            {/* Only on your own messages — a tick on theirs
+                                would be reporting on yourself. */}
+                            {mine ? (
+                              <MessageTicks status={messageStatus(m, chat, peerId)} />
+                            ) : null}
                           </span>
                         </div>
                       </li>
@@ -330,3 +352,38 @@ function groupByDay(messages) {
   }
   return groups;
 }
+/**
+ * "online", or when they were last seen.
+ *
+ * Re-rendered on a timer as well as on new data, because this is a statement
+ * about elapsed time: with no clock of its own, a header opened at 14:00 would
+ * still claim somebody was online at 14:30. The peer document itself refreshes
+ * on its own query; this only re-reads the same document against a newer `now`.
+ *
+ * Silent for a profile that has never reported — an account that predates
+ * presence should say nothing rather than "last seen 1 January 1970".
+ */
+function PeerPresence({ peer }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), PRESENCE_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const seen = lastSeenAt(peer);
+  if (!seen) return null;
+
+  return isOnline(peer, now) ? (
+    <span className="flex items-center gap-1.5 text-[12px] text-ok">
+      <span className="w-1.5 h-1.5 rounded-full bg-ok" aria-hidden="true" />
+      {t.presenceOnline}
+    </span>
+  ) : (
+    <span className="block text-[12px] text-ink-500 truncate">
+      {t.presenceLastSeen(formatLastSeen(seen, now))}
+    </span>
+  );
+}
+
+/** How often the line above re-reads the clock. */
+const PRESENCE_TICK_MS = 30_000;

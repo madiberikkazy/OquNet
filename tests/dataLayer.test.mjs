@@ -24,6 +24,9 @@ const {
   createBook, listBooks, listNewBooks, listBooksHeldBy, listBooksOwnedBy,
   updateBook, getBook, createNotification, listNotifications,
   createUserDoc, getUserById, updateUser, searchUsers, notifyCommunityMembers,
+  sendMessage, markChatRead, markChatDelivered, messageStatus, MESSAGE_STATUS,
+  needsReadReceipt, needsDeliveryReceipt, isOnline, lastSeenAt, touchPresence,
+  watchChatsForUser, chatIdFor,
   createPost, getPost, listPublicPosts, listPostsByCommunity, togglePostLike,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
   createJoinRequest, getRequestById, getPhoneVerification,
@@ -385,6 +388,137 @@ describe("people search", () => {
     assert.equal((await searchUsers("madi")).length, 0);
     assert.equal((await searchUsers("berik")).length, 0);
     assert.equal((await searchUsers("deleted")).length, 1);
+  });
+});
+
+// Two ticks and a blue tick, without a write per message: each member keeps a
+// watermark, and a message is delivered or read if it is older than the other
+// person's mark. These cover the arithmetic of that and the two questions that
+// decide whether a write happens at all.
+describe("read and delivery receipts", () => {
+  const A = "u-alice";
+  const B = "u-bob";
+  const CHAT = chatIdFor(A, B);
+
+  const reload = () => JSON.parse(store.get(LS_KEY)).chats.find((c) => c.id === CHAT);
+
+  /**
+   * One chat with one message from A to B.
+   *
+   * The *stored* message, not what `sendMessage` returns: the data layer
+   * deliberately hands back no `createdAt`, because the server stamp does not
+   * exist yet at that moment and inventing one is the lie createOne documents
+   * at length. The screen reads messages from `watchMessages`, which is this.
+   */
+  async function conversation(text = "сәлем") {
+    await sendMessage({ senderId: A, recipientId: B, text });
+    return { message: storedMessages().at(-1), chat: reload() };
+  }
+
+  const storedMessages = () =>
+    JSON.parse(store.get(LS_KEY))[`chats/${CHAT}/messages`] ?? [];
+
+  it("starts a message as sent — on the server, nowhere else", async () => {
+    const { message, chat } = await conversation();
+    assert.equal(messageStatus(message, chat, B), MESSAGE_STATUS.sent);
+  });
+
+  it("calls a message with no stamp yet pending, not sent", async () => {
+    const { chat } = await conversation();
+    // A local write whose serverTimestamp has not resolved. Claiming "sent"
+    // here would show a tick for something that may still fail.
+    assert.equal(messageStatus({ createdAt: null }, chat, B), MESSAGE_STATUS.pending);
+  });
+
+  it("turns two ticks grey once the other device has it", async () => {
+    const { message } = await conversation();
+    await markChatDelivered({ chatId: CHAT, userId: B });
+    assert.equal(messageStatus(message, reload(), B), MESSAGE_STATUS.delivered);
+  });
+
+  it("turns them blue once they open the thread", async () => {
+    const { message } = await conversation();
+    await markChatDelivered({ chatId: CHAT, userId: B });
+    await markChatRead({ chatId: CHAT, userId: B });
+    assert.equal(messageStatus(message, reload(), B), MESSAGE_STATUS.read);
+  });
+
+  it("does not mark a newer message with an older receipt", async () => {
+    await conversation();
+    await markChatRead({ chatId: CHAT, userId: B });
+    // B read the thread, then A says something else. The new message is not
+    // covered by the old watermark — this is the case a per-chat boolean would
+    // get wrong.
+    await sendMessage({ senderId: A, recipientId: B, text: "тағы бір" });
+    const second = storedMessages().at(-1);
+    assert.equal(messageStatus(second, reload(), B), MESSAGE_STATUS.sent);
+  });
+
+  it("keeps each member's marks to themselves", async () => {
+    await conversation();
+    await markChatRead({ chatId: CHAT, userId: B });
+    const chat = reload();
+    assert.ok(chat.readAt?.[B] > 0);
+    assert.equal(chat.readAt?.[A], undefined, "reading marked the other member too");
+    // A's own unread was already zeroed by sending; B's is now cleared.
+    assert.equal(chat.unread[B], 0);
+  });
+
+  it("asks for a read receipt when there is one owed, and not otherwise", async () => {
+    const { chat } = await conversation();
+    assert.equal(needsReadReceipt(chat, B), true, "unread message owes a receipt");
+    await markChatRead({ chatId: CHAT, userId: B });
+    assert.equal(needsReadReceipt(reload(), B), false, "receipt asked for twice");
+  });
+
+  it("owes a read receipt for a message that arrived while the thread was open", async () => {
+    await conversation();
+    await markChatRead({ chatId: CHAT, userId: B });
+    // B is sitting in the thread, so the counter never rises — but the sender
+    // still has to see this one turn blue. The counter alone would miss it.
+    await sendMessage({ senderId: A, recipientId: B, text: "көріп тұрсың ба?" });
+    const chat = reload();
+    chat.unread[B] = 0;                       // as the open screen leaves it
+    assert.equal(needsReadReceipt(chat, B), true);
+  });
+
+  it("never owes a delivery receipt for your own message", async () => {
+    const { chat } = await conversation();
+    assert.equal(needsDeliveryReceipt(chat, A), false, "sender acknowledged themselves");
+    assert.equal(needsDeliveryReceipt(chat, B), true);
+    await markChatDelivered({ chatId: CHAT, userId: B });
+    assert.equal(needsDeliveryReceipt(reload(), B), false);
+  });
+});
+
+// "Online" is a heartbeat and a window, not a connection — see the presence
+// note in firestore.js. What matters is that the window is honest at both ends.
+describe("presence", () => {
+  it("counts a fresh heartbeat as online", async () => {
+    await createUserDoc({ id: "p1", email: "p1@e.com", nickname: "p1" });
+    await touchPresence("p1");
+    const user = await getUserById("p1");
+    assert.equal(isOnline(user), true);
+    assert.ok(lastSeenAt(user) > 0);
+  });
+
+  it("counts a stale one as offline, and says when they were here", async () => {
+    const stamp = Date.now() - 10 * 60_000;
+    const user = { lastActiveAt: stamp };
+    assert.equal(isOnline(user), false);
+    assert.equal(lastSeenAt(user), stamp);
+  });
+
+  it("survives one missed beat", async () => {
+    // The window is wider than the interval on purpose: a phone in a tunnel
+    // for thirty seconds has not left.
+    assert.equal(isOnline({ lastActiveAt: Date.now() - 40_000 }), true);
+  });
+
+  it("says nothing about a profile that never reported", async () => {
+    assert.equal(isOnline({}), false);
+    assert.equal(lastSeenAt({}), 0);
+    assert.equal(isOnline(null), false);
   });
 });
 
