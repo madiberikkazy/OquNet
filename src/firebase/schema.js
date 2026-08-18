@@ -141,19 +141,51 @@ export const userSchema = Object.freeze({
   serverOwned: SERVER_OWNED_FIELDS,
 });
 
+/**
+ * What makes a person findable, denormalised onto their profile.
+ *
+ * The same arrangement books have, and for the same reason: `array-contains`
+ * is one indexed equality lookup, where a search across three separate name
+ * fields would be three queries whose results have to be merged, deduplicated
+ * and re-sorted in the browser.
+ *
+ * Names go in alongside the handle deliberately. Search used to be a prefix
+ * scan on `nickname` alone, so somebody could be looked at on screen —
+ * "Madi Berikkazy" — and still not be findable by that name, which is not a
+ * limitation a person searching for their friend would ever guess at. The
+ * prefixes are lowercased by `searchPrefixes`, so this is also what makes the
+ * match case-insensitive: a range scan over a stored "Madi" never matches a
+ * typed "madi".
+ *
+ * `email` is deliberately absent. It is not shown anywhere in the app, and
+ * indexing it would make every account findable by an address its owner never
+ * published.
+ */
+export function userSearchFields({ firstName, lastName, nickname } = {}) {
+  return { searchPrefixes: searchPrefixes(firstName, lastName, nickname) };
+}
+
+/** The fields a profile edit can change that `searchPrefixes` is built from. */
+export const USER_SEARCH_SOURCES = Object.freeze(["firstName", "lastName", "nickname"]);
+
 export function normalizeNewUser(payload) {
   requirePayload("users", payload);
   const id = requiredId("users", "id", payload.id);
   const email = requiredText("users", "email", payload.email, LIMITS.NAME_MAX).toLowerCase();
   const nickname = requiredId("users", "nickname", payload.nickname).toLowerCase();
+  const firstName = clampText(payload.firstName, LIMITS.NAME_MAX);
+  const lastName = clampText(payload.lastName, LIMITS.NAME_MAX);
 
   const document = {
     ...userSchema.defaults,
     id,
     email,
     nickname,
-    firstName: clampText(payload.firstName, LIMITS.NAME_MAX),
-    lastName: clampText(payload.lastName, LIMITS.NAME_MAX),
+    firstName,
+    lastName,
+    // Built from the clamped values above, never the raw payload: what is
+    // searchable has to be what is stored.
+    ...userSearchFields({ firstName, lastName, nickname }),
     // Carried, never invented: registration does not ask for a number, and a
     // profile is only ever born without one. A caller that passes one anyway
     // gets it stored unverified, which is what `phoneVerifiedAt: null` says.

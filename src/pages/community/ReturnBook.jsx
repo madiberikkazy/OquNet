@@ -24,6 +24,8 @@ import {
 } from "../../utils/bookReturn.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { t } from "../../utils/i18n.js";
+import { canSeePhone } from "../../utils/contactVisibility.js";
+import MessageButton from "../../components/MessageButton.jsx";
 import { writeError } from "../../utils/writeError.js";
 import { logger } from "../../utils/logger.js";
 
@@ -427,13 +429,18 @@ export default function ReturnBook({ mode = "leave" }) {
             <p className="text-[12px] text-ink-500 mb-2">{t.whoHasBookNow}</p>
             <div className="flex items-center gap-3">
               <Avatar src={holder.photoURL} name={holderName} size={40} />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="font-medium text-[15px] truncate">{holderName}</p>
                 <p className="text-[12px] text-ink-500 truncate">@{holder.nickname}</p>
               </div>
+              {/* Arranging the handover, without either of them ending up with
+                  the other's number — see utils/contactVisibility.js. */}
+              <MessageButton userId={holder.id} compact />
             </div>
             <dl className="mt-3 space-y-2">
-              <ContactRow label={t.phone} value={holder.phone || t.contactNotSet} />
+              {canSeePhone(user, holder) ? (
+                <ContactRow label={t.phone} value={holder.phone || t.contactNotSet} />
+              ) : null}
               <ContactRow label={t.address} value={holder.address || t.contactNotSet} />
             </dl>
           </div>

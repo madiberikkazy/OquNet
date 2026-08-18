@@ -1,17 +1,22 @@
 #!/usr/bin/env node
 //
-// Give every existing book the `searchPrefixes` array the search query needs.
+// Give every existing book and person the `searchPrefixes` array their search
+// query needs.
 //
 //   node scripts/backfill-search.mjs --dry-run   # report, write nothing
 //   node scripts/backfill-search.mjs             # write the missing arrays
 //   node scripts/backfill-search.mjs --all       # rewrite every book's array
 //
 // ── Why this exists ──────────────────────────────────────────────────────────
-// Book search is an indexed `array-contains` against `searchPrefixes`. A book
-// written before that field existed has no array, and `array-contains` does not
-// match a missing field — so such a book is not "ranked lower", it is
-// unfindable by name. `normalizeNewBook` covers everything written from now on;
-// this covers everything written before.
+// Book and people search are both an indexed `array-contains` against
+// `searchPrefixes`. A document written before that field existed has no array,
+// and `array-contains` does not match a missing field — so such a document is
+// not "ranked lower", it is unfindable by name. The normalizers cover
+// everything written from now on; this covers everything written before.
+//
+// People were added to this script when user search stopped being a scan over
+// `nickname`. Until it is run, an existing account is findable by nobody: a
+// profile written under the old rules carries no array at all.
 //
 // Run it once, after `firebase deploy --only firestore:indexes` has finished
 // building. Order matters only in that searching against a half-built index
@@ -34,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { cert, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
-import { bookSearchFields } from "../src/firebase/schema.js";
+import { bookSearchFields, userSearchFields } from "../src/firebase/schema.js";
 
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -63,16 +68,17 @@ initializeApp({ credential: cert(credential), projectId: credential.project_id }
 const db = getFirestore();
 
 /** True when the stored array differs from what the current rules produce. */
-function needsWrite(book, next) {
-  const current = book.searchPrefixes;
+function needsWrite(doc, next) {
+  const current = doc.searchPrefixes;
   if (!Array.isArray(current)) return true;
   if (!REWRITE_ALL) return false;
   return current.length !== next.length || current.some((v, i) => v !== next[i]);
 }
 
-async function main() {
-  const snap = await db.collection("books").get();
-  console.log(`${snap.size} book(s) in the collection.`);
+/** One collection's worth of backfill. Identical work, different text fields. */
+async function backfill(collection, fieldsFor, describe) {
+  const snap = await db.collection(collection).get();
+  console.log(`${snap.size} ${collection} document(s).`);
 
   let batch = db.batch();
   let pending = 0;
@@ -80,19 +86,19 @@ async function main() {
   let skipped = 0;
 
   for (const doc of snap.docs) {
-    const book = doc.data();
-    const fields = bookSearchFields(book);
+    const data = doc.data();
+    const fields = fieldsFor(data);
 
-    if (!needsWrite(book, fields.searchPrefixes)) {
+    if (!needsWrite(data, fields.searchPrefixes)) {
       skipped += 1;
       continue;
     }
 
-    // A book with no title and no author produces an empty array, which is a
-    // book that matches nothing. Say so rather than writing it silently — it
-    // means the document is malformed, not that the backfill has a bug.
+    // Nothing searchable produces an empty array, which is a document that
+    // matches nothing. Say so rather than writing it silently — it means the
+    // document is malformed, not that the backfill has a bug.
     if (fields.searchPrefixes.length === 0) {
-      console.warn(`  ! ${doc.id}: no searchable text (name=${JSON.stringify(book.name)}, author=${JSON.stringify(book.author)})`);
+      console.warn(`  ! ${doc.id}: no searchable text (${describe(data)})`);
     }
 
     written += 1;
@@ -111,8 +117,21 @@ async function main() {
 
   console.log(
     DRY_RUN
-      ? `Dry run: ${written} book(s) would be updated, ${skipped} left alone.`
-      : `Updated ${written} book(s); ${skipped} already current.`
+      ? `  Dry run: ${written} ${collection} document(s) would be updated, ${skipped} left alone.`
+      : `  Updated ${written} ${collection} document(s); ${skipped} already current.`
+  );
+}
+
+async function main() {
+  await backfill(
+    "books",
+    bookSearchFields,
+    (b) => `name=${JSON.stringify(b.name)}, author=${JSON.stringify(b.author)}`
+  );
+  await backfill(
+    "users",
+    userSearchFields,
+    (u) => `firstName=${JSON.stringify(u.firstName)}, lastName=${JSON.stringify(u.lastName)}, nickname=${JSON.stringify(u.nickname)}`
   );
 }
 

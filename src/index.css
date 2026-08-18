@@ -62,8 +62,7 @@
      `var()`, and the alpha here is load-bearing — it is what the blur has to
      look through. 0.72 is where iOS sits: solid enough to read a title
      against, sheer enough that you can see the content move underneath. */
-  --bg-glass:       rgba(255, 255, 255, 0.72);
-  --glass-hairline: rgba(15, 23, 36, 0.08);
+  --bg-glass: rgba(255, 255, 255, 0.72);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -96,10 +95,8 @@
   --tint:     #1B2537;
   --tint-ink: #9DBDF5;
 
-  /* Same material in the dark. The hairline flips to light-on-dark, because a
-     black hairline over a near-black page is not a line, it is nothing. */
-  --bg-glass:       rgba(13, 20, 32, 0.72);
-  --glass-hairline: rgba(255, 255, 255, 0.08);
+  /* Same material in the dark. */
+  --bg-glass: rgba(13, 20, 32, 0.72);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -122,8 +119,11 @@
    ═══════════════════════════════════════════════════════════════════ */
 @layer components {
   /* The iOS bar material: frosted glass rather than a painted strip. Worn by
-     the sticky header at the top and the tab bar at the bottom, which is why
-     the frosting lives here and the hairline does not — see `.app-header`.
+     the sticky header at the top and the tab bar at the bottom, and that is the
+     whole of it — no border on either edge. The blur is the boundary: content
+     going soft as it passes underneath says "this is a layer" better than a
+     line does, and the moment you draw one you get a hard edge across the one
+     strip where the page is showing through.
      `saturate` before `blur` is what stops the colours underneath washing out
      to grey as they are smeared — it is the pairing Apple uses, and without it
      a photo scrolling under the bar goes muddy. */
@@ -138,14 +138,6 @@
      browsers get the solid page colour instead. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .app-glass { background: var(--bg-base); }
-  }
-
-  /* The top bar closes with a hairline; the tab bar deliberately does not, so
-     it carries no border of its own. A line above the tabs reads as a seam
-     between the app and the phone's own home indicator below it — the two are
-     meant to look like one block. */
-  .app-header {
-    border-bottom: 1px solid var(--glass-hairline);
   }
 
   .card {

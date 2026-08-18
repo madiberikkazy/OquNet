@@ -26,6 +26,8 @@ import { holderIdOf } from "../../utils/bookHolder.js";
 import { loanDaysForPages, pagesForBook, pagesRangeLabel } from "../../utils/bookPages.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { t, getCurrentLang } from "../../utils/i18n.js";
+import { canSeePhone } from "../../utils/contactVisibility.js";
+import MessageButton from "../../components/MessageButton.jsx";
 import { logger } from "../../utils/logger.js";
 
 // A pickup that nobody acts on stops blocking the book after three days —
@@ -518,13 +520,26 @@ export default function PickupBook() {
               <DateCard label={t.pickupReturnLabel} value={formatLongDate(returnTs)} />
             </div>
 
-            {/* Who has the book, and how to reach them */}
+            {/* Who has the book, and how to reach them.
+                "How" is a chat, not a phone number. Arranging a handoff needs
+                the two of them to be able to talk; it does not need a reader to
+                walk away holding somebody's number for good, which is what
+                printing it here amounted to. The number stays visible to the
+                community's admin — see utils/contactVisibility.js. */}
             <div>
               <h2 className="text-[16px] font-semibold mb-2">{t.whoHasBookNow}</h2>
               <dl className="space-y-2.5">
                 <ContactRow label={t.holderLabel} value={holderName} />
                 <ContactRow label={t.address} value={currentHolder?.address || t.contactNotSet} />
-                <ContactRow label={t.phone} value={currentHolder?.phone || t.contactNotSet} />
+                {canSeePhone(user, currentHolder) ? (
+                  <ContactRow label={t.phone} value={currentHolder?.phone || t.contactNotSet} />
+                ) : null}
+                {currentHolder?.id ? (
+                  <ContactRow
+                    label={t.message}
+                    value={<MessageButton userId={currentHolder.id} compact />}
+                  />
+                ) : null}
               </dl>
             </div>
 
@@ -672,7 +687,7 @@ function DateCard({ label, value }) {
 
 function ContactRow({ label, value }) {
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className="flex items-center justify-between gap-4">
       <dt className="text-[15px] text-ink-500 shrink-0">{label}</dt>
       <dd className="text-[15px] font-medium text-right break-words">{value}</dd>
     </div>

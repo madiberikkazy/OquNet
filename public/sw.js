@@ -362,20 +362,34 @@ self.addEventListener('notificationclick', (event) => {
   console.log('[SW] Notification clicked');
   event.notification.close();
 
-  const urlToOpen = event.notification.data?.url || '/';
+  // Absolute, because `client.url` is absolute and the comparison below used to
+  // be between "https://host/chats/x" and "/chats/x" — never equal, so a tap
+  // never found the running app and always opened a second window instead of
+  // focusing the one already there.
+  const target = new URL(event.notification.data?.url || '/', self.location.origin);
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // Check if app is already open
-      for (let i = 0; i < windowClients.length; i++) {
-        const client = windowClients[i];
-        if (client.url === urlToOpen && 'focus' in client) {
-          return client.focus();
+      for (const client of windowClients) {
+        // Any window of this app will do — the point is to reuse the one that
+        // is open, then send it where the notification was pointing. Matching
+        // the exact path would fail for the ordinary case of the app sitting on
+        // some other screen, which is precisely when a tap has work to do.
+        if (new URL(client.url).origin !== target.origin) continue;
+        if ('focus' in client) {
+          const focused = client.focus();
+          // `navigate` is not implemented everywhere; where it is missing the
+          // app is at least focused rather than duplicated.
+          if ('navigate' in client) {
+            return Promise.resolve(focused)
+              .then(() => client.navigate(target.href))
+              .catch(() => focused);
+          }
+          return focused;
         }
       }
-      // If not, open a new window
       if (clients.openWindow) {
-        return clients.openWindow(urlToOpen);
+        return clients.openWindow(target.href);
       }
     })
   );
