@@ -950,6 +950,56 @@ export function normalizeNewMessage({ senderId, text } = {}) {
   }, messageSchema.required);
 }
 
+// ---------- receipts ----------
+//
+// Two ticks and a blue tick, without a write per message.
+//
+// The obvious model — a `readAt` on every message — costs one write per message
+// displayed, and the rules would have to let a reader edit somebody else's
+// message to set it. Instead each member keeps two *watermarks* on the chat
+// document: the newest moment their device has the conversation
+// (`deliveredAt`), and the newest moment they have looked at it (`readAt`).
+// A message is delivered or read if it is older than the corresponding mark.
+//
+// One write when a message lands, one when the thread is opened — regardless of
+// how many messages either covers — and both are the writer's own field, which
+// is a rule a member can be trusted with. The marks only ever move forward: the
+// rules pin each write to `request.time`, so a client cannot rewind one to
+// pretend it has not seen something.
+
+/** What an outgoing message has achieved, from the sender's side. */
+export const MESSAGE_STATUS = Object.freeze({
+  pending: "pending",     // written locally; the server has not stamped it yet
+  sent: "sent",           // on the server, not yet on the other device
+  delivered: "delivered", // their app has it
+  read: "read",           // they have opened the thread since
+});
+
+/** One member's watermark, in milliseconds, or 0 when they have none. */
+export function chatWatermark(chat, field, userId) {
+  if (!chat || !userId) return 0;
+  return toMillis(chat[field]?.[userId], 0);
+}
+
+/**
+ * The tick to draw next to one of the reader's own messages.
+ *
+ * Deliberately pure and given everything it needs, so the rule lives in one
+ * place and can be tested without a database or a screen. `peerId` rather than
+ * "the other member" because a caller that has the chat has both ids already.
+ *
+ * A message with no resolved stamp is `pending`: Firestore reports this
+ * client's own write before the server has stamped it, and calling that "sent"
+ * would show a tick for something that may still fail.
+ */
+export function messageStatus(message, chat, peerId) {
+  const at = toMillis(message?.createdAt, 0);
+  if (!at) return MESSAGE_STATUS.pending;
+  if (at <= chatWatermark(chat, "readAt", peerId)) return MESSAGE_STATUS.read;
+  if (at <= chatWatermark(chat, "deliveredAt", peerId)) return MESSAGE_STATUS.delivered;
+  return MESSAGE_STATUS.sent;
+}
+
 /** The preview the conversation list draws, kept on the chat document. */
 export function chatPreviewOf({ senderId, text }) {
   return {

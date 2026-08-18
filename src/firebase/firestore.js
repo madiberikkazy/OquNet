@@ -11,9 +11,10 @@ import { logger } from "../utils/logger.js";
 import { aggregateFromRatings } from "../utils/rating.js";
 import { holderIdOf } from "../utils/bookHolder.js";
 import { searchTerm } from "../utils/search.js";
+import { toMillis } from "../utils/time.js";
 import {
   bookSearchFields,
-  chatIdFor, chatMemberIds, chatPreviewOf,
+  chatIdFor, chatMemberIds, chatPreviewOf, chatWatermark,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
   normalizeNewChat, normalizeNewMessage,
   normalizeNewCommunity, normalizeCommunityPatch, normalizeNewPost, normalizePostPatch,
@@ -33,6 +34,9 @@ export { SchemaError } from "./schema.js";
 // A chat's id is a pure function of the two people in it, so the screens
 // compute it rather than looking it up — see the chats section below.
 export { chatIdFor, otherMemberId } from "./schema.js";
+// The tick beside a message is a pure function of the message and the two
+// watermarks on its chat — see the receipts note in schema.js.
+export { messageStatus, MESSAGE_STATUS, chatWatermark } from "./schema.js";
 
 // Wraps a Firestore operation. Re-throws so callers can decide what to do,
 // but always logs the failure first so it doesn't get swallowed silently.
@@ -1424,21 +1428,24 @@ export async function sendMessage({ senderId, recipientId, text } = {}) {
 /**
  * Mark a thread read for one member — what opening it does.
  *
- * Only that member's own counter is touched, and only by name: a dotted path so
- * the other member's count survives, which a whole-map write would not. There
- * is deliberately no per-message read flag. The counter is what the list draws
- * and what the badge sums; read receipts are a feature nobody asked for, and
- * they would cost a write per message displayed.
+ * Two fields, both the caller's own and both written by name: a dotted path, so
+ * the other member's count and watermark survive, which a whole-map write would
+ * not. `readAt` is what turns the sender's ticks blue; see `messageStatus` in
+ * schema.js for why it is a watermark rather than a flag on every message.
  *
- * Callers should skip this when the counter is already zero — see
- * `unreadFor` — so opening a quiet chat costs nothing.
+ * Callers should skip this when the counter is already zero *and* the watermark
+ * already covers the last message — see `needsReadReceipt` — so opening a quiet
+ * chat costs nothing.
  */
 export async function markChatRead({ chatId, userId } = {}) {
   if (!chatId || !userId) return null;
 
   return runFs("markChatRead", async () => {
     if (isFirebaseConfigured) {
-      await updateDoc(doc(db, "chats", chatId), { [`unread.${userId}`]: 0 });
+      await updateDoc(doc(db, "chats", chatId), {
+        [`unread.${userId}`]: 0,
+        [`readAt.${userId}`]: serverTimestamp(),
+      });
       return { id: chatId };
     }
     const data = readLS();
@@ -1447,10 +1454,120 @@ export async function markChatRead({ chatId, userId } = {}) {
     data.chats[idx] = {
       ...data.chats[idx],
       unread: { ...(data.chats[idx].unread ?? {}), [userId]: 0 },
+      readAt: { ...(data.chats[idx].readAt ?? {}), [userId]: Date.now() },
     };
     writeLS(data);
     return data.chats[idx];
   });
+}
+
+/**
+ * "Their app has it" — the second tick.
+ *
+ * Written by the *recipient's* device, because that is the only party that can
+ * honestly claim delivery. It is one write per arrival rather than per message:
+ * the watermark covers everything older than it, so a burst of five messages
+ * received together costs the same as one.
+ *
+ * Deliberately not written by the sender at send time. That would be the sender
+ * asserting something about somebody else's phone, which is exactly what a
+ * delivery receipt is supposed not to be.
+ */
+export async function markChatDelivered({ chatId, userId } = {}) {
+  if (!chatId || !userId) return null;
+
+  return runFs("markChatDelivered", async () => {
+    if (isFirebaseConfigured) {
+      await updateDoc(doc(db, "chats", chatId), {
+        [`deliveredAt.${userId}`]: serverTimestamp(),
+      });
+      return { id: chatId };
+    }
+    const data = readLS();
+    const idx = (data.chats || []).findIndex((c) => c.id === chatId);
+    if (idx < 0) return null;
+    data.chats[idx] = {
+      ...data.chats[idx],
+      deliveredAt: { ...(data.chats[idx].deliveredAt ?? {}), [userId]: Date.now() },
+    };
+    writeLS(data);
+    return data.chats[idx];
+  });
+}
+
+/**
+ * Does this member owe the other one a receipt for what is on screen?
+ *
+ * Both halves matter. The counter alone would skip the write for a thread the
+ * reader is already sitting in when a message arrives — it is zeroed on open,
+ * so the reader would be looking at a message whose sender never sees it turn
+ * blue. The watermark alone would keep writing for a thread with nothing new.
+ */
+export function needsReadReceipt(chat, userId) {
+  if (!chat || !userId) return false;
+  if (unreadFor(chat, userId) > 0) return true;
+  const last = toMillis(chat.lastMessage?.at);
+  return last > 0 && last > chatWatermark(chat, "readAt", userId);
+}
+
+/** The same question for delivery, asked by whoever just received something. */
+export function needsDeliveryReceipt(chat, userId) {
+  if (!chat || !userId) return false;
+  // Nothing to acknowledge about your own message.
+  if (!chat.lastMessage?.senderId || chat.lastMessage.senderId === userId) return false;
+  const last = toMillis(chat.lastMessage?.at);
+  return last > 0 && last > chatWatermark(chat, "deliveredAt", userId);
+}
+
+// ---------- Presence ----------
+//
+// "Online" without a presence server.
+//
+// Firestore has no connection state — that is the Realtime Database's
+// `onDisconnect`, a second product with a second SDK and a second set of rules.
+// What it has is documents, so presence here is a heartbeat: an app that is
+// open and visible stamps `lastActiveAt` on its own profile every
+// PRESENCE_HEARTBEAT_MS, and anybody reading that profile calls it online while
+// the stamp is fresher than PRESENCE_WINDOW_MS.
+//
+// The window is deliberately wider than the heartbeat. A phone that misses one
+// beat — a tunnel, a locked screen for a moment, a slow write — is not somebody
+// who left, and a status that flickers is worse than one that lags.
+//
+// What this cannot do is notice a disconnection. Closing the app writes
+// nothing (`beforeunload` does not survive a phone being locked, and a killed
+// tab never runs it at all), so somebody who leaves reads as online until their
+// stamp goes stale. That is the honest cost of not running a presence server,
+// and it is why the window is a minute rather than ten.
+
+/** How often an open app says it is still here. */
+export const PRESENCE_HEARTBEAT_MS = 30_000;
+/** How long a stamp counts as "now". Two missed beats, plus room to write. */
+export const PRESENCE_WINDOW_MS = 75_000;
+
+/**
+ * Stamp this user as active. Called on a timer by the app; safe to spam.
+ *
+ * Goes straight to `updateOne` rather than through `updateUser`, which would
+ * check whether the patch touches a name and possibly read the profile first —
+ * a read this write can never need.
+ */
+export async function touchPresence(userId) {
+  if (!userId) return null;
+  return updateOne("users", userId, {
+    lastActiveAt: isFirebaseConfigured ? serverTimestamp() : Date.now(),
+  });
+}
+
+/** Is this profile's heartbeat fresh enough to call them online? */
+export function isOnline(user, now = Date.now()) {
+  const at = toMillis(user?.lastActiveAt, 0);
+  return at > 0 && now - at < PRESENCE_WINDOW_MS;
+}
+
+/** When they were last seen, in ms, or 0 for a profile that never reported. */
+export function lastSeenAt(user) {
+  return toMillis(user?.lastActiveAt, 0);
 }
 
 /** How many messages in this chat this reader has not opened yet. */
