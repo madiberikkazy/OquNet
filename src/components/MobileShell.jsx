@@ -43,7 +43,7 @@ export default function MobileShell({ children, header = null, withNav = true })
             // for the day that changes to `black-translucent`, where it starts
             // reporting a real inset instead of zero.
             <div
-              className="app-glass app-header sticky top-0 z-30 pt-4"
+              className="app-glass sticky top-0 z-30 pt-4"
               style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
             >
               {header}

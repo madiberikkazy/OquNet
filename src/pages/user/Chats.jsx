@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
+import SearchBar from "../../components/SearchBar.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
@@ -24,6 +25,7 @@ import { t } from "../../utils/i18n.js";
 export default function Chats() {
   const { user } = useAuth();
   const { chats, loading } = useChats();
+  const [search, setSearch] = useState("");
 
   // Rows whose other member cannot be identified are dropped rather than drawn:
   // a chat the reader is somehow not in has no peer to name, and there is
@@ -66,26 +68,67 @@ export default function Chats() {
 
   const peers = peersQuery.data ?? {};
 
+  // Filtered at render, never before `peerIds`: narrowing that list would make
+  // the profile query's key change on every keystroke, so typing would refetch
+  // the cast and — worse — drop the names the filter is matching against.
+  //
+  // Client-side because the list is already here and already bounded. A chat
+  // list is tens of rows, not thousands; a Firestore query per keystroke would
+  // buy nothing and could not search the peer's name anyway, which is on their
+  // profile rather than on the chat.
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return rows;
+    return rows.filter(({ chat, peerId }) => {
+      const peer = peers[peerId] ?? null;
+      const haystack = [
+        peerName(peer),
+        peer?.nickname,
+        // The last line of the conversation, so searching for something said
+        // finds the thread it was said in.
+        chat.lastMessage?.text,
+      ];
+      return haystack.some((value) => String(value ?? "").toLowerCase().includes(term));
+    });
+  }, [rows, peers, search]);
+
   return (
     <MobileShell
       header={
-      <div className="px-4 pb-2 flex items-center justify-between gap-3">
-        <h1 className="text-[22px] font-bold">{t.navChats}</h1>
+      <>
+        <div className="px-4 pb-2 flex items-center justify-between gap-3">
+          <h1 className="text-[22px] font-bold">{t.navChats}</h1>
 
-        {/* Starting a conversation with somebody you have never messaged. The
-            profile route stays the main one — you meet people through their
-            books — but a chat app whose only way to start a chat is to go and
-            find a profile first is a chat app missing a button. */}
-        <Link
-          to="/chats/new"
-          aria-label={t.newChat}
-          className="shrink-0 w-10 h-10 rounded-full bg-brand-500 text-white flex items-center justify-center active:scale-95 transition"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </Link>
-      </div>
+          {/* Starting a conversation with somebody you have never messaged. The
+              profile route stays the main one — you meet people through their
+              books — but a chat app whose only way to start a chat is to go and
+              find a profile first is a chat app missing a button. */}
+          <Link
+            to="/chats/new"
+            aria-label={t.newChat}
+            className="shrink-0 w-10 h-10 rounded-full bg-brand-500 text-white flex items-center justify-center active:scale-95 transition"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </Link>
+        </div>
+
+        {/* Searching what is already on screen, so it rides in the sticky bar
+            with the title rather than scrolling away from the list it filters.
+            Hidden until there is a second conversation: a filter over one row
+            is furniture. */}
+        {rows.length > 1 ? (
+          <div className="pb-2">
+            <SearchBar
+              value={search}
+              onChange={setSearch}
+              placeholder={t.chatSearchPlaceholder}
+              showFilter={false}
+            />
+          </div>
+        ) : null}
+      </>
       }
     >
       {loading && rows.length === 0 ? (
@@ -110,9 +153,13 @@ export default function Chats() {
             </svg>
           }
         />
+      ) : visible.length === 0 ? (
+        // Searched and found nothing — a different fact from having no chats,
+        // and it must not offer the "start your first conversation" hint.
+        <p className="px-6 py-12 text-center text-ink-500 text-[14px]">{t.noResults}</p>
       ) : (
         <ul>
-          {rows.map(({ chat, peerId }) => {
+          {visible.map(({ chat, peerId }) => {
             const peer = peers[peerId] ?? null;
             const unread = unreadFor(chat, user?.id);
             const mine = chat.lastMessage?.senderId === user?.id;

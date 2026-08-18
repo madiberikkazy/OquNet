@@ -32,15 +32,12 @@ export default function BottomNav() {
   return (
     // Frosted, like the header at the top of the scroll — same `.app-glass`
     // material, so the two bars are made of one thing and the list passes
-    // under both.
+    // under both, with no border on either.
     //
-    // Still no divider above it, and now for a second reason as well as the
-    // first. A hairline there reads as a seam between the app and the phone's
-    // own navigation strip below — the two are meant to look like one block,
-    // which is also why this background runs on into
-    // `env(safe-area-inset-bottom)` — and on glass a top border would draw a
-    // hard edge across the one part of the bar where content is showing
-    // through, which is exactly where the eye goes.
+    // The background runs on into `env(safe-area-inset-bottom)` so the
+    // frosting covers the phone's own home-indicator strip rather than
+    // stopping short of it: the app and the strip are meant to look like one
+    // block, and a bar that ends above it would draw the seam it is avoiding.
     <nav className="app-glass fixed bottom-0 left-0 right-0 z-50">
       <ul className="grid grid-cols-4 py-2 w-full mx-auto sm:max-w-xl lg:max-w-2xl" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
         {items.map((it) => (

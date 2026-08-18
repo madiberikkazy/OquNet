@@ -19,6 +19,7 @@ import {
   normalizeNewCommunity, normalizeCommunityPatch, normalizeNewPost, normalizePostPatch,
   normalizeJoinRequest, normalizeReturnRequest, newPickupCode,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
+  userSearchFields, USER_SEARCH_SOURCES,
   normalizeNewReadingSession, normalizeReadingProgress,
   stripServerOwned,
 } from "./schema.js";
@@ -369,7 +370,37 @@ export async function getUserByEmail(email) {
   const rows = await getCollection("users", { where: [["email", "==", email.toLowerCase()]] });
   return rows[0] || null;
 }
-export async function updateUser(id, patch) { return updateOne("users", id, patch); }
+/**
+ * Patch a profile, keeping what it is findable by in step with what it says.
+ *
+ * A rename used to leave `searchPrefixes` describing the old name — the array
+ * is denormalised, and `updateUser` wrote whatever it was handed. That is the
+ * gap the comment on `searchUsers` used to describe as the next step; this is
+ * that step.
+ *
+ * The extra read happens only when the patch actually touches a name, which is
+ * a profile edit and therefore rare — never on the saved-books, liked-posts or
+ * membership writes that make up almost all the traffic through here. It is
+ * needed because prefixes are built from all three fields at once, and a patch
+ * carrying only `firstName` cannot say what the other two are.
+ *
+ * `deleteAccount` benefits without knowing it exists: scrubbing a profile
+ * blanks the names, so the prefixes rebuild to the placeholder handle and the
+ * account stops being findable by a name it no longer carries.
+ */
+export async function updateUser(id, patch) {
+  return updateOne("users", id, await withUserSearchFields(id, patch));
+}
+
+async function withUserSearchFields(id, patch) {
+  if (!patch || typeof patch !== "object") return patch;
+  if (!USER_SEARCH_SOURCES.some((field) => field in patch)) return patch;
+
+  // A profile that has gone missing mid-edit still gets a coherent array out of
+  // the patch alone; `updateOne` is what decides whether the write lands.
+  const current = (await getOne("users", id).catch(() => null)) ?? {};
+  return { ...patch, ...userSearchFields({ ...current, ...patch }) };
+}
 /**
  * Hard-delete a user document. Only reachable in mock mode: the security rules
  * deny `delete` on `users` outright, because other people's books, borrowings
@@ -458,27 +489,30 @@ export async function releaseUsername(nickname) {
 export const SEARCH_RESULT_MAX = 20;
 
 /**
- * Find people by the start of their @nickname.
+ * Find people — anywhere in the app, by name or by handle.
  *
- * This used to download the entire `users` collection on every keystroke and
- * substring-match it in the browser — every profile in the database, for every
- * search, in every session. It is now an indexed prefix scan bounded to
- * SEARCH_RESULT_MAX rows, served by the automatic single-field index on
- * `nickname`; no composite index is involved.
+ * One indexed `array-contains` against `searchPrefixes`, the same primitive
+ * book search uses, bounded to SEARCH_RESULT_MAX rows. No composite index is
+ * involved: an array-contains with no orderBy is served by the single-field
+ * index Firestore maintains by itself.
  *
- * The cost is real: first and last names are no longer searchable, and the
- * match is prefix-only, so "ivan" finds @ivanov but "ivanov" does not find
- * @vanya. Name search needs the same denormalised prefix array books carry —
- * which means a normalizer for user *patches*, since a profile edit would have
- * to maintain it and `updateUser` currently writes whatever it is handed. That
- * is the next step here, and the step after it is a real search service.
+ * This replaces a prefix scan on `nickname` alone, which could only find people
+ * by the handle: somebody looking for "Madi Berikkazy" — the name on the screen
+ * they were just looking at — found nothing at all unless they happened to know
+ * it was @madi. Typing any word of a name now finds them, in any case, because
+ * `searchPrefixes` lowercases what it stores.
+ *
+ * Deliberately not scoped to the caller's community: the app is used to find
+ * people you are not yet sharing books with, and `users` is readable to any
+ * signed-in caller by design (see the rules header). What the limits still are
+ * — prefix from a word boundary, no fuzziness, no ranking — is written down in
+ * utils/search.js, and the step after this one is a real search service.
  */
 export async function searchUsers(qStr, { pageSize = SEARCH_RESULT_MAX } = {}) {
-  const term = String(qStr ?? "").trim().toLowerCase();
+  const term = searchTerm(qStr);
   if (!term) return [];
   return getCollection("users", {
-    where: prefixRange("nickname", term),
-    orderByField: "nickname",
+    where: [["searchPrefixes", "array-contains", term]],
     pageSize,
   });
 }

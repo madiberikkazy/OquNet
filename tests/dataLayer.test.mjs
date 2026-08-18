@@ -23,7 +23,7 @@ globalThis.window = { localStorage: globalThis.localStorage };
 const {
   createBook, listBooks, listNewBooks, listBooksHeldBy, listBooksOwnedBy,
   updateBook, getBook, createNotification, listNotifications,
-  createUserDoc, getUserById, notifyCommunityMembers,
+  createUserDoc, getUserById, updateUser, searchUsers, notifyCommunityMembers,
   createPost, getPost, listPublicPosts, listPostsByCommunity, togglePostLike,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
   createJoinRequest, getRequestById, getPhoneVerification,
@@ -310,6 +310,81 @@ describe("search index maintenance", () => {
     const { items } = await listBooks({ communityId: COMMUNITY, search: "auez" });
     assert.equal(items.length, 1, "author prefix was dropped by a title-only patch");
     assert.equal((await getBook(id)).author, "Auezov");
+  });
+});
+
+// Finding a person used to mean knowing their @handle: search was a prefix scan
+// over `nickname`, so the name printed on every screen in the app was the one
+// thing it could not match. These cover the denormalised array that replaced it
+// — including the half that rots silently, which is a profile that gets renamed.
+describe("people search", () => {
+  async function person(over = {}) {
+    const base = {
+      id: over.id ?? "u-" + Math.random().toString(36).slice(2, 8),
+      email: (over.nickname ?? "x") + "@example.com",
+      nickname: "madi", firstName: "Madi", lastName: "Berikkazy",
+    };
+    return createUserDoc({ ...base, ...over });
+  }
+
+  it("finds somebody by their first name, whatever the case", async () => {
+    await person();
+    assert.equal((await searchUsers("Madi")).length, 1);
+    assert.equal((await searchUsers("madi")).length, 1);
+    assert.equal((await searchUsers("MAD")).length, 1, "prefix of a name did not match");
+  });
+
+  it("finds somebody by their last name", async () => {
+    await person();
+    // The half that was impossible before: nothing about "Berikkazy" appears in
+    // the handle, so the old nickname scan could never reach it.
+    assert.equal((await searchUsers("berik")).length, 1);
+  });
+
+  it("still finds somebody by their handle", async () => {
+    await person({ nickname: "vanya", firstName: "Ivan", lastName: "Petrov" });
+    assert.equal((await searchUsers("vany")).length, 1);
+  });
+
+  it("takes the most selective word of a multi-word query", async () => {
+    await person();
+    await person({ id: "u-other", nickname: "madi2", firstName: "Madi", lastName: "Nurlan" });
+    // "madi" matches both; "berikkazy" is the longer word and narrows to one.
+    assert.equal((await searchUsers("Madi Berikkazy")).length, 1);
+    assert.equal((await searchUsers("Madi")).length, 2);
+  });
+
+  it("returns nothing for an empty or unmatched query", async () => {
+    await person();
+    assert.deepEqual(await searchUsers(""), []);
+    assert.deepEqual(await searchUsers("   "), []);
+    assert.deepEqual(await searchUsers("zzzz"), []);
+  });
+
+  it("follows a rename instead of answering to the old name", async () => {
+    const { id } = await person();
+    await updateUser(id, { lastName: "Nurlanuly" });
+
+    assert.equal((await searchUsers("berik")).length, 0, "still findable under the old surname");
+    assert.equal((await searchUsers("nurlan")).length, 1, "not findable under the new surname");
+    // The fields the patch did not name have to survive it — this is the bug
+    // that a patch-built array would introduce.
+    assert.equal((await searchUsers("madi")).length, 1, "first name dropped by a surname-only patch");
+  });
+
+  it("leaves the array alone for a patch that touches no name", async () => {
+    const { id } = await person();
+    await updateUser(id, { savedBookIds: ["b1"] });
+    assert.equal((await searchUsers("berik")).length, 1);
+    assert.deepEqual((await getUserById(id)).savedBookIds, ["b1"]);
+  });
+
+  it("stops answering to a name a scrubbed account no longer carries", async () => {
+    const { id } = await person();
+    await updateUser(id, { firstName: "", lastName: "", nickname: "deleted_abc123" });
+    assert.equal((await searchUsers("madi")).length, 0);
+    assert.equal((await searchUsers("berik")).length, 0);
+    assert.equal((await searchUsers("deleted")).length, 1);
   });
 });
 

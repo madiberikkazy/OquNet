@@ -21,6 +21,8 @@ import {
 import { qk } from "../../lib/queryKeys.js";
 import { invalidateReturnRequest, invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { t } from "../../utils/i18n.js";
+import { canSeePhone } from "../../utils/contactVisibility.js";
+import MessageButton from "../../components/MessageButton.jsx";
 import { writeError } from "../../utils/writeError.js";
 import { logger } from "../../utils/logger.js";
 import { holderIdOf } from "../../utils/bookHolder.js";
@@ -698,6 +700,8 @@ export default function LeaveCommunity() {
  * out, and the rest is the owner's.
  */
 function HandBackRow({ row, owner, busy, onOffer, onCancel }) {
+  // Who is looking decides whether a phone number is drawn at all.
+  const { user: viewer } = useAuth();
   const { book, state, request } = row;
   const pending = state === RETURN_STATE.PENDING;
   const stale = needsSweep(state);
@@ -738,13 +742,16 @@ function HandBackRow({ row, owner, busy, onOffer, onCancel }) {
           <>
             <div className="flex items-center gap-3">
               <Avatar src={owner.photoURL} name={ownerName} size={36} />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="font-medium text-[14px] truncate">{ownerName}</p>
                 <p className="text-[12px] text-ink-500 truncate">@{owner.nickname}</p>
               </div>
+              <MessageButton userId={owner.id} compact />
             </div>
             <dl className="mt-2.5 space-y-1.5">
-              <ContactRow label={t.phone} value={owner.phone || t.contactNotSet} />
+              {canSeePhone(viewer, owner) ? (
+                <ContactRow label={t.phone} value={owner.phone || t.contactNotSet} />
+              ) : null}
               <ContactRow label={t.address} value={owner.address || t.contactNotSet} />
             </dl>
           </>
@@ -797,6 +804,7 @@ function HandBackRow({ row, owner, busy, onOffer, onCancel }) {
 }
 
 function BookRow({ row, holder, busy, onSendCode, onCancel, onEnterCode, onReset }) {
+  const { user: viewer } = useAuth();
   const { book, state, onLoan } = row;
   const home = state === RETURN_STATE.HOME;
   const pending = state === RETURN_STATE.PENDING;
@@ -845,17 +853,20 @@ function BookRow({ row, holder, busy, onSendCode, onCancel, onEnterCode, onReset
             {holder ? (
               <div className="flex items-center gap-3">
                 <Avatar src={holder.photoURL} name={holderName} size={36} />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="font-medium text-[14px] truncate">{holderName}</p>
                   <p className="text-[12px] text-ink-500 truncate">@{holder.nickname}</p>
                 </div>
+                <MessageButton userId={holder.id} compact />
               </div>
             ) : (
               <p className="text-[13px] text-bad">{t.returnHolderMissing}</p>
             )}
             {holder ? (
               <dl className="mt-2.5 space-y-1.5">
-                <ContactRow label={t.phone} value={holder.phone || t.contactNotSet} />
+                {canSeePhone(viewer, holder) ? (
+                  <ContactRow label={t.phone} value={holder.phone || t.contactNotSet} />
+                ) : null}
                 <ContactRow label={t.address} value={holder.address || t.contactNotSet} />
               </dl>
             ) : null}
