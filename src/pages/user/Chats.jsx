@@ -116,18 +116,19 @@ export default function Chats() {
 
         {/* Searching what is already on screen, so it rides in the sticky bar
             with the title rather than scrolling away from the list it filters.
-            Hidden until there is a second conversation: a filter over one row
-            is furniture. */}
-        {rows.length > 1 ? (
-          <div className="pb-2">
-            <SearchBar
-              value={search}
-              onChange={setSearch}
-              placeholder={t.chatSearchPlaceholder}
-              showFilter={false}
-            />
-          </div>
-        ) : null}
+            Always drawn, however few conversations there are: it was once
+            hidden below two of them on the grounds that a filter over one row
+            is furniture, and the only thing that achieved was a search box
+            nobody could find. A field that is sometimes there is worse than one
+            that is always there. */}
+        <div className="pb-2">
+          <SearchBar
+            value={search}
+            onChange={setSearch}
+            placeholder={t.chatSearchPlaceholder}
+            showFilter={false}
+          />
+        </div>
       </>
       }
     >
