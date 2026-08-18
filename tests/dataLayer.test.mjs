@@ -27,6 +27,7 @@ const {
   sendMessage, markChatRead, markChatDelivered, messageStatus, MESSAGE_STATUS,
   needsReadReceipt, needsDeliveryReceipt, isOnline, lastSeenAt, touchPresence,
   watchChatsForUser, chatIdFor,
+  listBorrowingsForBook, getUsersByIds, BOOK_JOURNEY_MAX,
   createPost, getPost, listPublicPosts, listPostsByCommunity, togglePostLike,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
   createJoinRequest, getRequestById, getPhoneVerification,
@@ -519,6 +520,88 @@ describe("presence", () => {
     assert.equal(isOnline({}), false);
     assert.equal(lastSeenAt({}), 0);
     assert.equal(isOnline(null), false);
+  });
+});
+
+// A book's history was already in the database — one `borrowings` row per read,
+// never deleted — and nothing looked at it. These cover the query the Book
+// Journey screen reads it with, whose one unusual property is its direction.
+describe("book journey", () => {
+  const BOOK = "b-journey";
+
+  async function loan(borrowerId, { status = "completed", at = null } = {}) {
+    const row = await createBorrowing({
+      bookId: BOOK, borrowerId, ownerId: "u-owner", status: "active", pickupCode: "1234",
+    });
+    if (at !== null || status !== "active") {
+      const db = JSON.parse(store.get(LS_KEY));
+      const stored = db.borrowings.find((b) => b.id === row.id);
+      if (at !== null) stored.createdAt = at;
+      stored.status = status;
+      store.set(LS_KEY, JSON.stringify(db));
+    }
+    return row;
+  }
+
+  it("reads oldest first — a journey, not a feed", async () => {
+    await loan("u-third", { at: 3000 });
+    await loan("u-first", { at: 1000 });
+    await loan("u-second", { at: 2000 });
+
+    const rows = await listBorrowingsForBook(BOOK);
+    assert.deepEqual(rows.map((r) => r.borrowerId), ["u-first", "u-second", "u-third"]);
+  });
+
+  it("keeps other books' loans out of it", async () => {
+    await loan("u-first", { at: 1000 });
+    await createBorrowing({
+      bookId: "b-other", borrowerId: "u-elsewhere", ownerId: "u-owner",
+      status: "active", pickupCode: "9999",
+    });
+
+    const rows = await listBorrowingsForBook(BOOK);
+    assert.deepEqual(rows.map((r) => r.borrowerId), ["u-first"]);
+  });
+
+  it("ends on the loan still open, when there is one", async () => {
+    await loan("u-first", { at: 1000 });
+    await loan("u-current", { at: 2000, status: "active" });
+
+    const rows = await listBorrowingsForBook(BOOK);
+    assert.equal(rows.at(-1).borrowerId, "u-current");
+    assert.equal(rows.at(-1).status, "active");
+  });
+
+  it("caps a very well-travelled book", async () => {
+    for (let i = 0; i < 5; i += 1) await loan("u-" + i, { at: 1000 + i });
+    assert.equal((await listBorrowingsForBook(BOOK, { pageSize: 3 })).length, 3);
+    assert.ok(BOOK_JOURNEY_MAX > 0);
+  });
+
+  it("says nothing about a book with no id", async () => {
+    assert.deepEqual(await listBorrowingsForBook(null), []);
+  });
+
+  it("resolves the cast once each, and survives a deleted reader", async () => {
+    await createUserDoc({ id: "u-a", email: "a@e.com", nickname: "reader_a" });
+    await createUserDoc({ id: "u-b", email: "b@e.com", nickname: "reader_b" });
+
+    // Duplicates collapse; a missing account resolves to null rather than
+    // failing the batch, so its stop still renders.
+    const people = await getUsersByIds(["u-a", "u-b", "u-a", "u-gone", null]);
+    assert.deepEqual(Object.keys(people).sort(), ["u-a", "u-b", "u-gone"]);
+    assert.equal(people["u-a"].nickname, "reader_a");
+    assert.equal(people["u-gone"], null);
+  });
+
+  it("hands back a plain object, not a Map", async () => {
+    // It is cached by React Query and persisted through a JSON serializer,
+    // which turns a Map into `{}` — the bug that took the chat list down.
+    await createUserDoc({ id: "u-a", email: "a@e.com", nickname: "reader_a" });
+    const people = await getUsersByIds(["u-a"]);
+    assert.equal(people instanceof Map, false);
+    assert.deepEqual(JSON.parse(JSON.stringify(people)), people);
+    assert.deepEqual(await getUsersByIds([]), {});
   });
 });
 

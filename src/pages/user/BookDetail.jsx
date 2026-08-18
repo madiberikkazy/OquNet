@@ -590,6 +590,37 @@ export default function BookDetail() {
         );
       })()}
 
+      {/* Where the book has been. Sits under the two cards that say where it is
+          *now* — owner and holder — because that is the question it extends: a
+          shared book has a past, and the loans have always recorded it. Shown
+          to everyone who can see the book; it adds the history, not a new
+          audience. */}
+      <section className="px-4 mt-5">
+        <Link
+          to={`/books/${book.id}/journey`}
+          className="card flex items-center gap-3 px-4 py-3.5 active:opacity-70 transition"
+        >
+          <span className="w-9 h-9 rounded-full bg-tint flex items-center justify-center shrink-0">
+            {/* A route with two stops — the shape of the screen it opens. */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-tintInk" aria-hidden="true">
+              <circle cx="6" cy="7" r="2.2" stroke="currentColor" strokeWidth="1.7" />
+              <circle cx="18" cy="17" r="2.2" stroke="currentColor" strokeWidth="1.7" />
+              <path
+                d="M8.4 7.6c3 .5 4 2 4.2 3.6.2 1.7 1 3.4 3.2 4.5"
+                stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeDasharray="2.5 2.5"
+              />
+            </svg>
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block font-medium text-[15px]">{t.bookJourney}</span>
+            <span className="block text-[12px] text-ink-500">{t.bookJourneyHint}</span>
+          </span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-ink-300 shrink-0">
+            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </Link>
+      </section>
+
       {/* Return date — visible to all users when the book is borrowed */}
       {book.status === "unavailable" && activeBorrowing?.returnDate && (
         <section className="px-4 mt-5">
