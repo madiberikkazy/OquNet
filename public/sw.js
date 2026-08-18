@@ -13,12 +13,19 @@
 // forever. Renaming drops whatever the old rule captured; the check below is
 // now narrow enough that it cannot happen again.
 //
+// Bumped to v5: manifest.json's `theme_color` and `background_color` were
+// still the brand blue while the app's own bars had become white frosted glass,
+// so the OS painted the strip above the header and the strip below the tab bar
+// a different colour from the bars themselves. Same reason as the v3 bump — an
+// installed app serves manifest.json from this cache, so renaming is the only
+// thing that makes a colour change reach anybody who already has the app.
+//
 // Rule of thumb: bump these whenever index.html or manifest.json changes in a
 // way users have to see. Hashed JS/CSS take care of themselves.
-const CACHE_NAME = 'oqunet-v4';
-const ASSET_CACHE = 'oqunet-assets-v4';
-const API_CACHE = 'oqunet-api-v4';
-const IMAGE_CACHE = 'oqunet-images-v4';
+const CACHE_NAME = 'oqunet-v5';
+const ASSET_CACHE = 'oqunet-assets-v5';
+const API_CACHE = 'oqunet-api-v5';
+const IMAGE_CACHE = 'oqunet-images-v5';
 
 // Assets to cache on install (app shell).
 // Deliberately no JS/CSS here: their filenames are content-hashed and change

@@ -6,8 +6,22 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#032081",
-  "theme_color": "#032081",
+  "_colours": [
+    "Both are the app's own page colour, not the brand blue, and that is the",
+    "whole point: they are the colours the OS paints where the app stops.",
+    "`theme_color` is the status bar before any JS has run (utils/systemBars.js",
+    "measures and rewrites it from there), and on Android it is also what the",
+    "navigation bar takes. `background_color` is the splash. Declaring #032081",
+    "for either meant the strip above the frosted header and the strip below",
+    "the frosted tab bar were a different colour from the bars themselves — a",
+    "seam at both edges of every screen, and a blue flash at every launch.",
+    "",
+    "A manifest holds one value and cannot follow the theme, so this is the",
+    "light palette's --bg-base. A dark-mode launch corrects itself as soon as",
+    "the app mounts; the inline script in index.html does it before first paint."
+  ],
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "categories": ["books", "social"],
   "screenshots": [
     {
