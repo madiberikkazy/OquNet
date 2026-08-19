@@ -72,25 +72,9 @@
   --status-bar-height: 0px;
 
   /* The top of the screen — the status bar strip and the sticky header under
-     it — as one material.
-     It is brand-coloured rather than white, and that is forced rather than
-     chosen. Reaching under the status bar on iOS needs
-     `apple-mobile-web-app-status-bar-style: black-translucent`, which is the
-     only mode that puts the page there — and it paints the clock, the signal
-     and the battery in WHITE, with no runtime way to ask for anything else. On
-     the old white bar those glyphs would be invisible. So the light theme does
-     what Telegram's own light theme does and puts a saturated colour under
-     them. The dark theme has no such problem and keeps the plain glass. */
-  --bg-topbar:  rgba(40, 83, 175, 0.82);
-  /* The same bar for a browser with no backdrop-filter — opaque, because
-     there is nothing to see through it. */
-  --bg-topbar-solid: #2853AF;
-  --topbar-ink: #ffffff;
-  /* The field inside a coloured bar: a wash of the bar rather than the page's
-     grey, which on blue reads as a hole punched in it. */
-  --topbar-field: rgba(255, 255, 255, 0.18);
-  --topbar-field-ink: #ffffff;
-  --topbar-placeholder: rgba(255, 255, 255, 0.65);
+     it — is the same frosted glass as the tab bar at the bottom, and it follows
+     the theme rather than declaring a colour of its own. One material, top and
+     bottom, light and dark. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -126,14 +110,6 @@
   /* Same material in the dark. */
   --bg-glass: rgba(13, 20, 32, 0.72);
 
-  /* White status-bar glyphs are what a dark theme wanted anyway, so the top of
-     the screen is simply the glass it always was. */
-  --bg-topbar:  rgba(13, 20, 32, 0.72);
-  --bg-topbar-solid: #0D1420;
-  --topbar-ink: var(--ink-900);
-  --topbar-field: var(--ink-100);
-  --topbar-field-ink: var(--ink-900);
-  --topbar-placeholder: var(--ink-300);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -195,7 +171,6 @@
   .app-topbar {
     --topbar-fade: 28px;
     position: relative;
-    color: var(--topbar-ink);
     /* What this bar paints, said out loud for utils/systemBars.js.
        It cannot be measured: the colour lives in a ::before, and
        elementFromPoint does not return pseudo-elements — so a sampler
@@ -203,7 +178,7 @@
        behind it, which is how Android ends up with a white status bar over
        a blue header. Custom properties inherit, so every child of the bar
        answers with it too, whichever one the hit-test lands on. */
-    --bar-tint: var(--bg-topbar-solid);
+    --bar-tint: var(--bg-glass);
   }
 
   .app-topbar::before {
@@ -215,8 +190,8 @@
     inset: 0 0 calc(var(--topbar-fade) * -1) 0;
     background: linear-gradient(
       to bottom,
-      var(--bg-topbar) 0,
-      var(--bg-topbar) calc(100% - var(--topbar-fade)),
+      var(--bg-glass) 0,
+      var(--bg-glass) calc(100% - var(--topbar-fade)),
       transparent 100%
     );
     -webkit-backdrop-filter: saturate(180%) blur(20px);
@@ -236,14 +211,14 @@
      stick to, and it sits *below* the header's own layer so the two never blur
      the same pixels twice. */
   .status-scrim {
-    --bar-tint: var(--bg-topbar-solid);
+    --bar-tint: var(--bg-glass);
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     z-index: 20;
     height: var(--status-bar-inset);
-    background: linear-gradient(to bottom, var(--bg-topbar) 0, transparent 100%);
+    background: linear-gradient(to bottom, var(--bg-glass) 0, transparent 100%);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
     backdrop-filter: saturate(180%) blur(20px);
     -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 62%, transparent 100%);
@@ -273,35 +248,17 @@
      layers. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .app-topbar::before {
-      background: var(--bg-topbar-solid, var(--bg-base));
+      background: var(--bg-base);
       -webkit-mask-image: none;
       mask-image: none;
       inset: 0;
     }
     .status-scrim {
-      background: var(--bg-topbar-solid, var(--bg-base));
+      background: var(--bg-base);
       -webkit-mask-image: none;
       mask-image: none;
     }
   }
-
-  /* What a screen puts *in* the bar, dressed for it.
-     Scoped by descent rather than by prop so no screen has to know it is in a
-     coloured bar: the three that pass a `header` (Home, Books, Chats) all hand
-     over the same search field and icon buttons, and on a brand-blue bar the
-     page's grey field reads as a hole punched through it. In the dark theme
-     these tokens resolve to exactly what they already were, so nothing there
-     moves. */
-  .app-topbar .icon-btn {
-    background: var(--topbar-field);
-    color: var(--topbar-ink);
-  }
-  .app-topbar input {
-    background: var(--topbar-field);
-    color: var(--topbar-field-ink);
-  }
-  .app-topbar input::placeholder { color: var(--topbar-placeholder); }
-  .app-topbar .search-icon { color: var(--topbar-placeholder); }
 
   /* A bar somebody has asked to stop animating is a bar that should stop
      smearing the page behind it too. */
