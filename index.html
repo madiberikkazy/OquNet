@@ -18,10 +18,18 @@
     <!-- PWA Meta Tags -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <!-- iOS has no runtime equivalent of theme-color. "default" tracks the page
-         instead of forcing white-on-transparent text over a light background,
-         which is what "black-translucent" was doing. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- iOS has no runtime equivalent of theme-color, and only three values.
+         "black-translucent" is the one that matters here: it is the *only* mode
+         in which the web view extends under the status bar, which is what makes
+         env(safe-area-inset-top) report a real height and what the frosted
+         strip in src/index.css (.app-topbar / .status-scrim) is drawn into.
+         Under "default" the viewport simply begins below the bar and there is
+         nothing to blur.
+         The cost is fixed and one-way: the clock, the signal and the battery
+         are painted WHITE, always, with no way to ask for dark glyphs. That is
+         why --bg-topbar is a saturated brand colour in the light theme rather
+         than the page's white — see the token's own note. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="OquNet" />
     
     <!-- App Icons -->

@@ -22,9 +22,11 @@
  * scrolls away, a themed banner, a screen with no bottom bar at all — all of
  * them are already correct, because none of them has to remember to say so.
  *
- * iOS is not part of this. `apple-mobile-web-app-status-bar-style` is read once
- * at launch and has three fixed values, so a standalone iOS install keeps the
- * static bar it always had.
+ * iOS takes no part in the *colour* half of this:
+ * `apple-mobile-web-app-status-bar-style` is read once at launch and has three
+ * fixed values, so a standalone iOS install keeps the bar it was given. It does
+ * take part in the second half of this file, which is about the bar's *height*
+ * — under `black-translucent` the page runs underneath it and has to say so.
  */
 
 const THEME_COLOR = 'meta[name="theme-color"]';
@@ -83,6 +85,14 @@ export function paintedColorAt(x, y) {
   if (typeof document === "undefined" || !document.elementFromPoint) return null;
   const hit = document.elementFromPoint(x, y);
   if (!hit) return null;
+
+  // A bar that paints itself in a pseudo-element has to *say* what colour it
+  // is, because nothing below can see it: elementFromPoint returns real
+  // elements only, so the frosted strip at the top of the screen is invisible
+  // to the walk below and the page behind it would be reported instead. The
+  // property inherits, so it answers wherever inside the bar the point landed.
+  const declared = window.getComputedStyle(hit).getPropertyValue("--bar-tint").trim();
+  if (declared) return declared;
 
   const layers = [];
   for (let node = hit; node; node = node.parentElement) {
@@ -162,4 +172,102 @@ export function syncSystemBars() {
 export function resetSystemBars() {
   lastTop = null;
   lastBottom = null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// How far the status bar reaches into the page
+//
+// `env(safe-area-inset-top)` is the answer wherever a platform gives one, and
+// this asks CSS for it rather than assuming — the value is not knowable from
+// the user agent, only from the window the OS actually handed us.
+//
+// The awkward part is that **zero is two different facts**:
+//
+//   a. the window already begins below the status bar, so there is nothing to
+//      reach under and nothing to draw — Android with `display: standalone`,
+//      and iOS before this app moved to `black-translucent`; or
+//   b. we are edge-to-edge and the platform simply did not report the inset,
+//      which some Android builds do.
+//
+// Padding a fixed 24-32px in case it is (b) would put a dead band across the
+// top of every screen where it is really (a) — a visible gap, on the far more
+// common case, to fix the rarer one. So the two are told apart instead, by the
+// one thing that actually distinguishes them: in (b) our viewport reaches the
+// top of the display, and in (a) something has already been taken off it.
+//
+// Where that test is not conclusive the answer stays 0, because a bar that is
+// slightly too short is invisible and a gap is not.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A plausible Android status bar, used only once (b) has been established. */
+const ANDROID_STATUS_BAR_PX = 28;
+
+/**
+ * The smallest slice off the viewport that counts as "the system already took
+ * its share". A gesture-navigation handle alone is around 24px, a status bar
+ * around 24-32, so anything at or above this means we are not edge-to-edge.
+ */
+const INSET_EVIDENCE_PX = 16;
+
+let probe = null;
+
+/** `env(safe-area-inset-top)` in CSS pixels — asked of the engine, not guessed. */
+function envInsetTop() {
+  if (!probe) {
+    probe = document.createElement("div");
+    // Laid out but invisible and untouchable: it needs a real box for
+    // offsetHeight to mean anything, and nothing else about it may matter.
+    probe.style.cssText =
+      "position:fixed;top:0;left:0;width:0;visibility:hidden;pointer-events:none;" +
+      "height:env(safe-area-inset-top,0px)";
+    probe.setAttribute("aria-hidden", "true");
+  }
+  if (!probe.isConnected) document.body.appendChild(probe);
+  return probe.offsetHeight || 0;
+}
+
+function isStandalone() {
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    window.matchMedia?.("(display-mode: fullscreen)").matches ||
+    // iOS predates the display-mode media query for installed web apps.
+    window.navigator.standalone === true
+  );
+}
+
+/**
+ * The inset to paint under, in CSS pixels.
+ *
+ * @returns a number ≥ 0. Zero means "draw nothing" and is a real answer.
+ */
+export function measureStatusBarInset() {
+  if (typeof window === "undefined" || typeof document === "undefined") return 0;
+
+  const reported = envInsetTop();
+  if (reported > 0) return reported;
+
+  // A tab in a browser is below the browser's own chrome; the status bar is the
+  // browser's problem there, not ours.
+  if (!isStandalone()) return 0;
+
+  const screenHeight = window.screen?.height || 0;
+  const viewport = window.innerHeight || 0;
+  if (!screenHeight || !viewport) return 0;
+
+  // Something already came off the top (or the bottom): the system has taken
+  // its share and we are not the ones drawing over it.
+  if (screenHeight - viewport >= INSET_EVIDENCE_PX) return 0;
+
+  return ANDROID_STATUS_BAR_PX;
+}
+
+let lastInset = null;
+
+/** Publish the inset as `--status-bar-height`, skipping an unchanged write. */
+export function syncStatusBarInset() {
+  if (typeof document === "undefined") return;
+  const inset = measureStatusBarInset();
+  if (inset === lastInset) return;
+  lastInset = inset;
+  document.documentElement.style.setProperty("--status-bar-height", `${inset}px`);
 }

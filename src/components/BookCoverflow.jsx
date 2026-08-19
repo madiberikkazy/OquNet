@@ -51,6 +51,14 @@ export default function BookCoverflow({
   onLoadMore,
   hasMore = false,
   loadingMore = false,
+  /**
+   * The genre this shelf is being read under, when it is being read under one.
+   * A book carries up to three and the chip can only show one, so it shows the
+   * one you came in through — otherwise a shelf opened at "History" is a row of
+   * cards all labelled "Fiction", which reads as a filter that is not working
+   * rather than as a book that is filed under both.
+   */
+  activeGenre = null,
 }) {
   const scrollerRef = useRef(null);
   const cardRefs = useRef([]);
@@ -208,6 +216,7 @@ export default function BookCoverflow({
                 book={book}
                 saved={saved.has(book.id)}
                 onSaveToggle={onSaveToggle}
+                activeGenre={activeGenre}
               />
             </div>
           ))}
@@ -239,10 +248,17 @@ export default function BookCoverflow({
  * a backdrop, then whole and sharp on top, so every plate is the same shape
  * whatever aspect ratio the artwork came in.
  */
-function CoverPlate({ book, saved, onSaveToggle }) {
+function CoverPlate({ book, saved, onSaveToggle, activeGenre }) {
   const [broken, setBroken] = useState(false);
   const cover = (!broken && book.coverUrl) || FALLBACK_COVER;
   const rating = ratingSummary(book);
+  // Only honour the shelf's genre if this book actually claims it; a stale
+  // prop must never make a card say something the book does not.
+  const claimed = Array.isArray(book.genres) && book.genres.length
+    ? book.genres
+    : [book.genre].filter(Boolean);
+  const shownGenre =
+    activeGenre && claimed.includes(activeGenre) ? activeGenre : book.genre;
 
   return (
     <div
@@ -279,7 +295,7 @@ function CoverPlate({ book, saved, onSaveToggle }) {
           </div>
 
           <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-2.5 py-2 bg-gradient-to-t from-black/55 to-transparent">
-            {book.genre ? (
+            {shownGenre ? (
               // Not an ink token: this chip sits on artwork, not on a surface,
               // so a colour that flips with the theme flips against a
               // background that does not. `ink-700` on white went from dark on
@@ -287,7 +303,7 @@ function CoverPlate({ book, saved, onSaveToggle }) {
               // a scrim reads over any cover, in either theme — which is what
               // the rating beside it already does.
               <span className="px-2 py-0.5 rounded-full bg-black/55 text-white text-[11px] font-medium truncate">
-                {genreLabel(book.genre)}
+                {genreLabel(shownGenre)}
               </span>
             ) : <span />}
             <span className="flex items-center gap-1 text-[12px] font-medium text-white shrink-0">

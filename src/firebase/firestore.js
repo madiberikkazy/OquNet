@@ -163,7 +163,12 @@ async function getPage(name, { where: wheres = [], orderByField, descending = fa
       if (op === "<=") return r[f] <= v;
       if (op === "in") return v.includes(r[f]);
       if (op === "array-contains") return Array.isArray(r[f]) && r[f].includes(v);
-      return true;
+      if (op === "array-contains-any") {
+        return Array.isArray(r[f]) && v.some((x) => r[f].includes(x));
+      }
+      // An operator this matcher does not know would filter nothing at all and
+      // look like a query that simply matched everything. Better to say so.
+      throw new Error(`getPage: unsupported where operator "${op}"`);
     });
   });
 
@@ -666,12 +671,16 @@ export const MAX_GENRE_FILTER = 30;
  *                rule is satisfied by the *query*, not by the documents, so an
  *                unscoped read is rejected outright.
  *   status       `==`.
- *   genres       `in`, up to MAX_GENRE_FILTER values. Matches `genre`, the
- *                single primary genre — so a book filed under
- *                ["fiction","history"] does not answer a search for history.
- *                That is the pre-existing meaning of the field, unchanged here;
- *                widening it means `array-contains-any` over `genres`, which
- *                cannot coexist with the `array-contains` search below.
+ *   genres       `array-contains`(-any) over `genres`, up to
+ *                MAX_GENRE_FILTER values — so a book filed under
+ *                ["fiction","history"] answers for history as well as for
+ *                fiction. `genre` is only ever `genres[0]` and exists for the
+ *                security rules, not because a book has one genre.
+ *
+ *                The exception is a genre asked for at the same time as a
+ *                search: only one array clause is allowed per query and the
+ *                search holds it, so that combination falls back to `genre in`
+ *                and sees primary genres only.
  *   search       `array-contains` over the denormalised prefix set. Prefix
  *                matching from a word boundary and nothing more — see
  *                utils/search.js, which states the limits in full.
@@ -690,15 +699,32 @@ export async function listBooks({ communityId, search, status, genres, pageSize 
   const wheres = [["communityId", "==", communityId]];
   if (status) wheres.push(["status", "==", status]);
 
+  const term = searchTerm(search);
+
   const genreList = (Array.isArray(genres) ? genres : []).filter(Boolean);
   if (genreList.length) {
     if (genreList.length > MAX_GENRE_FILTER) {
       throw new Error(`listBooks: at most ${MAX_GENRE_FILTER} genres may be filtered at once`);
     }
-    wheres.push(["genre", "in", genreList]);
+    if (term) {
+      // Firestore accepts one array clause per query, and the search below has
+      // already claimed it. So a genre asked for *while searching* falls back
+      // to `genre` — the primary — and a book whose second genre matches is
+      // missed. It is the narrower answer, and it is the one this query could
+      // always give; widening it needs the genre filter to move off the server,
+      // which would make `hasMore` a statement about rows nobody asked for.
+      wheres.push(["genre", "in", genreList]);
+    } else {
+      // The whole array, so a book counts under every genre it claims and not
+      // merely the one that happens to be first. `array-contains-any` and
+      // `array-contains` read the same CONTAINS index; the single-value form is
+      // used when there is one genre because it is the cheaper of the two.
+      wheres.push(genreList.length === 1
+        ? ["genres", "array-contains", genreList[0]]
+        : ["genres", "array-contains-any", genreList]);
+    }
   }
 
-  const term = searchTerm(search);
   if (term) wheres.push(["searchPrefixes", "array-contains", term]);
 
   const { rows, cursor: nextCursor } = await getPage("books", {

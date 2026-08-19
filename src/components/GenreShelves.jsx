@@ -30,9 +30,22 @@ export default function GenreShelves({ books, onOpen }) {
   const shelves = useMemo(() => {
     const byGenre = new Map();
     for (const book of books) {
-      const key = book.genre || "other";
-      if (!byGenre.has(key)) byGenre.set(key, []);
-      byGenre.get(key).push(book);
+      // A book is filed under every genre it claims, not just the first one.
+      // `genre` is only ever `genres[0]` (see firebase/schema.js) — it exists
+      // because the security rules and the older queries need a single-valued
+      // field, not because a book has one genre. Filing by it would hide a
+      // history book that happened to be entered as fiction first from the
+      // history tile entirely.
+      const claimed = Array.isArray(book.genres) && book.genres.length
+        ? book.genres
+        : [book.genre || "other"];
+
+      // Deduped per book: a document that somehow lists a genre twice must
+      // still only appear once on that tile, and only count once.
+      for (const key of new Set(claimed.filter(Boolean))) {
+        if (!byGenre.has(key)) byGenre.set(key, []);
+        byGenre.get(key).push(book);
+      }
     }
     return GENRES
       .map((g) => ({ value: g.value, books: byGenre.get(g.value) || [] }))
@@ -79,8 +92,13 @@ function GenreStack({ books }) {
 
   return (
     <div
-      className="relative w-full rounded-2xl bg-ink-100 overflow-hidden"
-      style={{ height: 150, perspective: "700px" }}
+      // An aspect ratio rather than a fixed height, and every measurement
+      // inside stated as a percentage of it. The grid is two columns of
+      // whatever the shell is wide — 171px on a phone, up to ~320 on the
+      // desktop max-width — and a stack sized in pixels fits exactly one of
+      // those. Sized in ratios it fits all of them.
+      className="relative w-full aspect-[5/4] rounded-2xl bg-ink-100 overflow-hidden"
+      style={{ perspective: "700px" }}
     >
       {stack.map((book, i) => {
         // 0 is the cover in front; larger d is further back and further left.
@@ -108,8 +126,10 @@ function StackCover({ book, depth, style }) {
       style={{
         ...style,
         // Anchored to the right edge: the front cover is the one you are meant
-        // to read, so it is the one that gets the whole width it needs.
-        right: `${8 + depth * 13}px`,
+        // to read, so it is the one that gets the whole width it needs. Both
+        // numbers are percentages of the tile, so the fan opens by the same
+        // proportion at every column width.
+        right: `${5 + depth * 7.5}%`,
         height: `${86 - depth * 3}%`,
         aspectRatio: "2 / 3",
         transform: `translateY(-50%) rotateY(${depth * 5}deg)`,

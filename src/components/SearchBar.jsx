@@ -14,7 +14,7 @@ export default function SearchBar({
         </button>
       ) : null}
       <div className="flex-1 relative">
-        <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-300" width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <svg className="search-icon absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-300" width="18" height="18" viewBox="0 0 24 24" fill="none">
           <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
           <path d="m21 21-4.3-4.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>

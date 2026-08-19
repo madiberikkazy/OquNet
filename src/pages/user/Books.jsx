@@ -315,6 +315,7 @@ export default function Books() {
                   hasMore={listQuery.hasNextPage}
                   loadingMore={listQuery.isFetchingNextPage}
                   onLoadMore={loadMore}
+                  activeGenre={openGenre}
                 />
               ) : (
                 <ul className="mt-1">
