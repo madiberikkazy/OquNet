@@ -607,6 +607,7 @@ const kz = {
   defaultBooks: "Әдепкі",
   viewList: "Тізім түрінде",
   viewCard: "Карточка түрінде",
+  booksCountShort: "кітап",
 
   // Add / edit book
   genre: "Жанр",
@@ -1262,6 +1263,7 @@ const ru = {
   defaultBooks: "По умолчанию",
   viewList: "Списком",
   viewCard: "Карточками",
+  booksCountShort: "книг",
 
   // Add / edit book
   genre: "Жанр",
@@ -1914,6 +1916,7 @@ const en = {
   defaultBooks: "Default",
   viewList: "List view",
   viewCard: "Card view",
+  booksCountShort: "books",
 
   // Add / edit book
   genre: "Genre",

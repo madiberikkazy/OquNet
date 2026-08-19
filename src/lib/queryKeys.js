@@ -15,6 +15,11 @@ export const qk = {
     journeyPeople: (idsKey) => ["books", "journey", "people", idsKey],
     // Recently added books — the horizontal rail above the main list.
     recent: (communityId) => ["books", "recent", communityId],
+    // One unfiltered page of the shelf, grouped into the genre tiles on Books.
+    // Its own key rather than `list`'s: that one belongs to an infinite query
+    // and stores `{ pages, pageParams }`, which a plain useQuery would overwrite
+    // with a bare page — the same clash `forExit` below exists to avoid.
+    genreOverview: (communityId) => ["books", "genreOverview", communityId],
     // Books physically with a user right now — the "Сізде қазір бар кітаптар"
     // list. Sits under `books` so a handoff invalidates it along with
     // everything else that names a holder.

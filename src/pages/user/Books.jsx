@@ -6,13 +6,14 @@ import BookCard from "../../components/BookCard.jsx";
 import GenreBar from "../../components/GenreBar.jsx";
 import NewBooksRail from "../../components/NewBooksRail.jsx";
 import BookCoverflow from "../../components/BookCoverflow.jsx";
+import GenreShelves from "../../components/GenreShelves.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listBooks, listNewBooks, updateUser } from "../../firebase/firestore.js";
-import { t } from "../../utils/i18n.js";
+import { genreLabel, t } from "../../utils/i18n.js";
 import { useInfiniteScroll } from "../../utils/useIntersectionHooks.js";
 import { safeGet, safeSet } from "../../utils/safeStorage.js";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -29,6 +30,12 @@ const PAGE_SIZE = 25;
 
 const VIEW = { LIST: "list", CARD: "card" };
 const VIEW_KEY = "oqunet.books.view";
+
+// One page of the shelf, grouped client-side into the genre tiles. Deliberately
+// a sample and not a census: an exact per-genre count needs one aggregate query
+// per genre, and the tiles are a way in rather than a report. Opening a tile
+// re-queries that genre properly — filtered, paged, and complete.
+const GENRE_SAMPLE = 120;
 
 // The search text updates every keystroke, but we don't want to refire the
 // query on every character — this delays the value used as a query key until
@@ -61,12 +68,18 @@ export default function Books() {
     safeGet(VIEW_KEY, VIEW.LIST) === VIEW.CARD ? VIEW.CARD : VIEW.LIST
   );
 
+  // Which genre tile is open, in card view. `null` is the grid itself.
+  const [openGenre, setOpenGenre] = useState(null);
+
   function toggleView() {
     setView((prev) => {
       const next = prev === VIEW.LIST ? VIEW.CARD : VIEW.LIST;
       safeSet(VIEW_KEY, next);
       return next;
     });
+    // Leaving card view closes the genre with it: coming back to a list that is
+    // silently filtered by a tile tapped minutes ago is a filter nobody set.
+    setOpenGenre(null);
   }
 
   const [draftStatus, setDraftStatus] = useState(null);
@@ -76,14 +89,30 @@ export default function Books() {
   const isFilterActive = status !== null;
   const debouncedSearch = useDebounced(search, 300);
 
+  // An opened tile *is* the genre filter while it is open — it replaces the
+  // chips rather than intersecting them, so a tile always shows the whole
+  // genre and never the empty intersection of two of them.
+  // Card view has two screens behind one toggle: the grid of genres, and one
+  // genre opened as a shelf. Declared up here because it gates the queries as
+  // well as the markup.
+  const inCardGrid = view === VIEW.CARD && !openGenre;
+
+  const activeGenres = useMemo(
+    () => (openGenre ? [openGenre] : genres),
+    [openGenre, genres]
+  );
+
   const filters = useMemo(
-    () => ({ search: debouncedSearch, status, genres }),
-    [debouncedSearch, status, genres]
+    () => ({ search: debouncedSearch, status, genres: activeGenres }),
+    [debouncedSearch, status, activeGenres]
   );
 
   const listQuery = useInfiniteQuery({
     queryKey: qk.books.list(community?.id, filters),
-    enabled: !!community?.id,
+    // The grid does not render this list, and asking for a page nobody is
+    // going to see is a billed read per visit to the genre screen. The tile
+    // that opens turns it back on with the genre already in `filters`.
+    enabled: !!community?.id && !inCardGrid,
     queryFn: async ({ pageParam }) => {
       const result = await listBooks({
         communityId: community.id,
@@ -125,6 +154,16 @@ export default function Books() {
     // cache is persisted to IndexedDB, so without this the mismatch survives
     // restarts. Ten documents by index; cheap enough to re-read on mount.
     refetchOnMount: "always",
+  });
+
+  // The genre grid's own sample. Unfiltered on purpose: the tiles are the way
+  // *into* the shelf, so narrowing them by the chips the tiles are meant to
+  // replace would leave a grid that empties as you use it.
+  const genreQuery = useQuery({
+    queryKey: qk.books.genreOverview(community?.id),
+    enabled: !!community?.id && view === VIEW.CARD && !openGenre,
+    queryFn: () => listBooks({ communityId: community.id, pageSize: GENRE_SAMPLE }),
+    staleTime: 5 * 60_000,
   });
 
   // Two horizontal scrollers stacked on a phone is a gesture fight nobody
@@ -218,65 +257,86 @@ export default function Books() {
         </div>
       }
     >
-      {/* The genre chips scroll away with the shelf rather than joining the
-          bar. They are what you are looking at, not what you are looking
-          with — and a two-storey sticky header eats a third of a phone. */}
-      <GenreBar selected={genres} onChange={setGenres} />
-
-      {status ? (
-        <div className="flex flex-wrap gap-2 px-4 pt-1 pb-2">
-          <Chip
-            label={t[STATUS_OPTIONS.find((o) => o.v === status)?.labelKey] ?? status}
-            onRemove={removeStatus}
-          />
-        </div>
-      ) : null}
-
-      {hasNewBooks ? <NewBooksRail books={newBooksQuery.data} /> : null}
-
-      {isInitialLoading ? (
-        <EmptyState title="Загрузка..." subtitle="" />
-      ) : books.length === 0 ? (
-        <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
+      {inCardGrid ? (
+        // Card view with no tile open is the genre grid and nothing else: the
+        // chips are what the tiles replace, and the paged list underneath is a
+        // query this screen is not showing.
+        genreQuery.isLoading ? (
+          <EmptyState title={t.loading} subtitle="" />
+        ) : (genreQuery.data?.items?.length || 0) === 0 ? (
+          <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
+        ) : (
+          <GenreShelves books={genreQuery.data.items} onOpen={setOpenGenre} />
+        )
       ) : (
         <>
-        {/* The rail's books are in this list too, so it needs a name of its own
-            once the rail is up — otherwise the two read as one sequence. */}
-        {hasNewBooks ? (
-          <h2 className="px-4 pt-1 pb-2 text-[19px] font-bold text-ink-900">{t.defaultBooks}</h2>
-        ) : null}
-        {view === VIEW.CARD ? (
-          // The card view paginates off its own horizontal scroll — the
-          // vertical sentinel below never comes into view when the shelf runs
-          // sideways, so handing it the same callback is what keeps the two
-          // views loading the same pages.
-          <BookCoverflow
-            books={books}
-            saved={effectiveSaved}
-            onSaveToggle={onSaveToggle}
-            hasMore={listQuery.hasNextPage}
-            loadingMore={listQuery.isFetchingNextPage}
-            onLoadMore={loadMore}
-          />
-        ) : (
-          <ul className="mt-1">
-            {books.map((b) => (
-              <li key={b.id}>
-                <BookCard book={b} saved={effectiveSaved.has(b.id)} onSaveToggle={onSaveToggle} />
-              </li>
-            ))}
+          {openGenre ? (
+            <GenreHeading genre={openGenre} onBack={() => setOpenGenre(null)} />
+          ) : (
+            /* The genre chips scroll away with the shelf rather than joining the
+               bar. They are what you are looking at, not what you are looking
+               with — and a two-storey sticky header eats a third of a phone. */
+            <GenreBar selected={genres} onChange={setGenres} />
+          )}
 
-            {listQuery.hasNextPage && (
-              <li ref={sentinelRef} className="py-4 text-center">
-                {listQuery.isFetchingNextPage ? (
-                  <p className="text-ink-400 text-[14px]">{t.loading || "Загрузка..."}</p>
-                ) : (
-                  <p className="text-ink-400 text-[13px]">Прокрутите для загрузки больше</p>
-                )}
-              </li>
-            )}
-          </ul>
-        )}
+          {status ? (
+            <div className="flex flex-wrap gap-2 px-4 pt-1 pb-2">
+              <Chip
+                label={t[STATUS_OPTIONS.find((o) => o.v === status)?.labelKey] ?? status}
+                onRemove={removeStatus}
+              />
+            </div>
+          ) : null}
+
+          {hasNewBooks ? <NewBooksRail books={newBooksQuery.data} /> : null}
+
+          {isInitialLoading ? (
+            <EmptyState title="Загрузка..." subtitle="" />
+          ) : books.length === 0 ? (
+            <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
+          ) : (
+            <>
+              {/* The rail's books are in this list too, so it needs a name of its
+                  own once the rail is up — otherwise the two read as one
+                  sequence. */}
+              {hasNewBooks ? (
+                <h2 className="px-4 pt-1 pb-2 text-[19px] font-bold text-ink-900">{t.defaultBooks}</h2>
+              ) : null}
+
+              {view === VIEW.CARD ? (
+                // The shelf paginates off its own horizontal scroll — the
+                // vertical sentinel below never comes into view when the books
+                // run sideways, so handing it the same callback is what keeps
+                // the two views loading the same pages.
+                <BookCoverflow
+                  books={books}
+                  saved={effectiveSaved}
+                  onSaveToggle={onSaveToggle}
+                  hasMore={listQuery.hasNextPage}
+                  loadingMore={listQuery.isFetchingNextPage}
+                  onLoadMore={loadMore}
+                />
+              ) : (
+                <ul className="mt-1">
+                  {books.map((b) => (
+                    <li key={b.id}>
+                      <BookCard book={b} saved={effectiveSaved.has(b.id)} onSaveToggle={onSaveToggle} />
+                    </li>
+                  ))}
+
+                  {listQuery.hasNextPage && (
+                    <li ref={sentinelRef} className="py-4 text-center">
+                      {listQuery.isFetchingNextPage ? (
+                        <p className="text-ink-500 text-[14px]">{t.loading || "Загрузка..."}</p>
+                      ) : (
+                        <p className="text-ink-500 text-[13px]">Прокрутите для загрузки больше</p>
+                      )}
+                    </li>
+                  )}
+                </ul>
+              )}
+            </>
+          )}
         </>
       )}
 
@@ -325,6 +385,29 @@ export default function Books() {
  * exactly two states, so the icon can show the one you would land in and the
  * control costs a single slot next to the filter.
  */
+/**
+ * The bar over an opened genre: its name, how to get back out, and nothing
+ * else. It stands where the genre chips stand in list view, so the shelf below
+ * does not move when you drill in.
+ */
+function GenreHeading({ genre, onBack }) {
+  return (
+    <div className="flex items-center gap-2 px-4 pt-1 pb-2">
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label={t.back}
+        className="icon-btn shrink-0"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <h2 className="text-[19px] font-bold text-ink-900 truncate">{genreLabel(genre)}</h2>
+    </div>
+  );
+}
+
 function ViewToggle({ view, onToggle }) {
   const isCard = view === VIEW.CARD;
   return (
