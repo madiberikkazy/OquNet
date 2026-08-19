@@ -1,10 +1,11 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import BookCard from "../../components/BookCard.jsx";
 import GenreBar from "../../components/GenreBar.jsx";
 import NewBooksRail from "../../components/NewBooksRail.jsx";
+import BookCoverflow from "../../components/BookCoverflow.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
@@ -13,6 +14,7 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listBooks, listNewBooks, updateUser } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
 import { useInfiniteScroll } from "../../utils/useIntersectionHooks.js";
+import { safeGet, safeSet } from "../../utils/safeStorage.js";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { qk } from "../../lib/queryKeys.js";
 
@@ -24,6 +26,9 @@ const STATUS_OPTIONS = [
 ];
 
 const PAGE_SIZE = 25;
+
+const VIEW = { LIST: "list", CARD: "card" };
+const VIEW_KEY = "oqunet.books.view";
 
 // The search text updates every keystroke, but we don't want to refire the
 // query on every character — this delays the value used as a query key until
@@ -47,6 +52,22 @@ export default function Books() {
   const [status, setStatus] = useState(null);
   const [genres, setGenres] = useState([]);
   const [filterOpen, setFilterOpen] = useState(false);
+
+  // How the shelf is drawn. Remembered across sessions: which of the two a
+  // person reads a shelf in is a preference about their own eyes, not about
+  // this visit, and re-picking it on every launch is the kind of small friction
+  // that makes a setting feel like it did not take.
+  const [view, setView] = useState(() =>
+    safeGet(VIEW_KEY, VIEW.LIST) === VIEW.CARD ? VIEW.CARD : VIEW.LIST
+  );
+
+  function toggleView() {
+    setView((prev) => {
+      const next = prev === VIEW.LIST ? VIEW.CARD : VIEW.LIST;
+      safeSet(VIEW_KEY, next);
+      return next;
+    });
+  }
 
   const [draftStatus, setDraftStatus] = useState(null);
 
@@ -106,16 +127,21 @@ export default function Books() {
     refetchOnMount: "always",
   });
 
-  const hasNewBooks = showNewBooks && (newBooksQuery.data?.length || 0) > 0;
+  // Two horizontal scrollers stacked on a phone is a gesture fight nobody
+  // wins: a swipe near the boundary picks one at random. The shelf *is* the
+  // visual browse in card view, so the rail stands down while it is up.
+  const hasNewBooks =
+    showNewBooks && view === VIEW.LIST && (newBooksQuery.data?.length || 0) > 0;
 
-  const { sentinelRef } = useInfiniteScroll({
-    onLoadMore: () => {
-      if (listQuery.hasNextPage && !listQuery.isFetchingNextPage) {
-        listQuery.fetchNextPage();
-      }
-    },
-    threshold: 300,
-  });
+  // One loader behind both views: the list reaches it through an intersection
+  // sentinel, the shelf through its own scroll position.
+  const loadMore = useCallback(() => {
+    if (listQuery.hasNextPage && !listQuery.isFetchingNextPage) {
+      listQuery.fetchNextPage();
+    }
+  }, [listQuery.hasNextPage, listQuery.isFetchingNextPage, listQuery.fetchNextPage]);
+
+  const { sentinelRef } = useInfiniteScroll({ onLoadMore: loadMore, threshold: 300 });
 
   const savedSet = useMemo(() => new Set(user?.savedBookIds || []), [user?.savedBookIds]);
 
@@ -187,6 +213,7 @@ export default function Books() {
             placeholder={t.searchPlaceholder}
             onFilterClick={openFilter}
             filterActive={isFilterActive}
+            rightSlot={<ViewToggle view={view} onToggle={toggleView} />}
           />
         </div>
       }
@@ -218,23 +245,38 @@ export default function Books() {
         {hasNewBooks ? (
           <h2 className="px-4 pt-1 pb-2 text-[19px] font-bold text-ink-900">{t.defaultBooks}</h2>
         ) : null}
-        <ul className="mt-1">
-          {books.map((b) => (
-            <li key={b.id}>
-              <BookCard book={b} saved={effectiveSaved.has(b.id)} onSaveToggle={onSaveToggle} />
-            </li>
-          ))}
+        {view === VIEW.CARD ? (
+          // The card view paginates off its own horizontal scroll — the
+          // vertical sentinel below never comes into view when the shelf runs
+          // sideways, so handing it the same callback is what keeps the two
+          // views loading the same pages.
+          <BookCoverflow
+            books={books}
+            saved={effectiveSaved}
+            onSaveToggle={onSaveToggle}
+            hasMore={listQuery.hasNextPage}
+            loadingMore={listQuery.isFetchingNextPage}
+            onLoadMore={loadMore}
+          />
+        ) : (
+          <ul className="mt-1">
+            {books.map((b) => (
+              <li key={b.id}>
+                <BookCard book={b} saved={effectiveSaved.has(b.id)} onSaveToggle={onSaveToggle} />
+              </li>
+            ))}
 
-          {listQuery.hasNextPage && (
-            <li ref={sentinelRef} className="py-4 text-center">
-              {listQuery.isFetchingNextPage ? (
-                <p className="text-ink-400 text-[14px]">{t.loading || "Загрузка..."}</p>
-              ) : (
-                <p className="text-ink-400 text-[13px]">Прокрутите для загрузки больше</p>
-              )}
-            </li>
-          )}
-        </ul>
+            {listQuery.hasNextPage && (
+              <li ref={sentinelRef} className="py-4 text-center">
+                {listQuery.isFetchingNextPage ? (
+                  <p className="text-ink-400 text-[14px]">{t.loading || "Загрузка..."}</p>
+                ) : (
+                  <p className="text-ink-400 text-[13px]">Прокрутите для загрузки больше</p>
+                )}
+              </li>
+            )}
+          </ul>
+        )}
         </>
       )}
 
@@ -275,6 +317,40 @@ export default function Books() {
         </div>
       </Modal>
     </MobileShell>
+  );
+}
+
+/**
+ * List ⇄ card. One button with two faces rather than a pair of tabs: there are
+ * exactly two states, so the icon can show the one you would land in and the
+ * control costs a single slot next to the filter.
+ */
+function ViewToggle({ view, onToggle }) {
+  const isCard = view === VIEW.CARD;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={isCard}
+      aria-label={isCard ? t.viewList : t.viewCard}
+      title={isCard ? t.viewList : t.viewCard}
+      className="icon-btn shrink-0"
+    >
+      {isCard ? (
+        // Showing cards → offer the list
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      ) : (
+        // Showing the list → offer the shelf: a tall plate flanked by two
+        // turning away, which is what the view actually looks like.
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <rect x="9" y="4" width="6" height="16" rx="1.6" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M6 7.5v9M3.5 10v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M18 7.5v9M20.5 10v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      )}
+    </button>
   );
 }
 

@@ -605,6 +605,8 @@ const kz = {
   genreAll: "Барлығы",
   newBooks: "Жаңа кітаптар",
   defaultBooks: "Әдепкі",
+  viewList: "Тізім түрінде",
+  viewCard: "Карточка түрінде",
 
   // Add / edit book
   genre: "Жанр",
@@ -1258,6 +1260,8 @@ const ru = {
   genreAll: "Все",
   newBooks: "Новые книги",
   defaultBooks: "По умолчанию",
+  viewList: "Списком",
+  viewCard: "Карточками",
 
   // Add / edit book
   genre: "Жанр",
@@ -1908,6 +1912,8 @@ const en = {
   genreAll: "All",
   newBooks: "New books",
   defaultBooks: "Default",
+  viewList: "List view",
+  viewCard: "Card view",
 
   // Add / edit book
   genre: "Genre",
