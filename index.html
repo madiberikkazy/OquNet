@@ -18,25 +18,9 @@
     <!-- PWA Meta Tags -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <!-- iOS has no runtime equivalent of theme-color, and only three values.
-         Two of them matter here and they are mutually exclusive:
-
-           default            the viewport begins *below* the status bar, which
-                              the OS draws itself with glyphs that suit the
-                              system appearance. env(safe-area-inset-top) is 0
-                              because there is genuinely nothing above us.
-           black-translucent  the page extends under the bar — the only way to
-                              blur what passes beneath it — but the clock, the
-                              signal and the battery are painted WHITE, always,
-                              with no runtime override.
-
-         The bar follows the theme, so the light theme's bar is white, and white
-         glyphs on it are invisible. That rules out black-translucent for as
-         long as there is a light theme. Switching this one value is all it
-         takes to opt back in, and .status-scrim / .app-topbar in src/index.css
-         are already written for it — the inset they read simply reports 0 here.
-         The fade under the header works either way; only the strip above it
-         depends on this. -->
+    <!-- iOS has no runtime equivalent of theme-color. "default" tracks the page
+         instead of forcing white-on-transparent text over a light background,
+         which is what "black-translucent" was doing. -->
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="OquNet" />
     

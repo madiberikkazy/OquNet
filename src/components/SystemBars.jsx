@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useTheme } from "../contexts/ThemeContext.jsx";
-import { resetSystemBars, syncStatusBarInset, syncSystemBars } from "../utils/systemBars.js";
+import { resetSystemBars, syncSystemBars } from "../utils/systemBars.js";
 
 /**
  * Keeps the status bar and the Android navigation bar the colour of whatever
@@ -36,13 +36,7 @@ export default function SystemBars() {
     let frame = 0;
     const measure = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        // The inset first: the bars' colours are sampled at y=0, and on the
-        // frame the inset changes that point is over a strip that has only just
-        // been given a height.
-        syncStatusBarInset();
-        syncSystemBars();
-      });
+      frame = requestAnimationFrame(syncSystemBars);
     };
 
     document.addEventListener("scroll", measure, true);
@@ -77,10 +71,7 @@ export default function SystemBars() {
     // in index.css — until it finishes, the new screen is still sliding down
     // and the old colour is what is under the top edge), and once more for a
     // lazy route whose first frame is a spinner.
-    const frame = requestAnimationFrame(() => {
-      syncStatusBarInset();
-      syncSystemBars();
-    });
+    const frame = requestAnimationFrame(syncSystemBars);
     const timers = [240, 600].map((ms) => setTimeout(syncSystemBars, ms));
 
     return () => {

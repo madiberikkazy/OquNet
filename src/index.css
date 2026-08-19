@@ -54,30 +54,15 @@
   --tint:     #EDF1FB;
   --tint-ink: #1E3E87;
 
-  /* The frosted tab bar at the bottom.
-     The header at the top used to wear this too, and no longer can: iOS paints
-     the status bar strip above it opaque and uncolourable, so a translucent
-     header is permanently half a shade off the thing it butts against. The top
-     bar is `--bg-base` for that reason (see .app-topbar); the bottom has no
-     such neighbour and keeps the glass.
+  /* The frosted bars: the sticky one at the top of Home, Books and Chats, and
+     the tab bar at the bottom. One token, because they are one material and a
+     tab bar half a shade off the header is the kind of thing you cannot unsee.
      Deliberately a token of its own rather than `--bg-base` at some opacity:
      Tailwind's `/70` modifier cannot apply to a colour that arrives as a bare
      `var()`, and the alpha here is load-bearing — it is what the blur has to
      look through. 0.72 is where iOS sits: solid enough to read a title
      against, sheer enough that you can see the content move underneath. */
   --bg-glass: rgba(255, 255, 255, 0.72);
-
-  /* How far the OS status bar reaches into the page. Written by
-     utils/systemBars.js, which prefers env(safe-area-inset-top) and only falls
-     back to a measured guess where a platform refuses to report one. Zero is a
-     real answer, not a missing one: it means the window already starts below
-     the bar and there is nothing to reach under. */
-  --status-bar-height: 0px;
-
-  /* The top of the screen — the status bar strip and the sticky header under
-     it — is the same frosted glass as the tab bar at the bottom, and it follows
-     the theme rather than declaring a colour of its own. One material, top and
-     bottom, light and dark. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -112,7 +97,6 @@
 
   /* Same material in the dark. */
   --bg-glass: rgba(13, 20, 32, 0.72);
-
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -154,119 +138,6 @@
      browsers get the solid page colour instead. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .app-glass { background: var(--bg-base); }
-  }
-
-  /* ── The top of the screen ────────────────────────────────────────────────
-     The bar is solid, and the softness lives in a strip just below it.
-
-     This is the one arrangement iOS allows. Under
-     `apple-mobile-web-app-status-bar-style: default` the viewport begins below
-     the status bar, and iOS paints that strip itself — we cannot colour it and
-     it is opaque. A frosted header would therefore always be a slightly
-     different shade from the strip above it, because it is showing blurred
-     content through itself while the strip shows nothing: two materials meeting
-     at a line, which is exactly the seam this is here to remove. Painting the
-     bar in the page's own `--bg-base` makes it the same colour the OS is
-     already using, in either theme, and the join disappears.
-
-     Nothing is lost that was worth keeping. The blur was never really about the
-     bar — it was about what happens to content passing *under* it, and that
-     still happens, in `::after` below.
-
-     A real background rather than a painted pseudo-element, and that matters
-     twice: it is what utils/systemBars.js can see when it samples the top edge
-     to colour the Android status bar, and it is what keeps this bar honest
-     about its own colour without having to declare it separately. */
-  .app-topbar {
-    --topbar-fade: 28px;
-    position: relative;
-    background: var(--bg-base);
-  }
-
-  /* The boundary, and the whole reason this is not just a bar with a line under
-     it. A strip below the bar where the page is blurred and faded out at the
-     same rate, so content does not appear from behind an edge — it resolves.
-
-     `mask-image` and the background gradient run together on purpose. The mask
-     alone would taper the blur while leaving the colour to stop dead; the
-     gradient alone would fade the colour while the blur kept its hard cutoff.
-     Both have to reach nothing in the same place.
-
-     It also cannot live on the bar itself. A mask fades everything an element
-     paints — its backdrop blur *and* its children — so masking the header would
-     take the search field down with it. Hence a strip of its own, sitting just
-     past the bottom edge, blurring only the 28px it needs to. */
-  .app-topbar::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 100%;
-    height: var(--topbar-fade);
-    background: linear-gradient(to bottom, var(--bg-base) 0, transparent 100%);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    backdrop-filter: saturate(180%) blur(20px);
-    -webkit-mask-image: linear-gradient(to bottom, #000 0, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0, transparent 100%);
-    pointer-events: none;
-  }
-
-  /* The same strip for a screen with no header of its own — a book, a chat, a
-     settings page — and only where a platform actually puts the page under the
-     status bar. That is `black-translucent` on iOS and edge-to-edge on Android;
-     everywhere else the inset is 0, this collapses to nothing, and the OS strip
-     above is doing the job instead. Fixed rather than sticky because there is
-     no bar here to stick to. */
-  .status-scrim {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 20;
-    height: var(--status-bar-inset);
-    background: linear-gradient(to bottom, var(--bg-base) 0, transparent 100%);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    backdrop-filter: saturate(180%) blur(20px);
-    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 62%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0, #000 62%, transparent 100%);
-    /* Never a tap target, and — just as important — never a hit-test result:
-       utils/systemBars.js reads the painted colour at y=0 with elementFromPoint,
-       which skips a layer that takes no pointer events. A scrim that answered
-       there would report itself instead of the bar behind it. */
-    pointer-events: none;
-  }
-
-  /* The one number both of the above hang on. `env()` is the truth wherever a
-     platform reports it; `--status-bar-height` is the measured fallback for the
-     platforms that report zero while still putting us under the bar, and it
-     stays 0 unless systemBars.js is confident — so the normal case is that this
-     resolves to env() alone and nothing is guessed at. */
-  .status-scrim,
-  .app-topbar {
-    --status-bar-inset: max(env(safe-area-inset-top, 0px), var(--status-bar-height, 0px));
-  }
-
-  /* No backdrop-filter, no frosting. The bar itself is unaffected — it is a
-     flat colour either way — so only the fade strips need saying: a gradient
-     over an un-blurred page is a smear rather than a boundary, so they simply
-     go away and the bar ends where it ends. */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .app-topbar::after { display: none; }
-    .status-scrim {
-      background: var(--bg-base);
-      -webkit-mask-image: none;
-      mask-image: none;
-    }
-  }
-
-  /* A bar somebody has asked to stop animating is a bar that should stop
-     smearing the page behind it too. */
-  @media (prefers-reduced-motion: reduce) {
-    .app-topbar::before,
-    .status-scrim {
-      -webkit-backdrop-filter: saturate(150%) blur(6px);
-      backdrop-filter: saturate(150%) blur(6px);
-    }
   }
 
   .card {

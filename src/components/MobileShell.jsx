@@ -33,26 +33,18 @@ import BottomNav from "./BottomNav.jsx";
 export default function MobileShell({ children, header = null, withNav = true }) {
   return (
     <div className="min-h-screen bg-base flex flex-col">
-      {/* The strip under the clock, for a screen with no header to cover it.
-          Always rendered: it costs nothing where the inset is zero, and a
-          screen that only *sometimes* protects the status bar is a screen that
-          flickers on the way in. A header, when there is one, paints over this
-          in the same colour — so the two never show a seam and, because this
-          sits a layer below, never blur the same pixels twice. */}
-      <div className="status-scrim" aria-hidden="true" />
       <main className={"flex-1 w-full " + (withNav ? "pb-24" : "pb-4")}>
         {/* Responsive centred column */}
         <div className="w-full mx-auto sm:max-w-xl lg:max-w-2xl">
           {header ? (
-            // The bar reaches all the way up under the clock now: the app
-            // declares `black-translucent`, which is the only iOS mode that
-            // puts the page under the status bar at all. `--status-bar-inset`
-            // is how far that is — env(safe-area-inset-top) wherever a platform
-            // reports one, and a measured fallback where it does not. It
-            // resolves to 0 in a browser tab, which is the right answer there.
+            // `top: 0` is already below the status bar: the app declares
+            // `apple-mobile-web-app-status-bar-style: default`, so an installed
+            // iOS PWA insets its own viewport. The safe-area padding is there
+            // for the day that changes to `black-translucent`, where it starts
+            // reporting a real inset instead of zero.
             <div
-              className="app-topbar sticky top-0 z-30"
-              style={{ paddingTop: "max(1rem, var(--status-bar-inset))" }}
+              className="app-glass sticky top-0 z-30 pt-4"
+              style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
             >
               {header}
             </div>
