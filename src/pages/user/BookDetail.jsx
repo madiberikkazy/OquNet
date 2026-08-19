@@ -17,6 +17,7 @@ import {
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { t, genreLabel } from "../../utils/i18n.js";
+import { isPageBand, pagesForBook, pagesRangeLabel } from "../../utils/bookPages.js";
 import { ratingSummary, reviewsFromRatings, formatRating } from "../../utils/rating.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { holderIdOf, readerHolderIdOf } from "../../utils/bookHolder.js";
@@ -389,6 +390,13 @@ export default function BookDetail() {
     pendingStars > 0 &&
     (pendingStars !== (myRating?.value ?? 0) || pendingReview.trim() !== (myRating?.review ?? "").trim());
 
+  // Is there a real length to print? `pagesForBook` always answers — it falls
+  // back to the smallest band so the loan arithmetic never divides by nothing —
+  // and printing that answer for a book that carries neither a band nor a loan
+  // length would be inventing "0–50 бет" out of a missing field. These are the
+  // same two sources it reads, asked before it guesses.
+  const hasPageCount = isPageBand(book.pages) || Number(book.maxDays) > 0;
+
   return (
     <MobileShell>
       <SearchBar value="" onChange={() => {}} onBack={() => navigate(-1)} placeholder={t.searchPlaceholder} />
@@ -403,6 +411,24 @@ export default function BookDetail() {
         <div className="flex-1 flex flex-col">
           <h1 className="text-2xl font-bold leading-tight">{book.name}</h1>
           <p className="text-[15px] text-ink-500 mt-1">{book.author}</p>
+
+          {/* Year and length — the two facts about the book itself, as opposed
+              to the badges below, which are about this copy today.
+              The length is the band the admin chose, not an exact count, and it
+              is worth showing for a second reason: the loan is derived from it
+              (one day per fifty pages), so it is also how long you get. */}
+          {(book.year || hasPageCount) ? (
+            <p className="text-[13px] text-ink-500 mt-1 flex items-center gap-1.5">
+              {book.year ? <span className="tabular-nums">{book.year}</span> : null}
+              {book.year && hasPageCount ? <span aria-hidden="true">·</span> : null}
+              {hasPageCount ? (
+                <span className="tabular-nums">
+                  {pagesRangeLabel(pagesForBook(book))} {t.pagesUnit}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <BookStatusBadge
               status={book.status}
