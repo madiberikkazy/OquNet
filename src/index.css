@@ -63,6 +63,34 @@
      look through. 0.72 is where iOS sits: solid enough to read a title
      against, sheer enough that you can see the content move underneath. */
   --bg-glass: rgba(255, 255, 255, 0.72);
+
+  /* How far the OS status bar reaches into the page. Written by
+     utils/systemBars.js, which prefers env(safe-area-inset-top) and only falls
+     back to a measured guess where a platform refuses to report one. Zero is a
+     real answer, not a missing one: it means the window already starts below
+     the bar and there is nothing to reach under. */
+  --status-bar-height: 0px;
+
+  /* The top of the screen — the status bar strip and the sticky header under
+     it — as one material.
+     It is brand-coloured rather than white, and that is forced rather than
+     chosen. Reaching under the status bar on iOS needs
+     `apple-mobile-web-app-status-bar-style: black-translucent`, which is the
+     only mode that puts the page there — and it paints the clock, the signal
+     and the battery in WHITE, with no runtime way to ask for anything else. On
+     the old white bar those glyphs would be invisible. So the light theme does
+     what Telegram's own light theme does and puts a saturated colour under
+     them. The dark theme has no such problem and keeps the plain glass. */
+  --bg-topbar:  rgba(40, 83, 175, 0.82);
+  /* The same bar for a browser with no backdrop-filter — opaque, because
+     there is nothing to see through it. */
+  --bg-topbar-solid: #2853AF;
+  --topbar-ink: #ffffff;
+  /* The field inside a coloured bar: a wash of the bar rather than the page's
+     grey, which on blue reads as a hole punched in it. */
+  --topbar-field: rgba(255, 255, 255, 0.18);
+  --topbar-field-ink: #ffffff;
+  --topbar-placeholder: rgba(255, 255, 255, 0.65);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -97,6 +125,15 @@
 
   /* Same material in the dark. */
   --bg-glass: rgba(13, 20, 32, 0.72);
+
+  /* White status-bar glyphs are what a dark theme wanted anyway, so the top of
+     the screen is simply the glass it always was. */
+  --bg-topbar:  rgba(13, 20, 32, 0.72);
+  --bg-topbar-solid: #0D1420;
+  --topbar-ink: var(--ink-900);
+  --topbar-field: var(--ink-100);
+  --topbar-field-ink: var(--ink-900);
+  --topbar-placeholder: var(--ink-300);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -138,6 +175,142 @@
      browsers get the solid page colour instead. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .app-glass { background: var(--bg-base); }
+  }
+
+  /* ── The top of the screen ────────────────────────────────────────────────
+     One strip of frosted glass running from above the clock down past the
+     header, and going soft at the bottom instead of stopping at a line.
+
+     Why a pseudo-element and not the bar itself. `mask-image` fades everything
+     an element paints — its backdrop blur *and* its children — so masking the
+     header would take the search field down with it. The blur therefore lives
+     in a layer of its own at `z-index: -1`, behind the header's own content but
+     in front of the page, and only that layer carries the mask.
+
+     The mask and the background gradient run together on purpose. The mask
+     alone would taper the blur while leaving the tint to end on an edge; the
+     gradient alone would fade the colour while the blur kept its hard cutoff.
+     Both have to arrive at nothing at the same place, and `--topbar-fade` is
+     that place. */
+  .app-topbar {
+    --topbar-fade: 28px;
+    position: relative;
+    color: var(--topbar-ink);
+    /* What this bar paints, said out loud for utils/systemBars.js.
+       It cannot be measured: the colour lives in a ::before, and
+       elementFromPoint does not return pseudo-elements — so a sampler
+       looking at y=0 walks straight past the bar and reports the page
+       behind it, which is how Android ends up with a white status bar over
+       a blue header. Custom properties inherit, so every child of the bar
+       answers with it too, whichever one the hit-test lands on. */
+    --bar-tint: var(--bg-topbar-solid);
+  }
+
+  .app-topbar::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    /* Reaches past its own bottom edge: the fade has to happen somewhere, and
+       inside the bar it would blur the last line of the header. */
+    inset: 0 0 calc(var(--topbar-fade) * -1) 0;
+    background: linear-gradient(
+      to bottom,
+      var(--bg-topbar) 0,
+      var(--bg-topbar) calc(100% - var(--topbar-fade)),
+      transparent 100%
+    );
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-mask-image: linear-gradient(
+      to bottom, #000 0, #000 calc(100% - var(--topbar-fade)), transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom, #000 0, #000 calc(100% - var(--topbar-fade)), transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  /* The same strip for a screen with no header of its own — a book, a chat, a
+     settings page. Without it the page would scroll under the clock with
+     nothing behind it. Fixed rather than sticky because there is no bar here to
+     stick to, and it sits *below* the header's own layer so the two never blur
+     the same pixels twice. */
+  .status-scrim {
+    --bar-tint: var(--bg-topbar-solid);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    height: var(--status-bar-inset);
+    background: linear-gradient(to bottom, var(--bg-topbar) 0, transparent 100%);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 62%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0, #000 62%, transparent 100%);
+    /* Never a tap target, and — just as important — never a hit-test result:
+       utils/systemBars.js reads the painted colour at y=0 with
+       elementFromPoint, which skips a layer that takes no pointer events. A
+       scrim that answered there would report its own tint as the page's. */
+    pointer-events: none;
+  }
+
+  /* The one number both of the above hang on. `env()` is the truth wherever a
+     platform reports it — iOS under `black-translucent`, Android under
+     edge-to-edge. `--status-bar-height` is the measured fallback for the
+     platforms that report zero while still putting us under the bar, and it
+     stays 0 unless systemBars.js is confident, so the normal case is that this
+     resolves to env() alone and nothing is guessed at. */
+  .status-scrim,
+  .app-topbar {
+    --status-bar-inset: max(env(safe-area-inset-top, 0px), var(--status-bar-height, 0px));
+  }
+
+  /* No backdrop-filter, no frosting — and a bar you can see the page through is
+     a bug rather than a design. These get the flat colour instead, and the mask
+     goes with it: a gradient fade on an opaque strip is a smear, not a
+     boundary. The same reasoning as `.app-glass` above, applied to both
+     layers. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .app-topbar::before {
+      background: var(--bg-topbar-solid, var(--bg-base));
+      -webkit-mask-image: none;
+      mask-image: none;
+      inset: 0;
+    }
+    .status-scrim {
+      background: var(--bg-topbar-solid, var(--bg-base));
+      -webkit-mask-image: none;
+      mask-image: none;
+    }
+  }
+
+  /* What a screen puts *in* the bar, dressed for it.
+     Scoped by descent rather than by prop so no screen has to know it is in a
+     coloured bar: the three that pass a `header` (Home, Books, Chats) all hand
+     over the same search field and icon buttons, and on a brand-blue bar the
+     page's grey field reads as a hole punched through it. In the dark theme
+     these tokens resolve to exactly what they already were, so nothing there
+     moves. */
+  .app-topbar .icon-btn {
+    background: var(--topbar-field);
+    color: var(--topbar-ink);
+  }
+  .app-topbar input {
+    background: var(--topbar-field);
+    color: var(--topbar-field-ink);
+  }
+  .app-topbar input::placeholder { color: var(--topbar-placeholder); }
+  .app-topbar .search-icon { color: var(--topbar-placeholder); }
+
+  /* A bar somebody has asked to stop animating is a bar that should stop
+     smearing the page behind it too. */
+  @media (prefers-reduced-motion: reduce) {
+    .app-topbar::before,
+    .status-scrim {
+      -webkit-backdrop-filter: saturate(150%) blur(6px);
+      backdrop-filter: saturate(150%) blur(6px);
+    }
   }
 
   .card {
