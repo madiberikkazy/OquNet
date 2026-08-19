@@ -87,26 +87,6 @@ export function paintedColorAt(x, y) {
   if (!hit) return null;
 
   const layers = [];
-
-  // A bar that paints itself in a pseudo-element has to *say* what colour it
-  // is, because nothing below can see it: elementFromPoint returns real
-  // elements only, so the frosted strip at the top of the screen is invisible
-  // to the walk that follows, and the page behind it would be reported instead.
-  //
-  // It goes in as the topmost *layer*, not as the answer. The glass is
-  // translucent — that is the whole of what it is — so a bar reported as its
-  // own token is a bar reported darker than it looks, and the strip the OS
-  // paints comes out a visibly different shade from the header underneath it.
-  // Composited over whatever the walk finds below, it comes out the colour a
-  // person actually sees.
-  //
-  // Read once, from the hit element only: the property inherits, so every node
-  // inside the bar carries it and adding it per ancestor would stack the same
-  // glass three or four times over.
-  const declared = parseColor(
-    window.getComputedStyle(hit).getPropertyValue("--bar-tint").trim()
-  );
-  if (declared && declared.a > 0) layers.push(declared);
   for (let node = hit; node; node = node.parentElement) {
     if (!spansViewport(node)) continue;
     const style = window.getComputedStyle(node);
