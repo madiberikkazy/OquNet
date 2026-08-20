@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 150" fill="none" role="img">
+  <!-- The pile on the other side of the avatar. Deliberately not a flipped copy
+       of left_book.svg: two identical stacks either side of a face read as a
+       mistake, so the order of the covers and the lean of each book differ. -->
+  <g stroke="#16233D" stroke-width="3" stroke-linejoin="round">
+    <g transform="translate(6 124)">
+      <rect x="0" y="0" width="120" height="23" rx="5" fill="#F2A83E"/>
+      <rect x="9" y="5" width="102" height="13" rx="3" fill="#FFF2DC" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(2 103) rotate(1.5)">
+      <rect x="0" y="0" width="112" height="21" rx="5" fill="#F3F6FB"/>
+      <rect x="8" y="5" width="96" height="11" rx="3" fill="#FFFFFF" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(14 82) rotate(-1.5)">
+      <rect x="0" y="0" width="106" height="21" rx="5" fill="#EE7B72"/>
+      <rect x="8" y="5" width="90" height="11" rx="3" fill="#FDECEA" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(8 61)">
+      <rect x="0" y="0" width="104" height="21" rx="5" fill="#5FA8E8"/>
+      <rect x="8" y="5" width="88" height="11" rx="3" fill="#EAF4FE" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(20 41) rotate(2)">
+      <rect x="0" y="0" width="94" height="20" rx="5" fill="#F3F6FB"/>
+      <rect x="8" y="5" width="78" height="10" rx="3" fill="#FFFFFF" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(26 22) rotate(-2)">
+      <rect x="0" y="0" width="84" height="19" rx="5" fill="#6FCF9B"/>
+      <rect x="7" y="5" width="70" height="9" rx="3" fill="#E9FAF0" stroke-width="2.4"/>
+    </g>
+  </g>
+</svg>

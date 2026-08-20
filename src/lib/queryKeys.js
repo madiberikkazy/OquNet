@@ -36,6 +36,20 @@ export const qk = {
   users: {
     byId: (id) => ["users", id],
   },
+  follows: {
+    all: ["follows"],
+    // "Am I following this person?" — one edge at a known id, so the button on
+    // a profile costs a single read rather than a query.
+    edge: (followerId, followingId) => ["follows", "edge", followerId, followingId],
+    // The two lists behind the counters under a name. Keyed by whose profile
+    // they belong to, not by who is looking: they are the same list for
+    // everybody, and the only thing the viewer changes is which row carries a
+    // button.
+    followers: (userId) => ["follows", "followers", userId],
+    following: (userId) => ["follows", "following", userId],
+    /** The profiles behind one such list, fetched as one batch. */
+    people: (idsKey) => ["follows", "people", idsKey],
+  },
   borrowings: {
     activeByBook: (bookId) => ["borrowings", "activeByBook", bookId],
     lastCompletedByBook: (bookId) => ["borrowings", "lastCompletedByBook", bookId],

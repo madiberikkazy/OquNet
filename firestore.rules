@@ -117,8 +117,48 @@ service cloud.firestore {
         // Mock-mode-only field; it must never reach a real database.
         && !('password' in request.resource.data);
 
-      allow update: if selfUpdate(userId) || adminEjectsMember(userId);
+      // The follower rollup is tried first, and cheaply: it exits at `!isSelf`
+      // for any write to your own profile, so a self-update pays nothing for
+      // it. Ordering it ahead of the other two also keeps a legitimate counter
+      // write independent of how they evaluate — in this language a branch that
+      // errors takes the whole statement down with it, and denying somebody's
+      // follow because of a rule about email addresses would be a very hard
+      // failure to explain.
+      allow update: if followerRollup(userId)
+        || selfUpdate(userId) || adminEjectsMember(userId);
       allow delete: if false;
+    }
+
+    // A follow, counted on the profile that was followed.
+    //
+    // `followersCount` is the one field on a profile a *stranger* may move, so
+    // the authorisation is the edge itself: follows/$(uid())__$(userId) must
+    // exist for a +1 and must be gone for a −1. That is why the data layer
+    // always writes the edge first and the counter second (see followUser /
+    // unfollowUser) — the counter write is only ever the summary catching up
+    // with a fact the caller was independently allowed to write.
+    //
+    // The reader's own `followingCount` needs no rule of its own: it lives on
+    // their own profile and rides in on `selfUpdate`, exactly like
+    // `likedPostIds`, whose counterpart `likeCount` this whole arrangement
+    // mirrors.
+    //
+    // One exists() per write, and only on this branch — a self-update never
+    // reaches it. See the get() budget note at the top of the file.
+    function followerRollup(userId) {
+      return signedIn()
+        && !isSelf(userId)
+        && touchesOnly(['followersCount'].toSet())
+        && request.resource.data.followersCount is int
+        && request.resource.data.followersCount >= 0
+        && ((request.resource.data.followersCount == resource.data.get('followersCount', 0) + 1
+             && followEdge(userId))
+            || (request.resource.data.followersCount == resource.data.get('followersCount', 0) - 1
+                && !followEdge(userId)));
+    }
+
+    function followEdge(userId) {
+      return exists(/databases/$(database)/documents/follows/$(uid() + '__' + userId));
     }
 
     function selfUpdate(userId) {
@@ -236,6 +276,40 @@ service cloud.firestore {
 
       allow update: if false;
       allow delete: if signedIn() && resource.data.uid == uid();
+    }
+
+    // ═══ follows ═══
+    //
+    // One document per "A follows B", at the id `A__B` — ordered, because
+    // following is not symmetric and both directions have to be able to exist
+    // at once. Everything here is read out of the *path*, the same trick the
+    // chats rules use: only `$(uid())__$(somebody)` is writable, so an edge
+    // claiming that somebody else follows you cannot be created at all, and
+    // proving that costs no document read.
+    //
+    // Readable to any signed-in caller, like `users` itself: a followers list
+    // is a public thing on a profile, and it holds nothing that is not already
+    // two account ids side by side.
+
+    function followPair(followId) { return followId.split('__'); }
+
+    match /follows/{followId} {
+      allow get, list: if signedIn();
+
+      allow create: if signedIn()
+        && followPair(followId).size() == 2
+        && followPair(followId)[0] == uid()
+        && followPair(followId)[1] != uid()
+        && request.resource.data.keys().hasOnly(['id', 'followerId', 'followingId', 'createdAt'])
+        && request.resource.data.id == followId
+        && request.resource.data.followerId == uid()
+        && request.resource.data.followingId == followPair(followId)[1]
+        && request.resource.data.createdAt == request.time;
+
+      // An edge is created or deleted, never edited — there is nothing in it to
+      // change that would not make it a different edge.
+      allow update: if false;
+      allow delete: if signedIn() && followPair(followId)[0] == uid();
     }
 
     // ═══ communities ═══

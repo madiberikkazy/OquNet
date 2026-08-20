@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import Avatar from "./Avatar.jsx";
 import AppIcon from "./AppIcon.jsx";
+import { leftBookIcon, rightBookIcon } from "../utils/icons.js";
 import { splitDuration } from "../utils/readingProgress.js";
 import { logger } from "../utils/logger.js";
 import { t } from "../utils/i18n.js";
@@ -16,15 +17,20 @@ import { t } from "../utils/i18n.js";
  *
  * The community chip is deliberately NOT here. It belongs beside the reading
  * section, where the standing it carries means something.
+ *
+ * `action` is the slot under the name for whatever this viewer can *do* with
+ * this profile — the follow button on somebody else's, nothing on your own.
  */
-export default function ProfileHeader({ user, showSettings = false, onBack, badge }) {
+export default function ProfileHeader({ user, showSettings = false, onBack, badge, action = null }) {
   const fullName = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim();
 
   return (
     <header>
       {/* Full-bleed band. `-mt-4` cancels MobileShell's top padding so it starts
-          at the very top of the screen, as in the design. */}
-      <div className="-mt-4 h-28 bg-brand-500 relative sm:rounded-b-3xl">
+          at the very top of the screen, as in the design. Tall enough to hold
+          the two stacks of books that flank the avatar — that height is the
+          artwork's, and shrinking it crops the piles rather than scaling them. */}
+      <div className="-mt-4 h-40 bg-brand-500 relative overflow-hidden sm:rounded-b-3xl">
         {onBack ? (
           <button
             onClick={onBack}
@@ -49,15 +55,45 @@ export default function ProfileHeader({ user, showSettings = false, onBack, badg
             <AppIcon name="settings" size={22} className="brightness-0 invert" />
           </Link>
         ) : null}
+
+        {/* The two piles of books, standing on the sheet's edge either side of
+            the avatar. Plain <img> rather than AppIcon because these are sized
+            by height and left to keep their own proportions — AppIcon pins both
+            dimensions to one number, which is right for an icon and wrong for
+            artwork.
+
+            Decoration: hidden from assistive tech and deaf to taps, so the back
+            and settings buttons in the corners above them stay reachable rather
+            than losing their edges to an image nobody can see. */}
+        <img
+          src={leftBookIcon}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="absolute bottom-0 left-1 h-[104px] sm:h-[118px] w-auto select-none pointer-events-none"
+        />
+        <img
+          src={rightBookIcon}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="absolute bottom-0 right-1 h-[104px] sm:h-[118px] w-auto select-none pointer-events-none"
+        />
       </div>
 
-      {/* The avatar straddles the band's lower edge. The ring is the page
-          background, not white, so it stays a cut-out in dark mode too.
+      {/* The page itself, rising over the band with a rounded top edge. It is
+          painted in the page colour rather than white so it stays a cut-out in
+          dark mode — and because it *is* the page: everything below simply
+          continues on it.
+
           `relative` is load-bearing: the band above is positioned, and without
           a stacking context of its own this column paints *under* it — which
-          hid the top half of the avatar. */}
-      <div className="relative flex flex-col items-center px-4">
-        <div className="-mt-[46px] rounded-full ring-4 ring-base">
+          hid the top half of the avatar, and would now hide the sheet as
+          well. */}
+      <div className="relative -mt-5 rounded-t-[28px] bg-base flex flex-col items-center px-4">
+        {/* The avatar straddles the sheet's edge. The ring is the page
+            background, not white, for the same reason the sheet is. */}
+        <div className="-mt-[48px] rounded-full ring-4 ring-base">
           <Avatar src={user?.photoURL} name={fullName} size={92} />
         </div>
 
@@ -68,8 +104,51 @@ export default function ProfileHeader({ user, showSettings = false, onBack, badg
 
         {user?.nickname ? <p className="text-ink-500 text-[14px]">@{user.nickname}</p> : null}
         {badge}
+
+        <FollowCounts user={user} />
+
+        {action ? <div className="w-full mt-3">{action}</div> : null}
       </div>
     </header>
+  );
+}
+
+/**
+ * "Жазылымдар 26 · Жазылушылар 3" — the two ends of the follow graph, under
+ * the name on every profile.
+ *
+ * Both numbers are read straight off the profile document: they are
+ * denormalised totals maintained by followUser/unfollowUser, so a profile
+ * screen shows them without a query of its own. An account created before
+ * follows existed carries neither field, which is what the `?? 0` is for — a
+ * blank where a counter should be reads as a bug, and zero is the truth.
+ *
+ * Each half opens the list behind it, on the same route for every profile
+ * including the reader's own: a followers list is the same list whoever is
+ * looking at it.
+ */
+function FollowCounts({ user }) {
+  if (!user?.id) return null;
+
+  return (
+    <div className="flex items-stretch mt-3 w-full max-w-[280px]">
+      <FollowCount to={`/users/${user.id}/following`} value={user.followingCount} label={t.followingLabel} />
+      {/* Hairline between the two, not around them — same as ProfileStatsRow. */}
+      <span className="w-px bg-ink-100 my-1 shrink-0" aria-hidden="true" />
+      <FollowCount to={`/users/${user.id}/followers`} value={user.followersCount} label={t.followersLabel} />
+    </div>
+  );
+}
+
+function FollowCount({ to, value, label }) {
+  return (
+    <Link
+      to={to}
+      className="flex-1 min-w-0 px-1 py-1 rounded-xl text-center transition active:scale-[0.97]"
+    >
+      <p className="text-[20px] font-bold leading-none tabular-nums">{value ?? 0}</p>
+      <p className="text-[12px] text-ink-500 mt-1.5 truncate">{label}</p>
+    </Link>
   );
 }
 

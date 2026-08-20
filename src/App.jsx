@@ -63,6 +63,8 @@ const LeaveCommunity     = lazyRoute(() => import("./pages/community/LeaveCommun
 // Step two of leaving: the code that brings one of the member's books home.
 const ReturnBook         = lazyRoute(() => import("./pages/community/ReturnBook.jsx"));
 const UserProfile        = lazyRoute(() => import("./pages/community/UserProfile.jsx"));
+// The two lists behind the follow counters — one screen, both directions.
+const FollowList         = lazyRoute(() => import("./pages/user/FollowList.jsx"));
 
 // Matches ProtectedRoute's loading state so a gated route doesn't visibly
 // swap between two different spinners while it resolves.
@@ -158,6 +160,11 @@ export default function App() {
             <Route path="/community/:id/leave" element={<LeaveCommunity />} />
             <Route path="/community/:id/leave/return/:bookId" element={<ReturnBook />} />
             <Route path="/users/:id" element={<UserProfile />} />
+            {/* Who follows this person, and who they follow. The same two
+                routes serve the reader's own profile — a followers list is the
+                same list whoever opened it. */}
+            <Route path="/users/:id/followers" element={<FollowList mode="followers" />} />
+            <Route path="/users/:id/following" element={<FollowList mode="following" />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

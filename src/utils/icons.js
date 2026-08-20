@@ -25,6 +25,16 @@ export const heartIcon         = "/drawable/heart.svg";
 /** Profile screen: the community-standing badge and the share-profile action. */
 export const cupIcon           = "/drawable/cup.svg";
 export const shareProfileIcon  = "/drawable/share_profile.svg";
+/**
+ * The two stacks of books either side of the avatar on a profile banner.
+ *
+ * A pair rather than one file drawn twice: they are not mirror images — the
+ * covers and the lean differ — because two identical piles flanking a face read
+ * as a rendering bug rather than as artwork. Swapping either file re-skins the
+ * banner with no code change, same as every other icon here.
+ */
+export const leftBookIcon      = "/drawable/left_book.svg";
+export const rightBookIcon     = "/drawable/right_book.svg";
 /** The app mark itself — a full-bleed tile, so it carries its own background. */
 export const logoIcon          = "/drawable/logo.svg";
 
@@ -92,6 +102,8 @@ export const ICONS = Object.freeze({
   heart:         heartIcon,
   cup:           cupIcon,
   shareProfile:  shareProfileIcon,
+  leftBook:      leftBookIcon,
+  rightBook:     rightBookIcon,
   logo:          logoIcon,
 });
 

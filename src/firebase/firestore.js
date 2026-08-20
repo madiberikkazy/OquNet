@@ -1,5 +1,5 @@
 // Firestore data layer with a transparent localStorage fallback.
-// Collections: users, communities, books, posts, notifications, requests, borrowings, ratings, reviews
+// Collections: users, follows, communities, books, posts, notifications, requests, borrowings, ratings, reviews
 
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
@@ -16,7 +16,7 @@ import {
   bookSearchFields,
   chatIdFor, chatMemberIds, chatPreviewOf, chatWatermark,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
-  normalizeNewChat, normalizeNewMessage,
+  normalizeNewChat, normalizeNewMessage, normalizeNewFollow, followIdFor,
   normalizeNewCommunity, normalizeCommunityPatch, normalizeNewPost, normalizePostPatch,
   normalizeJoinRequest, normalizeReturnRequest, newPickupCode,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
@@ -34,6 +34,9 @@ export { SchemaError } from "./schema.js";
 // A chat's id is a pure function of the two people in it, so the screens
 // compute it rather than looking it up — see the chats section below.
 export { chatIdFor, otherMemberId } from "./schema.js";
+// A follow's id is likewise a pure function of the two people in it, so a
+// screen asking "am I following them?" reads one known path — see Follows.
+export { followIdFor } from "./schema.js";
 // The tick beside a message is a pure function of the message and the two
 // watermarks on its chat — see the receipts note in schema.js.
 export { messageStatus, MESSAGE_STATUS, chatWatermark } from "./schema.js";
@@ -57,6 +60,7 @@ function emptyDb() {
   return {
     users: [], usernames: [], communities: [], books: [], posts: [],
     notifications: [], requests: [], borrowings: [], ratings: [], reviews: [],
+    follows: [],
     readingSessions: [], phoneVerifications: [],
   };
 }
@@ -524,6 +528,167 @@ export async function searchUsers(qStr, { pageSize = SEARCH_RESULT_MAX } = {}) {
     where: [["searchPrefixes", "array-contains", term]],
     pageSize,
   });
+}
+
+// ---------- Follows ----------
+//
+// The subscription graph: one document per "A follows B", at the id `A__B`.
+// Following is one-directional and not symmetric — B following back is a second
+// document — which is the one way this differs from a chat id.
+//
+// Every write here maintains two things that must not be able to disagree: the
+// edge itself, and the two denormalised counters (`followersCount` on the person
+// being followed, `followingCount` on the follower). The edge is the fact and is
+// always written first; the counters are a summary of it, kept because a profile
+// cannot count a collection it would have to page through to total. The security
+// rules lean on that ordering: a +1 on somebody else's `followersCount` is only
+// accepted while the matching follow document exists, and a −1 only once it is
+// gone, so a caller cannot move a stranger's counter without leaving the edge
+// behind that explains it.
+//
+// Both directions undo themselves on a refused counter write, so the pair is
+// never left half-applied — the same arrangement `togglePostLike` uses, and for
+// the same reason: the person who tapped saw one action, not three writes.
+
+/** How many rows a followers/following list returns. */
+export const FOLLOW_PAGE_MAX = 200;
+
+/** Is `followerId` following `followingId`? One get() at a known path. */
+export async function isFollowing(followerId, followingId) {
+  if (!followerId || !followingId || followerId === followingId) return false;
+  return Boolean(await getOne("follows", followIdFor(followerId, followingId)));
+}
+
+/** The people following `userId`, newest first. */
+export async function listFollowers(userId, { pageSize = FOLLOW_PAGE_MAX } = {}) {
+  if (!userId) return [];
+  return getCollection("follows", {
+    where: [["followingId", "==", userId]],
+    orderByField: "createdAt",
+    descending: true,
+    pageSize,
+  });
+}
+
+/** The people `userId` follows, newest first. */
+export async function listFollowing(userId, { pageSize = FOLLOW_PAGE_MAX } = {}) {
+  if (!userId) return [];
+  return getCollection("follows", {
+    where: [["followerId", "==", userId]],
+    orderByField: "createdAt",
+    descending: true,
+    pageSize,
+  });
+}
+
+/**
+ * Move one of a profile's follow counters by ±1.
+ *
+ * A delta rather than a computed total, so two people following the same person
+ * in the same second both count. The localStorage branch clamps at zero for the
+ * same reason the rules do: a negative follower count is not a number anybody
+ * should ever be shown.
+ */
+async function adjustFollowCount(userId, field, delta) {
+  if (!userId) throw new Error("adjustFollowCount: missing userId");
+  if (delta === 0) return;
+  return runFs(`adjustFollowCount.${field}`, async () => {
+    if (isFirebaseConfigured) {
+      await updateDoc(doc(db, "users", userId), { [field]: increment(delta) });
+      return;
+    }
+    const data = readLS();
+    const idx = (data.users || []).findIndex((r) => r.id === userId);
+    if (idx < 0) throw new Error(`adjustFollowCount: no user ${userId}`);
+    const stored = Number.isInteger(data.users[idx][field]) ? data.users[idx][field] : 0;
+    data.users[idx] = { ...data.users[idx], [field]: Math.max(0, stored + delta) };
+    writeLS(data);
+  });
+}
+
+/** A counter that has nothing left to subtract — an old profile, or a lost write. */
+async function canDecrement(userId, field) {
+  const person = await getOne("users", userId).catch(() => null);
+  return Number.isInteger(person?.[field]) && person[field] > 0;
+}
+
+/**
+ * Follow somebody.
+ *
+ * Idempotent: following a person you already follow is a no-op that reports
+ * `changed: false`, not a second edge and not a second +1. That matters more
+ * than it sounds — the button is one tap away from being double-tapped, and the
+ * counter is the part a duplicate would corrupt permanently.
+ *
+ * @returns `{ following: true, changed }` — `changed` is false when the edge was
+ *   already there, which is how a caller knows whether to notify anybody.
+ */
+export async function followUser({ followerId, followingId } = {}) {
+  const id = followIdFor(followerId, followingId);
+  if (await getOne("follows", id)) return { following: true, changed: false };
+
+  await createOne("follows", normalizeNewFollow({ followerId, followingId }));
+
+  try {
+    await adjustFollowCount(followingId, "followersCount", 1);
+  } catch (err) {
+    // The edge is what the rules read to allow the +1, so it cannot be left
+    // behind a counter that never moved: the next unfollow would then subtract
+    // from a total this follow never added to.
+    await deleteOne("follows", id).catch((undoErr) => {
+      logger.error("firestore.followUser.undo", undoErr?.message, { followerId, followingId });
+    });
+    throw err;
+  }
+
+  try {
+    await adjustFollowCount(followerId, "followingCount", 1);
+  } catch (err) {
+    await Promise.all([
+      adjustFollowCount(followingId, "followersCount", -1),
+      deleteOne("follows", id),
+    ].map((p) => p.catch((undoErr) => {
+      logger.error("firestore.followUser.undo", undoErr?.message, { followerId, followingId });
+    })));
+    throw err;
+  }
+
+  return { following: true, changed: true };
+}
+
+/**
+ * Stop following somebody. The mirror of `followUser`, in the mirror order: the
+ * edge goes first here too, because that is the state the rules require before
+ * they will accept a −1.
+ */
+export async function unfollowUser({ followerId, followingId } = {}) {
+  const id = followIdFor(followerId, followingId);
+  if (!(await getOne("follows", id))) return { following: false, changed: false };
+
+  // Read both counters before the edge goes, while there is still something to
+  // check against: an account that predates follows carries neither field, and
+  // asking the rules to take one below zero is a denied write, not a smaller
+  // number. Same guard `togglePostLike` puts in front of an unlike.
+  const [followersMovable, followingMovable] = await Promise.all([
+    canDecrement(followingId, "followersCount"),
+    canDecrement(followerId, "followingCount"),
+  ]);
+
+  await deleteOne("follows", id);
+
+  try {
+    if (followersMovable) await adjustFollowCount(followingId, "followersCount", -1);
+    if (followingMovable) await adjustFollowCount(followerId, "followingCount", -1);
+  } catch (err) {
+    // Put the edge back rather than leave a profile that says it is not
+    // following somebody whose counter still says otherwise.
+    await createOne("follows", normalizeNewFollow({ followerId, followingId })).catch((undoErr) => {
+      logger.error("firestore.unfollowUser.undo", undoErr?.message, { followerId, followingId });
+    });
+    throw err;
+  }
+
+  return { following: false, changed: true };
 }
 
 // ---------- Communities ----------

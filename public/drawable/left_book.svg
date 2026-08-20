@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 150" fill="none" role="img">
+  <!-- A leaning stack of books, drawn to stand on the baseline (y = 150) and to
+       be read against the brand-blue profile banner: warm covers, one dark
+       outline weight throughout, no background of its own. Mirrored by
+       right_book.svg, which is the same pile in a different order. -->
+  <g stroke="#16233D" stroke-width="3" stroke-linejoin="round">
+    <!-- bottom -->
+    <g transform="translate(6 122)">
+      <rect x="0" y="0" width="120" height="24" rx="5" fill="#F3F6FB"/>
+      <rect x="9" y="5" width="102" height="14" rx="3" fill="#FFFFFF" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(12 100) rotate(-1.5)">
+      <rect x="0" y="0" width="108" height="22" rx="5" fill="#5FA8E8"/>
+      <rect x="8" y="5" width="92" height="12" rx="3" fill="#EAF4FE" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(4 79) rotate(1.5)">
+      <rect x="0" y="0" width="114" height="21" rx="5" fill="#F2A83E"/>
+      <rect x="8" y="5" width="98" height="11" rx="3" fill="#FFF2DC" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(16 58)">
+      <rect x="0" y="0" width="98" height="21" rx="5" fill="#F3F6FB"/>
+      <rect x="8" y="5" width="82" height="11" rx="3" fill="#FFFFFF" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(10 37) rotate(-2)">
+      <rect x="0" y="0" width="102" height="21" rx="5" fill="#6FCF9B"/>
+      <rect x="8" y="5" width="86" height="11" rx="3" fill="#E9FAF0" stroke-width="2.4"/>
+    </g>
+    <g transform="translate(22 17) rotate(2)">
+      <rect x="0" y="0" width="86" height="20" rx="5" fill="#EE7B72"/>
+      <rect x="7" y="5" width="72" height="10" rx="3" fill="#FDECEA" stroke-width="2.4"/>
+    </g>
+  </g>
+</svg>

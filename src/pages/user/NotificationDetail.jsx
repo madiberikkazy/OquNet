@@ -417,6 +417,20 @@ export default function NotificationDetail() {
           </button>
         ) : null}
 
+        {/* ── A new follower ──
+            The message says who; this is the way to go and look at them. The
+            sender is on the notification because the rules only accept a
+            `senderId` that is the caller's own id, which makes it the one field
+            here that can be trusted to name a real person. */}
+        {notification.type === "follow" && notification.senderId ? (
+          <button
+            onClick={() => navigate(`/users/${notification.senderId}`)}
+            className="btn-primary"
+          >
+            {t.openProfile}
+          </button>
+        ) : null}
+
         {/* ── Join / leave request: the admin's decision ── */}
         {decidable ? (
           <div className="space-y-3">

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import BookCard from "../../components/BookCard.jsx";
 import CurrentBookCard from "../../components/CurrentBookCard.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
+import FollowButton from "../../components/FollowButton.jsx";
 import MessageButton from "../../components/MessageButton.jsx";
 import ProfileHeader, { CommunityRankChip } from "../../components/ProfileHeader.jsx";
 import ProfileStatsRow, { MEMBER_STATS } from "../../components/ProfileStatsRow.jsx";
@@ -45,6 +46,7 @@ export default function UserProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user: viewer } = useAuth();
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState("owned");
 
   const memberQuery = useQuery({
@@ -116,6 +118,23 @@ export default function UserProfile() {
     queryFn: () => getBook(activeBorrowing.bookId),
   });
 
+  /**
+   * Move the follower count on screen by the same delta the data layer just
+   * wrote to the profile document.
+   *
+   * A patch of the cached profile rather than an invalidate: this key holds
+   * five parallel queries' worth of shelves, and refetching all of them to
+   * change one integer would make the number arrive late — after the button had
+   * already flipped — which is exactly the disagreement it is meant to avoid.
+   */
+  function bumpFollowers(delta) {
+    queryClient.setQueryData(qk.profile.member(id, viewer?.communityId), (prev) => (
+      prev?.user
+        ? { ...prev, user: { ...prev.user, followersCount: Math.max(0, (prev.user.followersCount ?? 0) + delta) } }
+        : prev
+    ));
+  }
+
   if (memberQuery.isLoading) {
     return <MobileShell><p className="px-6 py-12 text-center text-ink-500">{t.loading}</p></MobileShell>;
   }
@@ -146,6 +165,16 @@ export default function UserProfile() {
           member.role === "admin"
             ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span>
             : null
+        }
+        // Following is the one thing you can do to a profile from anywhere —
+        // it needs no shared community, no book and no conversation — so it
+        // sits in the header with the identity it acts on, directly under the
+        // counter it moves.
+        action={
+          <FollowButton
+            userId={member.id}
+            onChange={({ delta }) => bumpFollowers(delta)}
+          />
         }
       />
 

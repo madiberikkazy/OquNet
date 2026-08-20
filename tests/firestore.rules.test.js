@@ -2204,6 +2204,147 @@ describe("chats", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The follow graph. Two rules working together: the edge, whose id says who
+// wrote it, and the follower counter on somebody else's profile, which is only
+// movable while the matching edge agrees with the direction of the move. The
+// second one is the interesting half — it is the only field on a stranger's
+// profile any caller may touch.
+describe("follows", () => {
+  const edge = (a, b) => `${a}__${b}`;
+
+  /** The document the app writes, minus whatever the test is about to break. */
+  const payload = (a, b, over = {}) => ({
+    id: edge(a, b), followerId: a, followingId: b, createdAt: serverTimestamp(), ...over,
+  });
+
+  it("a member may follow anybody, in or out of their community", async () => {
+    await assertSucceeds(setDoc(doc(as(MEMBER_A), "follows", edge(MEMBER_A, MEMBER_B)),
+      payload(MEMBER_A, MEMBER_B)));
+  });
+
+  it("and may stop", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "follows", edge(MEMBER_A, MEMBER_B)), {
+        id: edge(MEMBER_A, MEMBER_B), followerId: MEMBER_A, followingId: MEMBER_B,
+        createdAt: Date.now(),
+      });
+    });
+    await assertSucceeds(deleteDoc(doc(as(MEMBER_A), "follows", edge(MEMBER_A, MEMBER_B))));
+    // …but only their own edge.
+    await assertFails(deleteDoc(doc(as(MEMBER_B), "follows", edge(MEMBER_A, MEMBER_B))));
+  });
+
+  it("nobody may write an edge in somebody else's name", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_B), "follows", edge(MEMBER_A, MEMBER_B)),
+      payload(MEMBER_A, MEMBER_B)));
+  });
+
+  it("the document must agree with the id it is stored at", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "follows", edge(MEMBER_A, MEMBER_B)),
+      payload(MEMBER_A, MEMBER_B, { followingId: DRIFTER })));
+    await assertFails(setDoc(doc(as(MEMBER_A), "follows", edge(MEMBER_A, MEMBER_B)),
+      payload(MEMBER_A, MEMBER_B, { id: "something-else" })));
+  });
+
+  it("nobody follows themselves", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "follows", edge(MEMBER_A, MEMBER_A)),
+      payload(MEMBER_A, MEMBER_A)));
+  });
+
+  it("an edge may not carry anything else along, or a forged timestamp", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "follows", edge(MEMBER_A, MEMBER_B)),
+      payload(MEMBER_A, MEMBER_B, { note: "smuggled" })));
+    await assertFails(setDoc(doc(as(MEMBER_A), "follows", edge(MEMBER_A, MEMBER_B)),
+      payload(MEMBER_A, MEMBER_B, { createdAt: Date.now() })));
+  });
+
+  it("an edge is never edited — only made and unmade", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "follows", edge(MEMBER_A, MEMBER_B)), {
+        id: edge(MEMBER_A, MEMBER_B), followerId: MEMBER_A, followingId: MEMBER_B,
+        createdAt: Date.now(),
+      });
+    });
+    await assertFails(updateDoc(doc(as(MEMBER_A), "follows", edge(MEMBER_A, MEMBER_B)),
+      { followingId: DRIFTER }));
+  });
+
+  describe("the counter on the followed profile", () => {
+    /** Put the edge in place, as followUser does before it touches the counter. */
+    async function withEdge() {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), "follows", edge(MEMBER_A, MEMBER_B)), {
+          id: edge(MEMBER_A, MEMBER_B), followerId: MEMBER_A, followingId: MEMBER_B,
+          createdAt: Date.now(),
+        });
+      });
+    }
+
+    it("moves by one while the edge exists", async () => {
+      await withEdge();
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A), "users", MEMBER_B), {
+        followersCount: increment(1),
+      }));
+    });
+
+    it("but not without one — a counter nobody followed for", async () => {
+      await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_B), {
+        followersCount: increment(1),
+      }));
+    });
+
+    it("comes back down only once the edge is gone", async () => {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), "users", MEMBER_B), { followersCount: 3 }, { merge: true });
+      });
+      await withEdge();
+      // Still following: the −1 is the write the app makes *after* deleting the
+      // edge, and doing it in the other order is what this refuses.
+      await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_B), {
+        followersCount: increment(-1),
+      }));
+
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await deleteDoc(doc(ctx.firestore(), "follows", edge(MEMBER_A, MEMBER_B)));
+      });
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A), "users", MEMBER_B), {
+        followersCount: increment(-1),
+      }));
+    });
+
+    it("never goes below zero", async () => {
+      // MEMBER_B starts with no counter at all, and no edge — so this is the
+      // rule refusing the arithmetic, not refusing the caller.
+      await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_B), {
+        followersCount: increment(-1),
+      }));
+    });
+
+    it("takes nothing else with it", async () => {
+      await withEdge();
+      await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_B), {
+        followersCount: increment(1), address: "somewhere else",
+      }));
+      await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_B), {
+        followersCount: increment(1), role: "admin",
+      }));
+    });
+
+    it("a bigger jump is refused however the edge looks", async () => {
+      await withEdge();
+      await assertFails(updateDoc(doc(as(MEMBER_A), "users", MEMBER_B), {
+        followersCount: increment(50),
+      }));
+    });
+
+    it("the reader's own followingCount is an ordinary self-write", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A), "users", MEMBER_A), {
+        followingCount: increment(1),
+      }));
+    });
+  });
+});
+
 describe("collections with no rule at all", () => {
   it("are unreachable", async () => {
     await assertFails(getDoc(doc(as(ADMIN_A), "reviews", "anything")));

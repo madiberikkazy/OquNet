@@ -324,6 +324,25 @@ const kz = {
   statHeld: "Қазір бар",
   // Fourth counter, member profiles only — how many books belong to them.
   statOwned: "Кітаптары",
+
+  // ── Following ───────────────────────────────────────────────────────────────
+  // The two counters under the name on every profile, and the button that moves
+  // them. `follow`/`following` are the two states of one button: the second is
+  // what it says once you are subscribed, and what tapping it undoes.
+  follow: "Жазылу",
+  following: "Жазылғансыз",
+  unfollow: "Жазылымнан шығу",
+  followersLabel: "Жазылушылар",
+  followingLabel: "Жазылымдар",
+  followersTitle: "Жазылушылар",
+  followingTitle: "Жазылымдар",
+  noFollowers: "Әзірге жазылушы жоқ",
+  noFollowing: "Әзірге ешкімге жазылмаған",
+  followFailed: "Жазылу сәтсіз аяқталды. Қайталап көріңіз.",
+  followSelfError: "Өзіңізге жазыла алмайсыз",
+  followNotifTitle: "Жаңа жазылушы",
+  followNotifBody: (name) => `${name} сізге жазылды`,
+  openProfile: "Профильді ашу",
   // The empty reading card on somebody else's profile. The reader's own says
   // "open the library and borrow one"; that is an instruction, and an
   // instruction addressed to a person who is not looking at the screen.
@@ -982,6 +1001,22 @@ const ru = {
   statCompleted: "Завершено",
   statHeld: "Сейчас есть",
   statOwned: "Книги",
+
+  // Following
+  follow: "Подписаться",
+  following: "Вы подписаны",
+  unfollow: "Отписаться",
+  followersLabel: "Подписчики",
+  followingLabel: "Подписки",
+  followersTitle: "Подписчики",
+  followingTitle: "Подписки",
+  noFollowers: "Пока нет подписчиков",
+  noFollowing: "Пока ни на кого не подписан",
+  followFailed: "Не удалось подписаться. Попробуйте ещё раз.",
+  followSelfError: "Нельзя подписаться на себя",
+  followNotifTitle: "Новый подписчик",
+  followNotifBody: (name) => `${name} подписался на вас`,
+  openProfile: "Открыть профиль",
   memberNoReadingBook: "Сейчас ничего не читает",
   placeShort: "место",
   hoursShort: "ч",
@@ -1638,6 +1673,22 @@ const en = {
   statCompleted: "Finished",
   statHeld: "In hand",
   statOwned: "Owns",
+
+  // Following
+  follow: "Follow",
+  following: "Following",
+  unfollow: "Unfollow",
+  followersLabel: "Followers",
+  followingLabel: "Following",
+  followersTitle: "Followers",
+  followingTitle: "Following",
+  noFollowers: "No followers yet",
+  noFollowing: "Not following anyone yet",
+  followFailed: "Could not follow. Please try again.",
+  followSelfError: "You cannot follow yourself",
+  followNotifTitle: "New follower",
+  followNotifBody: (name) => `${name} started following you`,
+  openProfile: "Open profile",
   memberNoReadingBook: "Not reading anything right now",
   placeShort: "place",
   hoursShort: "h",

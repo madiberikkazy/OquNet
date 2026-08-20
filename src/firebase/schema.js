@@ -136,6 +136,11 @@ export const userSchema = Object.freeze({
     // with a phone — see firebase/phoneVerify.js and server/server.js.
     phoneVerifiedAt: null,
     photoURL: "", notificationsEnabled: true, savedBookIds: [],
+    // Denormalised totals for the follow graph — see the follows section below.
+    // A profile born with both at zero is what lets every screen read a number
+    // rather than testing for one; accounts created before follows existed have
+    // neither field, which is why every reader of them defaults to 0.
+    followersCount: 0, followingCount: 0,
   }),
   immutable: Object.freeze(["email", "createdAt"]),
   serverOwned: SERVER_OWNED_FIELDS,
@@ -1048,6 +1053,73 @@ export function normalizeNewNotification(payload) {
     body: clampText(body, LIMITS.DESCRIPTION_MAX),
     read: false,
   }, notificationSchema.required);
+}
+
+// ---------- follows ----------
+//
+// One document per "A follows B", at the deterministic id `A__B`. The id is the
+// fact, and everything else falls out of it:
+//
+//   · Following twice is an overwrite rather than a second edge, so a
+//     double-tap cannot inflate anybody's counter.
+//   · "Am I following this person?" is a single get() at a known path, not a
+//     query — which is what makes the button on a profile cost one read.
+//   · The security rules can check ownership from the path alone: a caller may
+//     only write `$(uid())__$(someoneElse)`, so an edge naming somebody else as
+//     the follower is refused before the document is even looked at.
+//
+// The two counters (`followersCount`, `followingCount` on the user documents)
+// are denormalised totals kept beside this collection, for the same reason
+// `likeCount` sits on a post: a profile cannot count documents it is not
+// allowed to page through. This collection is the fact; the counters are a
+// summary that follows it.
+
+/** Joins the two uids in a follow id. Shares the chat separator on purpose. */
+export const FOLLOW_ID_SEPARATOR = CHAT_ID_SEPARATOR;
+
+export const followSchema = Object.freeze({
+  collection: "follows",
+  required: Object.freeze(["id", "followerId", "followingId"]),
+  defaults: Object.freeze({}),
+  serverOwned: SERVER_OWNED_FIELDS,
+});
+
+/**
+ * The id of the edge "follower follows following".
+ *
+ * Ordered, unlike `chatIdFor`: following is not symmetric, and A__B and B__A
+ * are two different facts that must be able to coexist.
+ */
+export function followIdFor(followerId, followingId) {
+  const follower = requiredId("follows", "followerId", followerId);
+  const following = requiredId("follows", "followingId", followingId);
+
+  if (follower === following) {
+    throw new SchemaError("follows: nobody follows themselves", {
+      collection: "follows", field: "followingId", errorKey: "followSelfError",
+    });
+  }
+  if (follower.includes(FOLLOW_ID_SEPARATOR) || following.includes(FOLLOW_ID_SEPARATOR)) {
+    throw new SchemaError(`follows: a user id may not contain "${FOLLOW_ID_SEPARATOR}"`, {
+      collection: "follows", field: "followerId",
+    });
+  }
+
+  return `${follower}${FOLLOW_ID_SEPARATOR}${following}`;
+}
+
+export function normalizeNewFollow(payload) {
+  requirePayload("follows", payload);
+  const followerId = requiredId("follows", "followerId", payload.followerId);
+  const followingId = requiredId("follows", "followingId", payload.followingId);
+
+  return assertRequired("follows", {
+    // Written into the document as well as used as the path, so a row read out
+    // of a list query knows its own id in the localStorage branch too.
+    id: followIdFor(followerId, followingId),
+    followerId,
+    followingId,
+  }, followSchema.required);
 }
 
 // ---------- borrowings ----------

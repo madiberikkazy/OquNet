@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
@@ -22,9 +22,22 @@ import { t } from "../../utils/i18n.js";
 const DEFAULT_STATS = { saved: 0, completed: 0, held: 0 };
 
 export default function Profile() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, refresh } = useAuth();
   const { community } = useCommunity();
   const navigate = useNavigate();
+
+  // Re-read the profile whenever this screen is opened.
+  //
+  // `followersCount` is the one number here that other people move: somebody
+  // following you changes your profile document, and nothing tells this app
+  // about it. The signed-in profile is otherwise loaded once, at sign-in, so
+  // without this the counter under your own name could sit at zero for as long
+  // as the app stays open. One document read per visit to your own profile.
+  //
+  // Deliberately empty deps: `refresh` is rebuilt on every user change, so
+  // depending on it would make this loop forever.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { refresh(); }, []);
 
   // Three parallel fetches that then combine — allSettled keeps wall time to the
   // slowest request, and keeps one failing fetch from zeroing the counters that

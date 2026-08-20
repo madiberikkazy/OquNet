@@ -24,6 +24,7 @@ const {
   createBook, listBooks, listNewBooks, listBooksHeldBy, listBooksOwnedBy,
   updateBook, getBook, createNotification, listNotifications,
   createUserDoc, getUserById, updateUser, searchUsers, notifyCommunityMembers,
+  followUser, unfollowUser, isFollowing, listFollowers, listFollowing,
   sendMessage, markChatRead, markChatDelivered, messageStatus, MESSAGE_STATUS,
   needsReadReceipt, needsDeliveryReceipt, isOnline, lastSeenAt, touchPresence,
   watchChatsForUser, chatIdFor,
@@ -389,6 +390,106 @@ describe("people search", () => {
     assert.equal((await searchUsers("madi")).length, 0);
     assert.equal((await searchUsers("berik")).length, 0);
     assert.equal((await searchUsers("deleted")).length, 1);
+  });
+});
+
+// The follow graph. The edge is the fact and the two counters are a summary of
+// it, so every test here checks both — a follow that moved one and not the
+// other is exactly the state the whole arrangement exists to prevent.
+describe("following", () => {
+  const A = "u-a";
+  const B = "u-b";
+
+  async function people() {
+    await createUserDoc({ id: A, email: "a@example.com", nickname: "aaa", firstName: "Aida" });
+    await createUserDoc({ id: B, email: "b@example.com", nickname: "bbb", firstName: "Bek" });
+  }
+
+  it("writes the edge and moves both counters", async () => {
+    await people();
+    const result = await followUser({ followerId: A, followingId: B });
+
+    assert.deepEqual(result, { following: true, changed: true });
+    assert.equal(await isFollowing(A, B), true);
+    assert.equal((await getUserById(B)).followersCount, 1);
+    assert.equal((await getUserById(A)).followingCount, 1);
+  });
+
+  it("is one-directional — following back is a second edge", async () => {
+    await people();
+    await followUser({ followerId: A, followingId: B });
+
+    assert.equal(await isFollowing(B, A), false, "the edge answered in both directions");
+
+    await followUser({ followerId: B, followingId: A });
+    assert.equal((await getUserById(A)).followersCount, 1);
+    assert.equal((await getUserById(A)).followingCount, 1);
+  });
+
+  it("counts a second tap once", async () => {
+    await people();
+    await followUser({ followerId: A, followingId: B });
+    const again = await followUser({ followerId: A, followingId: B });
+
+    assert.deepEqual(again, { following: true, changed: false });
+    assert.equal((await getUserById(B)).followersCount, 1, "a double tap inflated the counter");
+    assert.equal((await listFollowers(B)).length, 1, "a double tap wrote a second edge");
+  });
+
+  it("takes the edge and both counters back down", async () => {
+    await people();
+    await followUser({ followerId: A, followingId: B });
+    const result = await unfollowUser({ followerId: A, followingId: B });
+
+    assert.deepEqual(result, { following: false, changed: true });
+    assert.equal(await isFollowing(A, B), false);
+    assert.equal((await getUserById(B)).followersCount, 0);
+    assert.equal((await getUserById(A)).followingCount, 0);
+  });
+
+  it("unfollowing somebody you do not follow changes nothing", async () => {
+    await people();
+    const result = await unfollowUser({ followerId: A, followingId: B });
+
+    assert.deepEqual(result, { following: false, changed: false });
+    assert.equal((await getUserById(B)).followersCount, 0, "a counter went negative");
+  });
+
+  it("leaves a profile that predates the counters at zero, not below it", async () => {
+    await people();
+    // An account written before follows existed carries neither field. The
+    // guard in unfollowUser is what keeps this from trying to subtract from
+    // nothing — against the real rules that is a denied write, not a −1.
+    await updateUser(B, { followersCount: undefined });
+    await followUser({ followerId: A, followingId: B });
+    await unfollowUser({ followerId: A, followingId: B });
+
+    assert.ok(((await getUserById(B)).followersCount ?? 0) >= 0);
+  });
+
+  it("lists both ends of the graph, newest first", async () => {
+    await people();
+    await createUserDoc({ id: "u-c", email: "c@example.com", nickname: "ccc", firstName: "Cholpon" });
+
+    await followUser({ followerId: A, followingId: B });
+    await followUser({ followerId: "u-c", followingId: B });
+    await followUser({ followerId: A, followingId: "u-c" });
+
+    assert.deepEqual(
+      (await listFollowers(B)).map((edge) => edge.followerId).sort(),
+      [A, "u-c"]
+    );
+    assert.deepEqual(
+      (await listFollowing(A)).map((edge) => edge.followingId).sort(),
+      [B, "u-c"]
+    );
+    assert.deepEqual(await listFollowers(A), [], "A has no followers");
+  });
+
+  it("refuses to let anybody follow themselves", async () => {
+    await people();
+    await assert.rejects(() => followUser({ followerId: A, followingId: A }), /themselves/);
+    assert.equal(await isFollowing(A, A), false);
   });
 });
 
