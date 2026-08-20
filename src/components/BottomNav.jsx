@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { useLang } from "../contexts/LanguageContext.jsx";
 import { useChats } from "../contexts/ChatContext.jsx";
+import { useNotifications } from "../contexts/NotificationContext.jsx";
 import { navIconSrc } from "../utils/icons.js";
 import { t } from "../utils/i18n.js";
 
@@ -17,15 +18,20 @@ import { t } from "../utils/i18n.js";
  */
 export default function BottomNav() {
   useLang(); // subscribe to language changes so labels re-render
-  // Unread *messages*, not notifications. The bell moved to the Home header and
-  // took its badge with it — see Home.jsx — because the tab it used to live in
-  // is the conversations tab now.
   const { unreadTotal } = useChats();
+  // Notifications are counted here as well as on Home, and that is the point.
+  // The bell lives in the Home header, so it says nothing at all while you are
+  // on Books or in a chat — which is exactly when something arriving needs to
+  // be visible. The tab bar is on every screen, so the count goes there too and
+  // Home is the tab that carries it, because Home is where the bell is.
+  const { unreadCount } = useNotifications();
 
+  // One `count` per tab rather than a boolean and a single shared total: two
+  // tabs carry a badge now, and they are counting different things.
   const items = [
-    { to: "/", icon: "home", label: t.navHome },
+    { to: "/", icon: "home", label: t.navHome, count: unreadCount },
     { to: "/books", icon: "books", label: t.navBooks },
-    { to: "/chats", icon: "chats", label: t.navChats, badge: true },
+    { to: "/chats", icon: "chats", label: t.navChats, count: unreadTotal },
     { to: "/profile", icon: "profile", label: t.navProfile },
   ];
 
@@ -45,6 +51,12 @@ export default function BottomNav() {
             <NavLink
               to={it.to}
               end={it.to === "/"}
+              // "Home (3)" rather than the "Home 3" that the badge's bare
+              // number would otherwise be read as — the same shape LikeButton
+              // uses for a count beside a label. The truncated "9+" is
+              // deliberately not what is announced: the real number is useful
+              // to somebody who cannot see how big the dot is.
+              aria-label={it.count > 0 ? `${it.label} (${it.count})` : undefined}
               className={({ isActive }) =>
                 "flex flex-col items-center gap-1 py-1.5 text-[11px] font-medium transition-colors duration-150 " +
                 (isActive ? "text-brand-500" : "text-ink-500")
@@ -63,9 +75,9 @@ export default function BottomNav() {
                       className="shrink-0 select-none"
                       draggable={false}
                     />
-                    {it.badge && unreadTotal > 0 ? (
+                    {it.count > 0 ? (
                       <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                        {unreadTotal > 9 ? "9+" : unreadTotal}
+                        {it.count > 9 ? "9+" : it.count}
                       </span>
                     ) : null}
                   </span>
