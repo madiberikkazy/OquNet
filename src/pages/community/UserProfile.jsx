@@ -52,7 +52,12 @@ export default function UserProfile() {
   const memberQuery = useQuery({
     queryKey: qk.profile.member(id, viewer?.communityId),
     enabled: !!id,
-    staleTime: 30_000,
+    // Show whatever was cached at once, then correct it. The app's default is
+    // not to refetch on mount at all, and the cache outlives the session in
+    // IndexedDB — which is fine for shelves and wrong for the follower count,
+    // a number other people move while this reader is not looking.
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: async () => {
       const user = await getUserById(id);
       if (!user) return null;

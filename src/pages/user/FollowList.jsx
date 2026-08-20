@@ -33,10 +33,19 @@ export default function FollowList({ mode = "followers" }) {
 
   // The edges. `createdAt` orders them, so the most recent follow is the first
   // row — the one somebody opening this screen came to see.
+  //
+  // Re-asked on every mount, and never treated as fresh. Both of the app's
+  // global defaults are wrong for this screen: `refetchOnMount: false` plus a
+  // cache persisted to IndexedDB for a day means a list that once came back
+  // empty — or once failed — keeps drawing that answer for the rest of the
+  // session, no matter what has happened since. This screen exists to answer
+  // "who follows me *now*", and somebody opening it has usually just been told
+  // that changed.
   const edgesQuery = useQuery({
     queryKey: followers ? qk.follows.followers(id) : qk.follows.following(id),
     enabled: !!id,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: () => (followers ? listFollowers(id) : listFollowing(id)),
   });
 
@@ -64,7 +73,8 @@ export default function FollowList({ mode = "followers" }) {
   const viewerFollowingQuery = useQuery({
     queryKey: qk.follows.following(user?.id),
     enabled: !!user?.id,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: () => listFollowing(user.id),
   });
 
@@ -72,6 +82,8 @@ export default function FollowList({ mode = "followers" }) {
     () => new Set((viewerFollowingQuery.data ?? []).map((edge) => edge.followingId)),
     [viewerFollowingQuery.data]
   );
+
+  const viewerListSettled = viewerFollowingQuery.isSuccess || viewerFollowingQuery.isError;
 
   const people = peopleQuery.data ?? {};
   const loading = edgesQuery.isLoading || (ids.length > 0 && peopleQuery.isLoading);
@@ -101,6 +113,21 @@ export default function FollowList({ mode = "followers" }) {
             </li>
           ))}
         </ul>
+      ) : edgesQuery.isError ? (
+        // Not the same thing as an empty list, and it used to draw as one: a
+        // refused read, a missing index or a dropped connection all left this
+        // screen calmly reporting that nobody follows you. Say what happened,
+        // and offer the one thing that might fix it.
+        <div className="px-6 py-12 text-center">
+          <p className="text-ink-500 text-[14px]">{t.loadFailed}</p>
+          <button
+            type="button"
+            onClick={() => edgesQuery.refetch()}
+            className="mt-3 pill bg-tint text-tintInk px-4 py-2"
+          >
+            {t.tryAgain}
+          </button>
+        </div>
       ) : ids.length === 0 ? (
         <p className="px-6 py-12 text-center text-ink-500 text-[14px]">
           {followers ? t.noFollowers : t.noFollowing}
@@ -125,12 +152,17 @@ export default function FollowList({ mode = "followers" }) {
                 </Link>
                 {/* No button until the viewer's own list has answered: drawn
                     from nothing it would say "follow" to people they already
-                    follow, and a wrong label is worse than a late one. The row
-                    still opens the profile, where the button also lives. */}
-                {person && person.id !== user?.id && viewerFollowingQuery.isSuccess ? (
+                    follow, and a wrong label is worse than a late one.
+
+                    An answer that failed still counts as one — the button is
+                    handed no `knownFollowing` in that case and falls back to
+                    asking about itself, rather than never appearing at all. */}
+                {person && person.id !== user?.id && viewerListSettled ? (
                   <FollowButton
                     userId={person.id}
-                    knownFollowing={viewerFollows.has(person.id)}
+                    knownFollowing={
+                      viewerFollowingQuery.isSuccess ? viewerFollows.has(person.id) : undefined
+                    }
                     compact
                     className="w-[116px] shrink-0"
                   />

@@ -54,7 +54,12 @@ export default function FollowButton({
   const edgeQuery = useQuery({
     queryKey: qk.follows.edge(viewerId, userId),
     enabled: !selfProfile && knownFollowing === undefined,
-    staleTime: 30_000,
+    // Asked again every time the button appears. The app's default is to trust
+    // the cache on mount, and that cache survives in IndexedDB for a day — long
+    // enough for this button to open saying "follow" about somebody the reader
+    // followed from another device yesterday.
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: () => isFollowing(viewerId, userId),
   });
 
@@ -67,7 +72,19 @@ export default function FollowButton({
   // result of a write this button made, and the list it came from may not have
   // caught up yet.
   const following = optimistic ?? knownFollowing ?? edgeQuery.data ?? false;
-  const known = optimistic !== null || knownFollowing !== undefined || edgeQuery.isSuccess;
+
+  // What the button waits for is an *answer*, not a successful one. A refused
+  // or failed read used to leave it disabled forever — which is exactly what a
+  // database whose follow rules have not been deployed yet looks like from
+  // here, and it made the whole feature appear broken rather than
+  // unauthorised. Reading whether you follow somebody and being allowed to
+  // follow them are two different permissions; only the second one decides
+  // whether the tap can work, and the only way to find that out is to let the
+  // tap happen and report what comes back.
+  const known = optimistic !== null
+    || knownFollowing !== undefined
+    || edgeQuery.isSuccess
+    || edgeQuery.isError;
 
   async function toggle() {
     if (pending || !known) return;

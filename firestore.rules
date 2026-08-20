@@ -777,24 +777,46 @@ service cloud.firestore {
         && (resource.data.isPublic == true
             || resource.data.communityId == myCommunity());
 
-      // A post is its text. `title` used to be the required field and is kept
-      // only because posts written under that rule still carry one — nothing
-      // creates it any more, and the screen that writes posts asks for one
-      // thing, which is what a noticeboard entry actually is.
-      allow create: if isAdminOf(request.resource.data.communityId)
+      // A post is its text, and now anybody in the community may write one.
+      // It used to be an admin-only noticeboard; it is a members' feed, so the
+      // check is membership rather than rank, and the author has to be the
+      // caller — a member may post as themselves and as nobody else.
+      //
+      // `isPublic` is the one field a member cannot be trusted to choose. It
+      // decides whether the post joins the global discovery feed on Home, so a
+      // member of a private community could otherwise publish their community's
+      // notices to everybody by sending `true`. It has to equal what the
+      // community itself says, which costs one get() — paid on post *creation*
+      // only, which is rare, and never on the reads that render a feed.
+      //
+      // `title` is not asked for anywhere any more; it stays legal because posts
+      // written when it was required still carry one.
+      allow create: if signedIn()
+        && isMemberOf(request.resource.data.communityId)
         && request.resource.data.authorId == uid()
         && request.resource.data.isPublic is bool
+        && request.resource.data.isPublic == !communityOf(request.resource.data.communityId).get('isPrivate', false)
         && request.resource.data.body is string
         && request.resource.data.body.size() > 0;
 
       allow update: if postAuthorEdit() || postVisibilitySync() || postLikeRollup();
 
-      // Only the author takes their own notice down. A community admin is the
-      // author of everything they posted, so this is not narrower in practice —
-      // it is narrower in what it permits: no admin reaching into a post
-      // somebody else wrote, including a predecessor's.
-      allow delete: if isAdminOf(resource.data.communityId)
-        && resource.data.authorId == uid();
+      // The author takes their own notice down — and so may the admin of the
+      // community it was posted to.
+      //
+      // That second half is new, and it is the price of letting everybody post.
+      // While the board was admin-only, an admin reaching into somebody else's
+      // post could only mean reaching into a predecessor's, and refusing it cost
+      // nothing. Now a member can put anything in front of the whole community,
+      // and a community whose admin cannot remove it has no way to moderate
+      // itself at all.
+      allow delete: if signedIn()
+        && (resource.data.authorId == uid() || isAdminOf(resource.data.communityId));
+    }
+
+    /** The community a post belongs to. One read, on the create path only. */
+    function communityOf(cid) {
+      return get(/databases/$(database)/documents/communities/$(cid)).data;
     }
 
     // An author fixing their own notice. `touchesOnly` is what keeps this from
@@ -802,8 +824,11 @@ service cloud.firestore {
     // publish it: everything that identifies the post stays put, and the text
     // may be corrected but not emptied — the create rule refuses a blank one, so
     // an edit that could blank it would be a hole in the same rule.
+    //
+    // Membership rather than rank here too, for the same reason the create rule
+    // changed: the person allowed to fix a typo is the person who made it.
     function postAuthorEdit() {
-      return isAdminOf(resource.data.communityId)
+      return isMemberOf(resource.data.communityId)
         && resource.data.authorId == uid()
         && touchesOnly(['title', 'body'].toSet())
         && request.resource.data.body is string

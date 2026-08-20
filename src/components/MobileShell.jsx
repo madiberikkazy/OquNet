@@ -29,8 +29,16 @@ import BottomNav from "./BottomNav.jsx";
  *     silent way. The animation now wraps the content rather than the whole
  *     column, which also reads better: the bar stays put across a route change
  *     and the page slides in beneath it, exactly as a native one does.
+ *
+ * `fab` is a floating control — the "+" on the Home feed — and it is a slot here
+ * rather than something a screen drops into its own markup, for the same reason
+ * as (2) above and with the same silent failure. That transform is a containing
+ * block for `position: fixed` too, not only for sticky: a "+" rendered among the
+ * children is pinned to the *content box* instead of the window, so it drifts
+ * with the length of the feed and can sit off-screen entirely. Rendered here it
+ * is a sibling of `<main>`, outside the transform, and `fixed` means the window.
  */
-export default function MobileShell({ children, header = null, withNav = true }) {
+export default function MobileShell({ children, header = null, withNav = true, fab = null }) {
   return (
     <div className="min-h-screen bg-base flex flex-col">
       <main className={"flex-1 w-full " + (withNav ? "pb-24" : "pb-4")}>
@@ -55,6 +63,7 @@ export default function MobileShell({ children, header = null, withNav = true })
           </div>
         </div>
       </main>
+      {fab}
       {withNav ? <BottomNav /> : null}
     </div>
   );

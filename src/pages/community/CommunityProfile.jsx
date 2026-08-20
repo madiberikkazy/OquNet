@@ -472,10 +472,20 @@ export default function CommunityProfile() {
                             was dropped — nothing creates one now. */}
                         {p.title ? <h4 className="font-semibold text-[15px]">{p.title}</h4> : null}
                         <p className="text-[14px] text-ink-700 mt-1 whitespace-pre-wrap">{p.body}</p>
+                        {/* Worth saying now that the board is not one person's:
+                            any member can post here, so a notice without a name
+                            on it is a notice from nobody in particular. */}
+                        {p.authorName ? (
+                          <p className="text-[12px] text-ink-500 mt-2">{p.authorName}</p>
+                        ) : null}
                       </div>
-                      {/* Only the admin's own notices — the rules say the same,
-                          so a button on somebody else's post would be refused. */}
-                      {canManage && p.authorId === user?.id ? (
+                      {/* Two different permissions, drawn as two different rows
+                          of buttons, and both are exactly what the rules allow:
+                          the author may fix or remove what they wrote, and the
+                          community's admin may remove — not rewrite — anybody's.
+                          This is where a member manages their own post, which is
+                          why it is drawn for members and not only for admins. */}
+                      {p.authorId === user?.id ? (
                         <RowActions
                           onEdit={() => {
                             setEditingPost(p);
@@ -484,6 +494,8 @@ export default function CommunityProfile() {
                           }}
                           onDelete={() => askRemove("post", p)}
                         />
+                      ) : canManage ? (
+                        <RowActions onDelete={() => askRemove("post", p)} />
                       ) : null}
                     </div>
                   ))}

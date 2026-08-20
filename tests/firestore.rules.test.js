@@ -34,12 +34,16 @@ const PROJECT_ID = "demo-oqunet-rules";
 // Two communities so every "cross-community" assertion has somewhere to fail.
 const C1 = "community-1";
 const C2 = "community-2";
+// A *private* one. Posting is the rule that turns on this flag: a member may
+// write a notice, but not decide whether it joins the public discovery feed.
+const C3 = "community-3";
 
 const ADMIN_A = "admin-a";   // admin of C1
 const MEMBER_A = "member-a"; // plain member of C1, owns BOOK_1
 const MEMBER_A2 = "member-a2"; // second plain member of C1
 const ADMIN_B = "admin-b";   // admin of C2
 const MEMBER_B = "member-b"; // plain member of C2
+const MEMBER_C = "member-c"; // plain member of C3, the private community
 const DRIFTER = "drifter";   // signed in, no community
 
 const BOOK_1 = "book-1"; // in C1, owned+held by MEMBER_A, available
@@ -78,6 +82,10 @@ beforeEach(async () => {
       nickname: "two", name: "Two", ownerId: ADMIN_B, memberIds: [ADMIN_B],
       isPrivate: false, createdAt: Date.now(),
     });
+    await setDoc(doc(db, "communities", C3), {
+      nickname: "three", name: "Three", ownerId: MEMBER_C, memberIds: [MEMBER_C],
+      isPrivate: true, createdAt: Date.now(),
+    });
 
     const user = (id, role, communityId) => setDoc(doc(db, "users", id), {
       id, email: `${id}@example.com`, nickname: id, role, communityId,
@@ -88,6 +96,7 @@ beforeEach(async () => {
     await user(MEMBER_A2, "user", C1);
     await user(ADMIN_B, "admin", C2);
     await user(MEMBER_B, "user", C2);
+    await user(MEMBER_C, "user", C3);
     await user(DRIFTER, "user", null);
 
     await setDoc(doc(db, "books", BOOK_1), {
@@ -1136,9 +1145,56 @@ describe("posts", () => {
     }));
   });
 
-  it("a plain member may NOT publish a post", async () => {
+  // The board belongs to the community's members now, not to its admin — this
+  // is the rule that changed when the "+" moved onto the Home feed.
+  it("a plain member may publish a post", async () => {
+    await assertSucceeds(setDoc(doc(as(MEMBER_A), "posts", "p1"), {
+      communityId: C1, authorId: MEMBER_A, authorName: "M A", isPublic: true,
+      body: "text", createdAt: serverTimestamp(),
+    }));
+  });
+
+  it("a member may NOT publish into a community they are not in", async () => {
     await assertFails(setDoc(doc(as(MEMBER_A), "posts", "p1"), {
-      communityId: C1, authorId: MEMBER_A, isPublic: true, body: "text",
+      communityId: C2, authorId: MEMBER_A, isPublic: true, body: "text",
+      createdAt: serverTimestamp(),
+    }));
+  });
+
+  it("somebody in no community at all may not publish anywhere", async () => {
+    await assertFails(setDoc(doc(as(DRIFTER), "posts", "p1"), {
+      communityId: C1, authorId: DRIFTER, isPublic: true, body: "text",
+      createdAt: serverTimestamp(),
+    }));
+  });
+
+  it("a member may NOT forge somebody else's authorship", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "posts", "p1"), {
+      communityId: C1, authorId: MEMBER_A2, isPublic: true, body: "text",
+      createdAt: serverTimestamp(),
+    }));
+  });
+
+  // The one field a member cannot choose: `isPublic` decides whether the post
+  // joins the global discovery feed, so it has to equal what the community
+  // itself says rather than what the client sent.
+  it("visibility must match the community, not the caller's wishes", async () => {
+    // C1 is public, so a post claiming to be members-only is refused.
+    await assertFails(setDoc(doc(as(MEMBER_A), "posts", "p1"), {
+      communityId: C1, authorId: MEMBER_A, isPublic: false, body: "text",
+      createdAt: serverTimestamp(),
+    }));
+  });
+
+  it("a private community's member may not publish to the whole app", async () => {
+    // The lie that would actually leak: C3 is private, and `isPublic: true` is
+    // what puts a post on every signed-in stranger's Home feed.
+    await assertFails(setDoc(doc(as(MEMBER_C), "posts", "p1"), {
+      communityId: C3, authorId: MEMBER_C, isPublic: true, body: "text",
+      createdAt: serverTimestamp(),
+    }));
+    await assertSucceeds(setDoc(doc(as(MEMBER_C), "posts", "p2"), {
+      communityId: C3, authorId: MEMBER_C, isPublic: false, body: "text",
       createdAt: serverTimestamp(),
     }));
   });
@@ -1219,9 +1275,17 @@ describe("posts", () => {
   describe("editing", () => {
     beforeEach(async () => {
       await testEnv.withSecurityRulesDisabled(async (ctx) => {
-        await setDoc(doc(ctx.firestore(), "posts", "p1"), {
+        // One handle for both writes: `ctx.firestore()` applies settings to the
+        // app, and asking twice after the first write has started it throws.
+        const db = ctx.firestore();
+        await setDoc(doc(db, "posts", "p1"), {
           communityId: C1, authorId: ADMIN_A, authorName: "F L",
           title: "Hello", body: "text", createdAt: Date.now(),
+        });
+        // A member's own notice, which is a thing that can exist now.
+        await setDoc(doc(db, "posts", "p-member"), {
+          communityId: C1, authorId: MEMBER_A, authorName: "M A",
+          body: "mine", createdAt: Date.now(),
         });
       });
     });
@@ -1232,8 +1296,18 @@ describe("posts", () => {
       }));
     });
 
-    it("a plain member may NOT edit a post", async () => {
+    it("a member may fix a post they wrote", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A), "posts", "p-member"), { body: "fixed" }));
+    });
+
+    it("but not one somebody else wrote", async () => {
       await assertFails(updateDoc(doc(as(MEMBER_A), "posts", "p1"), { body: "Nope" }));
+    });
+
+    it("and neither may the admin rewrite a member's post", async () => {
+      // Moderation is removal, not authorship: an admin who could edit could
+      // put words in a member's mouth under that member's name.
+      await assertFails(updateDoc(doc(as(ADMIN_A), "posts", "p-member"), { body: "Rewritten" }));
     });
 
     it("another community's admin may NOT edit it", async () => {
@@ -1257,12 +1331,23 @@ describe("posts", () => {
       await assertSucceeds(deleteDoc(doc(as(ADMIN_A), "posts", "p1")));
     });
 
-    it("a plain member may NOT delete a post", async () => {
+    it("a member may take down what they wrote", async () => {
+      await assertSucceeds(deleteDoc(doc(as(MEMBER_A), "posts", "p-member")));
+    });
+
+    it("a member may NOT delete somebody else's post", async () => {
       await assertFails(deleteDoc(doc(as(MEMBER_A), "posts", "p1")));
+    });
+
+    // The other half of letting everybody post: a community whose admin cannot
+    // remove a member's notice has no way to moderate itself.
+    it("the community's admin may remove a member's post", async () => {
+      await assertSucceeds(deleteDoc(doc(as(ADMIN_A), "posts", "p-member")));
     });
 
     it("another community's admin may NOT delete it", async () => {
       await assertFails(deleteDoc(doc(as(ADMIN_B), "posts", "p1")));
+      await assertFails(deleteDoc(doc(as(ADMIN_B), "posts", "p-member")));
     });
   });
 
