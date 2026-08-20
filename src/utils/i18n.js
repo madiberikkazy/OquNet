@@ -538,6 +538,7 @@ const kz = {
   // Which community a post is going to. The Home feed mixes several, so the
   // composer there has to say where the text will land.
   postingTo: (where) => `${where} қоғамдастығына жарияланады`,
+  postNeedsCommunity: "Жазба қоғамдастыққа жарияланады. Алдымен бір қоғамдастыққа қосылыңыз.",
   editPost: "Жазбаны өзгерту",
   postBody: "Жазба мәтіні",
   postSaved: "Жазба сақталды",
@@ -1211,6 +1212,7 @@ const ru = {
   newPost: "Новая публикация",
   publish: "Опубликовать",
   postingTo: (where) => `Публикация в ${where}`,
+  postNeedsCommunity: "Публикация выходит в сообществе. Сначала вступите в одно из них.",
   editPost: "Редактировать публикацию",
   postBody: "Текст публикации",
   postSaved: "Публикация сохранена",
@@ -1884,6 +1886,7 @@ const en = {
   newPost: "New post",
   publish: "Publish",
   postingTo: (where) => `Posting to ${where}`,
+  postNeedsCommunity: "A post goes out in a community. Join one first.",
   editPost: "Edit post",
   postBody: "Post text",
   postSaved: "Post saved",

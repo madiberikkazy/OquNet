@@ -35,6 +35,8 @@ const CompletedBooks     = lazyRoute(() => import("./pages/user/CompletedBooks.j
 const SavedBooks         = lazyRoute(() => import("./pages/user/SavedBooks.jsx"));
 const Settings           = lazyRoute(() => import("./pages/user/Settings.jsx"));
 const LikedPosts         = lazyRoute(() => import("./pages/user/LikedPosts.jsx"));
+// Writing a post — a screen of its own, reached from the "+" on the feed.
+const CreatePost         = lazyRoute(() => import("./pages/user/CreatePost.jsx"));
 
 // Settings sub-screens — one topic each, reached from the settings hub.
 const PersonalData         = lazyRoute(() => import("./pages/user/settings/PersonalData.jsx"));
@@ -128,6 +130,10 @@ export default function App() {
                 own, and no account id can be the word "new" anyway. */}
             <Route path="/chats/new" element={<NewChat />} />
             <Route path="/chats/:userId" element={<Chat />} />
+
+            {/* Deliberately not a modal over the feed: writing is the one
+                thing in this app you do at length. */}
+            <Route path="/posts/new" element={<CreatePost />} />
 
             <Route path="/notifications" element={<Notification />} />
             {/* Join and leave requests are decided here, by whoever the request

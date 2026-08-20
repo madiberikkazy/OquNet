@@ -9,13 +9,11 @@ import { useNotifications } from "../../contexts/NotificationContext.jsx";
 import LikeButton from "../../components/LikeButton.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
 import Fab from "../../components/Fab.jsx";
-import Modal from "../../components/Modal.jsx";
 import {
   watchPostsByCommunity, watchPublicPosts, getCommunity,
-  createPost, searchCommunities, searchUsers, togglePostLike,
+  searchCommunities, searchUsers, togglePostLike,
 } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
-import { writeError } from "../../utils/writeError.js";
 import { navIconSrc } from "../../utils/icons.js";
 import { formatPostDate } from "../../utils/time.js";
 import { t } from "../../utils/i18n.js";
@@ -244,48 +242,10 @@ export default function Home() {
     });
   }, [search]);
 
-  // ── Writing a post ──────────────────────────────────────────────────────────
-  //
-  // The board used to belong to the community's admin; it belongs to its members
-  // now, so the "+" is on the feed itself rather than on the community's
-  // management page. A post is still *addressed* to a community, which is why
-  // the button is only drawn for somebody who is in one — there is nowhere for a
-  // community-less reader's post to go, and a button leading to that explanation
-  // is worse than no button.
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [postBody, setPostBody] = useState("");
-  const [postBusy, setPostBusy] = useState(false);
-  const [postError, setPostError] = useState("");
-
-  async function submitPost(e) {
-    e.preventDefault();
-    if (postBusy || !postBody.trim() || !community?.id || !user?.id) return;
-    setPostBusy(true);
-    setPostError("");
-    try {
-      await createPost({
-        communityId: community.id,
-        authorId: user.id,
-        authorName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || `@${user.nickname ?? ""}`,
-        // Denormalised from the community, and checked against it by the rules:
-        // a private community's posts stay off the discovery feed, and a member
-        // cannot decide otherwise by sending a different value.
-        isPublic: !community.isPrivate,
-        body: postBody.trim(),
-      });
-      // Nothing is prepended by hand. The feed above is a live subscription, so
-      // the post arrives the same way everybody else's does — and under
-      // Firestore that is the same frame, because the SDK reports this client's
-      // own pending write immediately.
-      setPostBody("");
-      setComposeOpen(false);
-    } catch (err) {
-      logger.error("home.createPost", err?.message, { code: err?.code });
-      setPostError(writeError(err));
-    } finally {
-      setPostBusy(false);
-    }
-  }
+  // Writing a post is its own screen — /posts/new. The "+" below is a link to
+  // it and nothing more: a composer rendered here would be a dialog over the
+  // feed, which is both a worse place to write and a `position: fixed` element
+  // inside MobileShell's transformed wrapper, where it does not stay put.
 
   return (
     <MobileShell
@@ -296,7 +256,7 @@ export default function Home() {
       // Hidden while searching: the screen is a list of people and communities
       // then, and a "+" over it would be about something else entirely.
       fab={!search && community?.id ? (
-        <Fab fixed onClick={() => { setPostError(""); setComposeOpen(true); }} ariaLabel={t.newPost} />
+        <Fab fixed to="/posts/new" ariaLabel={t.newPost} />
       ) : null}
       header={
       <div className="pb-2">
@@ -504,34 +464,6 @@ export default function Home() {
           )}
         </div>
       )}
-
-
-      <Modal
-        open={composeOpen}
-        onClose={() => !postBusy && setComposeOpen(false)}
-        title={t.newPost}
-      >
-        <form onSubmit={submitPost} className="space-y-3">
-          <textarea
-            value={postBody}
-            onChange={(e) => setPostBody(e.target.value)}
-            placeholder={t.postBody}
-            rows="6"
-            className="input"
-            autoFocus
-          />
-          {/* Which community this is going to, said out loud. The feed mixes
-              several, so "post" on this screen is ambiguous in a way it never
-              was on a community's own page. */}
-          <p className="text-[12px] text-ink-500">
-            {t.postingTo(community?.nickname ? `@${community.nickname}` : community?.name ?? "")}
-          </p>
-          {postError ? <p className="text-bad text-[13px]">{postError}</p> : null}
-          <button disabled={postBusy || !postBody.trim()} className="btn-primary">
-            {postBusy ? "…" : t.publish}
-          </button>
-        </form>
-      </Modal>
     </MobileShell>
   );
 }
