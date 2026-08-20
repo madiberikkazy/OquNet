@@ -104,7 +104,10 @@ export default function Notification() {
   );
 
   return (
-    <MobileShell header={<div className="pb-2">{bar}</div>}>
+    // No tab bar: this screen is reached from Home rather than from the tabs,
+    // and its own back button is the way out. A tab bar here would offer a
+    // second, different way back and highlight no tab while doing it.
+    <MobileShell withNav={false} header={<div className="pb-2">{bar}</div>}>
       {!selectMode && notifications.length > 0 ? (
         <div className="px-4 mt-1 flex justify-end">
           <button onClick={() => setSelectMode(true)} className="text-[13px] text-ink-500">
