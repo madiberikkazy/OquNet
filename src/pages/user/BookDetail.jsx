@@ -397,8 +397,137 @@ export default function BookDetail() {
   // same two sources it reads, asked before it guesses.
   const hasPageCount = isPageBand(book.pages) || Number(book.maxDays) > 0;
 
+  /**
+   * The action for this book, whoever is looking at it.
+   *
+   * It lives in a bar pinned to the bottom of the screen rather than at the end
+   * of the page. This screen is long — cover, description, ratings, the book's
+   * journey — and the one thing a reader came to do was sitting below all of it,
+   * reachable only by scrolling past everything first. A detail page's action
+   * belongs where it can always be reached.
+   *
+   * Every state of it is here, not just the button: "your book", "you are
+   * holding it", "finish the pickup you already started". They are all answers
+   * to the same question — what can I do with this book — so they are drawn in
+   * the same place, and the bar never appears empty or moves what is under it.
+   */
+  const actionBar = (
+    isCurrentHolder ? (
+      /* Current borrower — can return, cannot get again */
+      <div className="space-y-2">
+        <button
+          onClick={openReturnModal}
+          disabled={returnMutation.isPending}
+          className="w-full py-3.5 rounded-2xl bg-ok text-white font-semibold text-[15px] active:scale-[0.99] transition disabled:opacity-60"
+        >
+          {returnMutation.isPending ? "…" : t.returnBook}
+        </button>
+        <p className="text-[12px] text-ink-500 text-center">
+          {t.youHoldBook}
+        </p>
+      </div>
+    ) : isOwner ? (
+      <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+        {t.yourBook}
+      </p>
+    ) : isBookHolder ? (
+      /* Finished reading but nobody has collected it yet — the book is
+         still on this user's shelf, so there is nothing to request. */
+      <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+        {t.bookOnYourShelf}
+      </p>
+    ) : !isCommunityMember ? (
+      <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+        {t.notCommunityMember}
+      </p>
+    ) : pickupRequest ? (
+      /* Already requested — show a resume button, no new code is generated */
+      <div className="space-y-2">
+        <button
+          onClick={() => navigate(`/books/${id}/pickup`)}
+          className="btn-primary"
+        >
+          {t.continueGetBook}
+        </button>
+        <p className="text-[12px] text-ink-500 text-center">
+          {t.codeAlreadySent}
+        </p>
+      </div>
+    ) : blockingPickup ? (
+      /* Mid-pickup on another book. Offering the request button here would
+         only produce an error two screens later, so it offers the way out
+         instead: finish or cancel the one already running. */
+      <div className="space-y-2">
+        <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+          {t.pickupOtherPending}
+        </p>
+        <button
+          onClick={() => navigate(`/books/${blockingPickup.bookId}/pickup`)}
+          className="btn-secondary"
+        >
+          {t.pickupOpenBlockingBook}
+        </button>
+      </div>
+    ) : (
+      <button onClick={requestPickup} className="btn-primary">
+        {book.status === "unavailable" ? t.getBook : t.borrowBook}
+      </button>
+    )
+  );
+
+  /**
+   * The rating sheet, shown when the holder gives the book back.
+   *
+   * It goes through MobileShell's overlay slot rather than being dropped in
+   * among the sections above. A `fixed` element rendered there is pinned to the
+   * page content — which is a transformed element — so this sheet used to open
+   * at the bottom of the *page* rather than the bottom of the screen, which on
+   * a long book page means somewhere nobody can see.
+   */
+  const returnSheet = returnModalOpen && (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={() => setReturnModalOpen(false)}
+      />
+      <div className="relative bg-surface rounded-t-3xl px-6 pt-5 pb-10 space-y-5">
+        <div className="w-10 h-1 rounded-full bg-ink-200 mx-auto" />
+        <div className="text-center">
+          <h2 className="text-[18px] font-bold">{t.rateBook}</h2>
+          <p className="text-[13px] text-ink-500 mt-1">«{book.name}»</p>
+        </div>
+        <div className="flex justify-center">
+          <StarRating value={returnStars} onChange={setReturnStars} size={40} label={t.rateBook} />
+        </div>
+        <textarea
+          value={returnReview}
+          onChange={(e) => setReturnReview(e.target.value)}
+          placeholder={t.ratingPlaceholder}
+          rows={3}
+          className="input resize-none text-[14px]"
+        />
+        <div className="space-y-2">
+          <button
+            onClick={() => handleReturn(returnStars, returnReview)}
+            disabled={returnMutation.isPending}
+            className="btn-primary"
+          >
+            {returnMutation.isPending ? "…" : returnStars > 0 ? t.returnWithRating : t.returnBook}
+          </button>
+          <button
+            onClick={() => handleReturn(0, "")}
+            disabled={returnMutation.isPending}
+            className="w-full py-3 text-[14px] text-ink-500 font-medium"
+          >
+            {t.returnWithoutRating}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <MobileShell>
+    <MobileShell bottomBar={actionBar} overlay={returnSheet}>
       <SearchBar value="" onChange={() => {}} onBack={() => navigate(-1)} placeholder={t.searchPlaceholder} />
 
       <div className="px-4 pt-4 flex gap-3">
@@ -669,113 +798,6 @@ export default function BookDetail() {
           </div>
         </div>
       ) : null}
-
-      <div className="px-4 mt-6 mb-2">
-        {isCurrentHolder ? (
-          /* Current borrower — can return, cannot get again */
-          <div className="space-y-2">
-            <button
-              onClick={openReturnModal}
-              disabled={returnMutation.isPending}
-              className="w-full py-3.5 rounded-2xl bg-ok text-white font-semibold text-[15px] active:scale-[0.99] transition disabled:opacity-60"
-            >
-              {returnMutation.isPending ? "…" : t.returnBook}
-            </button>
-            <p className="text-[12px] text-ink-500 text-center">
-              {t.youHoldBook}
-            </p>
-          </div>
-        ) : isOwner ? (
-          <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
-            {t.yourBook}
-          </p>
-        ) : isBookHolder ? (
-          /* Finished reading but nobody has collected it yet — the book is
-             still on this user's shelf, so there is nothing to request. */
-          <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
-            {t.bookOnYourShelf}
-          </p>
-        ) : !isCommunityMember ? (
-          <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
-            {t.notCommunityMember}
-          </p>
-        ) : pickupRequest ? (
-          /* Already requested — show a resume button, no new code is generated */
-          <div className="space-y-2">
-            <button
-              onClick={() => navigate(`/books/${id}/pickup`)}
-              className="btn-primary"
-            >
-              {t.continueGetBook}
-            </button>
-            <p className="text-[12px] text-ink-500 text-center">
-              {t.codeAlreadySent}
-            </p>
-          </div>
-        ) : blockingPickup ? (
-          /* Mid-pickup on another book. Offering the request button here would
-             only produce an error two screens later, so it offers the way out
-             instead: finish or cancel the one already running. */
-          <div className="space-y-2">
-            <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
-              {t.pickupOtherPending}
-            </p>
-            <button
-              onClick={() => navigate(`/books/${blockingPickup.bookId}/pickup`)}
-              className="btn-secondary"
-            >
-              {t.pickupOpenBlockingBook}
-            </button>
-          </div>
-        ) : (
-          <button onClick={requestPickup} className="btn-primary">
-            {book.status === "unavailable" ? t.getBook : t.borrowBook}
-          </button>
-        )}
-      </div>
-
-      {/* Return rating modal */}
-      {returnModalOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setReturnModalOpen(false)}
-          />
-          <div className="relative bg-surface rounded-t-3xl px-6 pt-5 pb-10 space-y-5">
-            <div className="w-10 h-1 rounded-full bg-ink-200 mx-auto" />
-            <div className="text-center">
-              <h2 className="text-[18px] font-bold">{t.rateBook}</h2>
-              <p className="text-[13px] text-ink-500 mt-1">«{book.name}»</p>
-            </div>
-            <div className="flex justify-center">
-              <StarRating value={returnStars} onChange={setReturnStars} size={40} label={t.rateBook} />
-            </div>
-            <textarea
-              value={returnReview}
-              onChange={(e) => setReturnReview(e.target.value)}
-              placeholder={t.ratingPlaceholder}
-              rows={3}
-              className="input resize-none text-[14px]"
-            />
-            <div className="space-y-2">
-              <button
-                onClick={() => handleReturn(returnStars, returnReview)}
-                disabled={returnMutation.isPending}
-                className="btn-primary"
-              >
-                {returnMutation.isPending ? "…" : returnStars > 0 ? t.returnWithRating : t.returnBook}
-              </button>
-              <button
-                onClick={() => handleReturn(0, "")}
-                disabled={returnMutation.isPending}
-                className="w-full py-3 text-[14px] text-ink-500 font-medium"
-              >
-                {t.returnWithoutRating}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </MobileShell>
   );
 }

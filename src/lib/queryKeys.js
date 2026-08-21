@@ -36,6 +36,10 @@ export const qk = {
   users: {
     byId: (id) => ["users", id],
   },
+  communities: {
+    /** Everybody in one community — the member list, and who can take a book. */
+    members: (communityId) => ["communities", communityId, "members"],
+  },
   follows: {
     all: ["follows"],
     // "Am I following this person?" — one edge at a known id, so the button on

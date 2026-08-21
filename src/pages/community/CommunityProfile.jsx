@@ -13,7 +13,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getCommunity, listUsersByCommunity, listPostsByCommunity, listBooks,
   createJoinRequest, createNotification, getActiveBorrowingForUser,
-  createPost, updatePost, deletePost, deleteBook, updateUser,
+  createPost, updatePost, deletePost, deleteBook,
 } from "../../firebase/firestore.js";
 import { hasVerifiedPhone } from "../../firebase/phoneVerify.js";
 import { logger } from "../../utils/logger.js";
@@ -258,9 +258,14 @@ export default function CommunityProfile() {
 
   // ── Removal — one dialog for all three kinds of row ──────────────────────────
   //
-  // A post, a book and a member are removed by three different calls, but they
-  // are the same decision to the person making it: this row, gone, are you sure.
-  // Keeping one dialog is what stops the three from drifting apart.
+  // A post and a book are removed by two different calls, but they are the same
+  // decision to the person making it: this row, gone, are you sure. Keeping one
+  // dialog is what stops the two from drifting apart.
+  //
+  // Removing a *member* used to be the third kind here and is a screen of its
+  // own now — /community/:id/members/:userId/remove. It stopped fitting: a
+  // member can be holding books, and "are you sure" is the wrong question to
+  // ask about them. See RemoveMember.jsx.
   function askRemove(kind, item) {
     setManageError("");
     setRemoving({ kind, item });
@@ -275,14 +280,9 @@ export default function CommunityProfile() {
       if (kind === "post") {
         await deletePost(item.id);
         setPosts((list) => list.filter((p) => p.id !== item.id));
-      } else if (kind === "book") {
+      } else {
         await deleteBook(item.id);
         setBooks((list) => list.filter((b) => b.id !== item.id));
-      } else {
-        // Ejecting a member is a write to *their* profile, which the rules
-        // allow this community's admin to make for exactly this field.
-        await updateUser(item.id, { communityId: null });
-        setMembers((list) => list.filter((m) => m.id !== item.id));
       }
       setRemoving(null);
     } catch (err) {
@@ -556,8 +556,12 @@ export default function CommunityProfile() {
                 renderRowAction={(m) =>
                   // The admin cannot eject themselves — leaving their own
                   // community is a different decision, made elsewhere.
+                  //
+                  // A screen, not the dialog the other two rows open: this
+                  // member may be holding community books, and the admin has to
+                  // say where each of them goes before the member can leave.
                   canManage && m.id !== community.ownerId ? (
-                    <RowActions onDelete={() => askRemove("member", m)} />
+                    <RowActions onDelete={() => navigate(`/community/${id}/members/${m.id}/remove`)} />
                   ) : null
                 }
               />
@@ -623,25 +627,19 @@ export default function CommunityProfile() {
         </form>
       </Modal>
 
-      {/* ── Remove a post, a book or a member ── */}
+      {/* ── Remove a post or a book ── */}
       <Modal
         open={Boolean(removing)}
         onClose={() => !removeBusy && setRemoving(null)}
-        title={
-          removing?.kind === "post"  ? t.deletePostConfirm
-          : removing?.kind === "book" ? t.deleteBookConfirm
-          : t.removeMemberConfirm
-        }
+        title={removing?.kind === "post" ? t.deletePostConfirm : t.deleteBookConfirm}
       >
         <p className="text-[13px] text-ink-700 mb-1 line-clamp-3">
-          {removing?.kind === "post"  ? removing.item.body
-           : removing?.kind === "book" ? `«${removing.item.name}» — ${removing.item.author}`
-           : removing ? `${removing.item.firstName} ${removing.item.lastName} (@${removing.item.nickname})` : ""}
+          {removing?.kind === "post"
+            ? removing.item.body
+            : removing ? `«${removing.item.name}» — ${removing.item.author}` : ""}
         </p>
         <p className="text-[13px] text-ink-500 leading-relaxed mb-4">
-          {removing?.kind === "post"  ? t.deletePostWarning
-           : removing?.kind === "book" ? t.deleteBookWarning
-           : t.removeMemberWarning}
+          {removing?.kind === "post" ? t.deletePostWarning : t.deleteBookWarning}
         </p>
         {/* Whatever the server said belongs on the dialog that asked. */}
         {manageError ? <p className="text-bad text-[13px] mb-3">{manageError}</p> : null}

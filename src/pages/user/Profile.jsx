@@ -10,6 +10,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
   getBook, getCommunityReadingRank, listBooksHeldBy, listBorrowingsForUser,
+  listPostsByAuthor,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import {
@@ -61,16 +62,20 @@ export default function Profile() {
         // `holderId` returns exactly those, so the counter no longer depends on
         // them falling inside the community's first two hundred books.
         listBooksHeldBy({ communityId: community?.id, userId: user.id }),
+        // What this reader has written. Rides along with the counters rather
+        // than getting a query of its own: it is one more number on the same
+        // screen, and it is wrong for it to arrive at a different time.
+        listPostsByAuthor({ authorId: user.id, communityId: community?.id }),
       ]);
       results.forEach((r, i) => {
         if (r.status === "rejected") {
           logger.error("profile.stats", r.reason?.message, {
             code: r.reason?.code,
-            source: ["active", "completed", "held"][i],
+            source: ["active", "completed", "held", "posts"][i],
           });
         }
       });
-      const [readingList, completed, held] = results.map((r) =>
+      const [readingList, completed, held, posts] = results.map((r) =>
         r.status === "fulfilled" ? r.value : null
       );
       return {
@@ -79,6 +84,9 @@ export default function Profile() {
           completed: completed?.length ?? 0,
           held: held?.length ?? 0,
         },
+        // Null rather than zero when the query failed: the header draws a dash
+        // for "not known", and "0 posts" is a different claim from "no answer".
+        postsCount: posts?.length ?? null,
         activeBorrowing: readingList?.[0] || null,
       };
     },
@@ -118,6 +126,7 @@ export default function Profile() {
       <ProfileHeader
         user={user}
         showSettings
+        postsCount={statsQuery.data?.postsCount ?? null}
         badge={isAdmin ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span> : null}
       />
 

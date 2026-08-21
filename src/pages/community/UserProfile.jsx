@@ -13,7 +13,7 @@ import ReadingWeek from "../../components/ReadingWeek.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getBook, getBooksByIds, getCommunity, getCommunityReadingRank, getUserById,
-  listBooksHeldBy, listBooksOwnedBy, listBorrowingsForUser,
+  listBooksHeldBy, listBooksOwnedBy, listBorrowingsForUser, listPostsByAuthor,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { logger } from "../../utils/logger.js";
@@ -67,7 +67,21 @@ export default function UserProfile() {
       // Who somebody is is public; what is on their shelf is their community's
       // business. Asking anyway would just be a denied query, so don't ask.
       const sameCommunity = !!user.communityId && viewer?.communityId === user.communityId;
-      if (!sameCommunity) return { user, community, lists: EMPTY_LISTS, sameCommunity };
+      if (!sameCommunity) {
+        // Their shelves are their community's business, but what they have
+        // *published* is not: a post carries its own audience. From outside,
+        // that is the public ones — which is what this query is allowed to see
+        // and therefore the honest number to put on the screen.
+        const posts = await listPostsByAuthor({ authorId: user.id }).catch((err) => {
+          logger.error("userProfile.posts", err?.message, { code: err?.code });
+          return null;
+        });
+        return {
+          user, community, sameCommunity,
+          lists: EMPTY_LISTS,
+          postsCount: posts?.length ?? null,
+        };
+      }
 
       // One indexed query per question. This used to ask for a single page of
       // the community's books and sift it here, so a member whose books all sat
@@ -81,19 +95,25 @@ export default function UserProfile() {
         // readable only to members of its own — getBooksByIds drops the misses
         // rather than failing the batch.
         getBooksByIds(user.savedBookIds || []),
+        listPostsByAuthor({ authorId: user.id, communityId: user.communityId }),
       ]);
       results.forEach((r, i) => {
         if (r.status === "rejected") {
           logger.error("userProfile.lists", r.reason?.message, {
             code: r.reason?.code,
-            source: ["held", "owned", "reading", "completed", "saved"][i],
+            source: ["held", "owned", "reading", "completed", "saved", "posts"][i],
           });
         }
       });
-      const [held, owned, reading, completed, saved] = results.map((r) =>
+      const [held, owned, reading, completed, saved, posts] = results.map((r) =>
         r.status === "fulfilled" ? r.value : []
       );
-      return { user, community, sameCommunity, lists: { held, owned, reading, completed, saved } };
+      return {
+        user, community, sameCommunity,
+        lists: { held, owned, reading, completed, saved },
+        // A failed count is not a count of zero — the header draws a dash.
+        postsCount: results[5].status === "fulfilled" ? posts.length : null,
+      };
     },
   });
 
@@ -166,6 +186,7 @@ export default function UserProfile() {
       <ProfileHeader
         user={member}
         onBack={() => navigate(-1)}
+        postsCount={memberQuery.data?.postsCount ?? null}
         badge={
           member.role === "admin"
             ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span>
@@ -204,14 +225,16 @@ export default function UserProfile() {
             />
           </div>
 
-          <div className="px-4 mt-5">
-            <CurrentBookCard
-              borrowing={activeBorrowing}
-              book={bookQuery.data}
-              emptyTitle={t.memberNoReadingBook}
-              emptyHint={null}
-            />
-          </div>
+          {/* Only when there is a book to name. On the reader's own profile the
+              empty version of this card is an instruction — open the library,
+              borrow one — and an instruction addressed to somebody who is not
+              looking at the screen is just a blank card taking up the best part
+              of somebody else's profile. */}
+          {activeBorrowing ? (
+            <div className="px-4 mt-5">
+              <CurrentBookCard borrowing={activeBorrowing} book={bookQuery.data} />
+            </div>
+          ) : null}
         </>
       ) : null}
 

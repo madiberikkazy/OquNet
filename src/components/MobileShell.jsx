@@ -23,25 +23,42 @@ import BottomNav from "./BottomNav.jsx";
  *     Nothing depended on it; the one screen that genuinely scrolls a region,
  *     Chat.jsx, builds its own and never used this.
  *
- *  2. `page-transition` ends on `transform: translateY(0)` with fill-mode
- *     `both`, so the transform *persists* — and a transformed ancestor becomes
- *     the containing block for sticky descendants, which breaks them the same
- *     silent way. The animation now wraps the content rather than the whole
- *     column, which also reads better: the bar stays put across a route change
- *     and the page slides in beneath it, exactly as a native one does.
+ *  2. `page-transition` used to end on a persisting `transform: translateY(0)`
+ *     — fill-mode `both` — and a transformed ancestor becomes the containing
+ *     block for sticky descendants, which breaks them the same silent way. The
+ *     animation now wraps the content rather than the whole column, which also
+ *     reads better: the bar stays put across a route change and the page slides
+ *     in beneath it, exactly as a native one does. The fill mode is `backwards`
+ *     now as well, so the transform lives only while the animation runs — see
+ *     the note on `.page-transition` in index.css, which is where the same trap
+ *     was swallowing every modal in the app.
  *
- * `fab` is a floating control — the "+" on the Home feed — and it is a slot here
- * rather than something a screen drops into its own markup, for the same reason
- * as (2) above and with the same silent failure. That transform is a containing
- * block for `position: fixed` too, not only for sticky: a "+" rendered among the
- * children is pinned to the *content box* instead of the window, so it drifts
- * with the length of the feed and can sit off-screen entirely. Rendered here it
- * is a sibling of `<main>`, outside the transform, and `fixed` means the window.
+ * `fab`, `bottomBar` and `overlay` are slots rather than something a screen
+ * drops into its own markup, because none of them is page content: they belong
+ * to the window, they must not scroll with the page or take part in its layout,
+ * and they must outlive the page transition rather than slide in with it.
+ * Rendered here they are siblings of `<main>` — chrome beside content, which is
+ * what they are.
+ *
+ * `bottomBar` also earns the page some room to end in: it covers the bottom of
+ * the screen, so the content has to be able to scroll clear of it, which is
+ * what the extra bottom padding below is for.
  */
-export default function MobileShell({ children, header = null, withNav = true, fab = null }) {
+export default function MobileShell({
+  children, header = null, withNav = true, fab = null, bottomBar = null, overlay = null,
+}) {
+  // Room at the end of the page for whatever is pinned over it. `pb-24` is the
+  // tab bar alone, as before; the taller values add the action bar — generous
+  // on purpose, since a bar can hold a note above its button, and blank space
+  // after the last section costs nothing while content hidden under a bar is a
+  // bug you only find on the one screen that has a long one.
+  const bottomPad = bottomBar
+    ? (withNav ? "pb-44" : "pb-28")
+    : (withNav ? "pb-24" : "pb-4");
+
   return (
     <div className="min-h-screen bg-base flex flex-col">
-      <main className={"flex-1 w-full " + (withNav ? "pb-24" : "pb-4")}>
+      <main className={"flex-1 w-full " + bottomPad}>
         {/* Responsive centred column */}
         <div className="w-full mx-auto sm:max-w-xl lg:max-w-2xl">
           {header ? (
@@ -63,8 +80,40 @@ export default function MobileShell({ children, header = null, withNav = true, f
           </div>
         </div>
       </main>
+
       {fab}
-      {withNav ? <BottomNav /> : null}
+
+      {/* The bottom stack: an optional action bar resting directly on the tab
+          bar. One fixed container holding both, rather than two fixed elements
+          and a number to keep them apart — stacked in normal flow they meet
+          exactly, and neither has to know how tall the other is. (It was worth
+          measuring: the tab bar is 74.5px on a phone with no home indicator,
+          which is not a number anybody would have guessed right.)
+
+          Both wear the same frosted material, so they read as one block at the
+          bottom of the screen — the arrangement the header at the top already
+          has with the page scrolling under it. */}
+      {bottomBar || withNav ? (
+        <div className="fixed inset-x-0 bottom-0 z-50">
+          {bottomBar ? (
+            <div className="app-glass">
+              <div
+                className="w-full mx-auto sm:max-w-xl lg:max-w-2xl px-4 pt-3"
+                // With tabs below, they carry the home-indicator strip. Without
+                // them this bar is the bottom of the screen and carries it.
+                style={{ paddingBottom: withNav ? "0.75rem" : "max(0.75rem, env(safe-area-inset-bottom))" }}
+              >
+                {bottomBar}
+              </div>
+            </div>
+          ) : null}
+          {withNav ? <BottomNav /> : null}
+        </div>
+      ) : null}
+
+      {/* Sheets and dialogs, over everything else. Last in the DOM so it wins
+          the stack against the bars above without needing a higher z-index. */}
+      {overlay}
     </div>
   );
 }

@@ -332,6 +332,7 @@ const kz = {
   follow: "Жазылу",
   following: "Жазылғансыз",
   unfollow: "Жазылымнан шығу",
+  postsLabel: "Жазбалар",
   followersLabel: "Жазылушылар",
   followingLabel: "Жазылымдар",
   followersTitle: "Жазылушылар",
@@ -343,10 +344,6 @@ const kz = {
   followNotifTitle: "Жаңа жазылушы",
   followNotifBody: (name) => `${name} сізге жазылды`,
   openProfile: "Профильді ашу",
-  // The empty reading card on somebody else's profile. The reader's own says
-  // "open the library and borrow one"; that is an instruction, and an
-  // instruction addressed to a person who is not looking at the screen.
-  memberNoReadingBook: "Қазір кітап оқымайды",
   placeShort: "орын",
   hoursShort: "сағ",
   minutesShort: "мин",
@@ -548,9 +545,21 @@ const kz = {
   // Community management — the admin's controls on the community page
   deleteBookConfirm: "Кітапты жою керек пе?",
   deleteBookWarning: "Кітап қоғамдастық сөресінен біржола жойылады.",
-  removeMemberConfirm: "Мүшені шығару керек пе?",
   removeMemberWarning:
     "Бұл адам қоғамдастықтан шығарылады. Ол қайтадан кіру өтінішін бере алады.",
+  // Ejecting a member — the screen, not the dialog it used to be. A person can
+  // be holding books, and each of them has to end up in somebody's hands.
+  removeMemberTitle: "Мүшені шығару",
+  removeMemberBooksHint: "Бұл адамның қолындағы кітаптар. Әрқайсысын кімге беретініңізді таңдаңыз.",
+  memberHasNoBooks: "Бұл мүшеде кітап жоқ",
+  memberHasNoBooksHint: "Шығаруға болады — қоғамдастықтың кітабы онда қалмайды.",
+  newHolder: "Жаңа иеленуші",
+  chooseHolder: "Таңдаңыз…",
+  chooseHolderForAll: "Әр кітапқа жаңа иеленуші таңдаңыз",
+  ownershipMovesToo: "Кітаптың иесі де осы адам болады",
+  removeMemberAction: "Шығару",
+  removeMemberDone: "Мүше шығарылды",
+  noOtherMembers: "Қоғамдастықта басқа мүше жоқ — кітапты беретін адам табылмады.",
 
   // Join / leave requests — the decision the admin makes on a notification
   requestApprove: "Қабылдау",
@@ -1010,6 +1019,7 @@ const ru = {
   follow: "Подписаться",
   following: "Вы подписаны",
   unfollow: "Отписаться",
+  postsLabel: "Публикации",
   followersLabel: "Подписчики",
   followingLabel: "Подписки",
   followersTitle: "Подписчики",
@@ -1021,7 +1031,6 @@ const ru = {
   followNotifTitle: "Новый подписчик",
   followNotifBody: (name) => `${name} подписался на вас`,
   openProfile: "Открыть профиль",
-  memberNoReadingBook: "Сейчас ничего не читает",
   placeShort: "место",
   hoursShort: "ч",
   minutesShort: "мин",
@@ -1222,9 +1231,19 @@ const ru = {
   // Community management — the admin's controls on the community page
   deleteBookConfirm: "Удалить книгу?",
   deleteBookWarning: "Книга будет безвозвратно удалена с полки сообщества.",
-  removeMemberConfirm: "Удалить участника?",
   removeMemberWarning:
     "Этот пользователь будет удалён из сообщества. Он сможет подать заявку снова.",
+  removeMemberTitle: "Удаление участника",
+  removeMemberBooksHint: "Книги, которые сейчас у этого человека. Выберите, кому передать каждую.",
+  memberHasNoBooks: "У этого участника нет книг",
+  memberHasNoBooksHint: "Можно удалять — книг сообщества у него не останется.",
+  newHolder: "Новый держатель",
+  chooseHolder: "Выберите…",
+  chooseHolderForAll: "Выберите держателя для каждой книги",
+  ownershipMovesToo: "Владельцем книги тоже станет этот человек",
+  removeMemberAction: "Удалить",
+  removeMemberDone: "Участник удалён",
+  noOtherMembers: "В сообществе нет других участников — передать книгу некому.",
 
   // Join / leave requests — the decision the admin makes on a notification
   requestApprove: "Принять",
@@ -1684,6 +1703,7 @@ const en = {
   follow: "Follow",
   following: "Following",
   unfollow: "Unfollow",
+  postsLabel: "Posts",
   followersLabel: "Followers",
   followingLabel: "Following",
   followersTitle: "Followers",
@@ -1695,7 +1715,6 @@ const en = {
   followNotifTitle: "New follower",
   followNotifBody: (name) => `${name} started following you`,
   openProfile: "Open profile",
-  memberNoReadingBook: "Not reading anything right now",
   placeShort: "place",
   hoursShort: "h",
   minutesShort: "min",
@@ -1896,9 +1915,19 @@ const en = {
   // Community management — the admin's controls on the community page
   deleteBookConfirm: "Delete this book?",
   deleteBookWarning: "The book will be permanently removed from the community shelf.",
-  removeMemberConfirm: "Remove this member?",
   removeMemberWarning:
     "This person will be removed from the community. They can ask to join again.",
+  removeMemberTitle: "Remove member",
+  removeMemberBooksHint: "The books this person is holding. Choose who takes each one.",
+  memberHasNoBooks: "This member holds no books",
+  memberHasNoBooksHint: "Safe to remove — no community book stays with them.",
+  newHolder: "New holder",
+  chooseHolder: "Choose…",
+  chooseHolderForAll: "Choose a holder for every book",
+  ownershipMovesToo: "This person becomes the book's owner too",
+  removeMemberAction: "Remove",
+  removeMemberDone: "Member removed",
+  noOtherMembers: "Nobody else is in this community — there is no one to pass a book to.",
 
   // Join / leave requests — the decision the admin makes on a notification
   requestApprove: "Approve",

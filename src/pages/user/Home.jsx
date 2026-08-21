@@ -249,9 +249,7 @@ export default function Home() {
 
   return (
     <MobileShell
-      // Outside the page content on purpose — see the note in MobileShell: the
-      // page-transition wrapper is a transformed element, which would make a
-      // `fixed` button inside it stick to the feed rather than to the window.
+      // Chrome, not content — see the slot note in MobileShell.
       //
       // Hidden while searching: the screen is a list of people and communities
       // then, and a "+" over it would be about something else entirely.

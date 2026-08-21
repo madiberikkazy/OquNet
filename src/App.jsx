@@ -65,6 +65,8 @@ const LeaveCommunity     = lazyRoute(() => import("./pages/community/LeaveCommun
 // Step two of leaving: the code that brings one of the member's books home.
 const ReturnBook         = lazyRoute(() => import("./pages/community/ReturnBook.jsx"));
 const UserProfile        = lazyRoute(() => import("./pages/community/UserProfile.jsx"));
+// Ejecting a member, and settling the books they are holding on the way out.
+const RemoveMember       = lazyRoute(() => import("./pages/community/RemoveMember.jsx"));
 // The two lists behind the follow counters — one screen, both directions.
 const FollowList         = lazyRoute(() => import("./pages/user/FollowList.jsx"));
 
@@ -165,6 +167,9 @@ export default function App() {
             <Route path="/community/:id/edit" element={<EditCommunity />} />
             <Route path="/community/:id/leave" element={<LeaveCommunity />} />
             <Route path="/community/:id/leave/return/:bookId" element={<ReturnBook />} />
+            {/* A screen rather than a dialog: a member on their way out may be
+                holding books, and each one needs somewhere to go. */}
+            <Route path="/community/:id/members/:userId/remove" element={<RemoveMember />} />
             <Route path="/users/:id" element={<UserProfile />} />
             {/* Who follows this person, and who they follow. The same two
                 routes serve the reader's own profile — a followers list is the

@@ -30,6 +30,7 @@ const {
   watchChatsForUser, chatIdFor,
   listBorrowingsForBook, getUsersByIds, BOOK_JOURNEY_MAX,
   createPost, getPost, listPublicPosts, listPostsByCommunity, togglePostLike,
+  listPostsByAuthor,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
   createJoinRequest, getRequestById, getPhoneVerification,
   openPickupRequest, getPickupRequest, getPendingPickupForUser,
@@ -390,6 +391,47 @@ describe("people search", () => {
     assert.equal((await searchUsers("madi")).length, 0);
     assert.equal((await searchUsers("berik")).length, 0);
     assert.equal((await searchUsers("deleted")).length, 1);
+  });
+});
+
+// The number under a name on a profile. The second filter in this query is not
+// a refinement — it is what makes the query legal against the posts rules — so
+// these cover both shapes of it.
+describe("posts by one author", () => {
+  const A = "u-author";
+  const OTHER = "u-other";
+  const C1 = "com-1";
+  const C2 = "com-2";
+
+  async function post(over) {
+    return createPost({
+      communityId: C1, authorId: A, authorName: "A", isPublic: true, body: "text", ...over,
+    });
+  }
+
+  it("counts what this author wrote in one community, and nobody else's", async () => {
+    await post({});
+    await post({});
+    await post({ authorId: OTHER });
+    await post({ communityId: C2 });
+
+    const mine = await listPostsByAuthor({ authorId: A, communityId: C1 });
+    assert.equal(mine.length, 2);
+    assert.ok(mine.every((p) => p.authorId === A && p.communityId === C1));
+  });
+
+  it("falls back to the public ones when there is no community to ask about", async () => {
+    await post({ isPublic: true });
+    await post({ isPublic: false });
+
+    const seen = await listPostsByAuthor({ authorId: A });
+    assert.equal(seen.length, 1, "a private post was counted from outside");
+    assert.equal(seen[0].isPublic, true);
+  });
+
+  it("says nothing without an author", async () => {
+    await post({});
+    assert.deepEqual(await listPostsByAuthor({}), []);
   });
 });
 

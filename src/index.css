@@ -206,8 +206,24 @@
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+/* `backwards`, not `both`, and the difference is not cosmetic.
+ *
+ * `both` keeps the animation's final frame applied for ever, and that frame
+ * carries `transform: translateY(0)`. A transform — even an identity one —
+ * makes an element the containing block for every `position: fixed`
+ * descendant, so with `both` every modal, sheet and floating button rendered
+ * inside a page was pinned to the *page*, not the window. Measured on a 1500px
+ * page in an 837px window: a `fixed inset-0` overlay came out 1500px tall and
+ * opened wherever the bottom of the content happened to be, which on a long
+ * screen is out of sight entirely.
+ *
+ * `backwards` applies the opening frame before the animation starts and then
+ * lets the element go back to its own styles, so the transform exists only for
+ * the 0.22s it is needed. The animation looks identical — its last frame is the
+ * element's natural position — and afterwards `fixed` means the window again.
+ */
 .page-transition {
-  animation: pageSlideIn 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  animation: pageSlideIn 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

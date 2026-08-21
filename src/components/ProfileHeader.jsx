@@ -21,7 +21,9 @@ import { t } from "../utils/i18n.js";
  * `action` is the slot under the name for whatever this viewer can *do* with
  * this profile — the follow button on somebody else's, nothing on your own.
  */
-export default function ProfileHeader({ user, showSettings = false, onBack, badge, action = null }) {
+export default function ProfileHeader({
+  user, showSettings = false, onBack, badge, action = null, postsCount = null,
+}) {
   const fullName = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim();
 
   return (
@@ -105,7 +107,7 @@ export default function ProfileHeader({ user, showSettings = false, onBack, badg
         {user?.nickname ? <p className="text-ink-500 text-[14px]">@{user.nickname}</p> : null}
         {badge}
 
-        <FollowCounts user={user} />
+        <FollowCounts user={user} postsCount={postsCount} />
 
         {action ? <div className="w-full mt-3">{action}</div> : null}
       </div>
@@ -114,40 +116,58 @@ export default function ProfileHeader({ user, showSettings = false, onBack, badg
 }
 
 /**
- * "Жазылымдар 26 · Жазылушылар 3" — the two ends of the follow graph, under
- * the name on every profile.
+ * "Жазбалар 4 · Жазылымдар 26 · Жазылушылар 3" — what this person has written,
+ * and the two ends of the follow graph, under the name on every profile.
  *
- * Both numbers are read straight off the profile document: they are
- * denormalised totals maintained by followUser/unfollowUser, so a profile
- * screen shows them without a query of its own. An account created before
- * follows existed carries neither field, which is what the `?? 0` is for — a
- * blank where a counter should be reads as a bug, and zero is the truth.
+ * The two follow numbers are read straight off the profile document: they are
+ * denormalised totals maintained by followUser/unfollowUser, so they cost no
+ * query. An account created before follows existed carries neither field, which
+ * is what the `?? 0` is for — a blank where a counter should be reads as a bug,
+ * and zero is the truth.
  *
- * Each half opens the list behind it, on the same route for every profile
- * including the reader's own: a followers list is the same list whoever is
- * looking at it.
+ * `postsCount` is different in kind and is passed in rather than read here: it
+ * is counted by a query, and *which* query depends on who is looking (see
+ * listPostsByAuthor). Null while that answer is still on its way, which draws
+ * as a dash — the two zeroes beside it are facts, and a third zero that only
+ * means "not yet" would be a lie standing next to them.
+ *
+ * The follow halves open the list behind them, on the same route for every
+ * profile including the reader's own: a followers list is the same list whoever
+ * is looking at it. The posts column leads nowhere yet, so it is not a link —
+ * a tappable-looking number that does nothing is worse than a plain one.
  */
-function FollowCounts({ user }) {
+function FollowCounts({ user, postsCount = null }) {
   if (!user?.id) return null;
 
   return (
-    <div className="flex items-stretch mt-3 w-full max-w-[280px]">
-      <FollowCount to={`/users/${user.id}/following`} value={user.followingCount} label={t.followingLabel} />
-      {/* Hairline between the two, not around them — same as ProfileStatsRow. */}
+    <div className="flex items-stretch mt-3 w-full max-w-[320px]">
+      <ProfileCount value={postsCount} label={t.postsLabel} />
+      {/* Hairlines between the columns, not around them — same as ProfileStatsRow. */}
       <span className="w-px bg-ink-100 my-1 shrink-0" aria-hidden="true" />
-      <FollowCount to={`/users/${user.id}/followers`} value={user.followersCount} label={t.followersLabel} />
+      {/* `?? 0` here rather than in the column: a profile that predates follows
+          carries neither field, and zero is the true answer for it. The dash the
+          column falls back to is for a number that has not arrived yet, which
+          only the posts count can be. */}
+      <ProfileCount to={`/users/${user.id}/following`} value={user.followingCount ?? 0} label={t.followingLabel} />
+      <span className="w-px bg-ink-100 my-1 shrink-0" aria-hidden="true" />
+      <ProfileCount to={`/users/${user.id}/followers`} value={user.followersCount ?? 0} label={t.followersLabel} />
     </div>
   );
 }
 
-function FollowCount({ to, value, label }) {
-  return (
-    <Link
-      to={to}
-      className="flex-1 min-w-0 px-1 py-1 rounded-xl text-center transition active:scale-[0.97]"
-    >
-      <p className="text-[20px] font-bold leading-none tabular-nums">{value ?? 0}</p>
+function ProfileCount({ to, value, label }) {
+  const inner = (
+    <>
+      <p className="text-[20px] font-bold leading-none tabular-nums">{value ?? "—"}</p>
       <p className="text-[12px] text-ink-500 mt-1.5 truncate">{label}</p>
+    </>
+  );
+  const className = "flex-1 min-w-0 px-1 py-1 rounded-xl text-center";
+
+  if (!to) return <div className={className}>{inner}</div>;
+  return (
+    <Link to={to} className={className + " transition active:scale-[0.97]"}>
+      {inner}
     </Link>
   );
 }

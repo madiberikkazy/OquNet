@@ -298,6 +298,20 @@ describe("books: holder transitions", () => {
     await assertFails(take(DRIFTER));
   });
 
+  // The admin's tool for ejecting a member who is holding books: every copy
+  // gets a new keeper before its old one leaves (RemoveMember.jsx).
+  it("the community admin MAY hand the book to somebody else", async () => {
+    await assertSucceeds(updateDoc(doc(as(ADMIN_A), "books", BOOK_1), {
+      holderId: MEMBER_A2, status: "available", borrowerId: null,
+    }));
+  });
+
+  it("...but not an admin of some other community", async () => {
+    await assertFails(updateDoc(doc(as(ADMIN_B), "books", BOOK_1), {
+      holderId: MEMBER_B, status: "available", borrowerId: null,
+    }));
+  });
+
   it("a member may NOT hand the book to somebody else", async () => {
     await assertFails(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
       status: "unavailable", borrowerId: MEMBER_B, holderId: MEMBER_B,

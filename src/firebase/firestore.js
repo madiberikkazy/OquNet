@@ -1047,6 +1047,51 @@ export async function transferBookHolder({
  * still on their shelf. `holderId` stays put; only `borrowerId` (the *active
  * loan*) clears. The book leaves them when someone collects it, not before.
  */
+/**
+ * Hand a book from a departing member to somebody else.
+ *
+ * The admin's tool, used when a member is ejected: every book physically with
+ * that member has to end up somewhere, and the alternative to naming a keeper
+ * is a book recorded as being in the hands of somebody who is no longer in the
+ * community — invisible to everyone and reachable by nobody.
+ *
+ * Three things move together, which is why this is one call rather than three
+ * writes at the call site:
+ *
+ *   · Any loan the departing member had open is completed. It has to be: the
+ *     book is not with them any more, and an active borrowing left behind
+ *     follows the person, blocking them from borrowing wherever they go next.
+ *   · The book becomes `available` with its new holder rather than `unavailable`
+ *     to them. They were handed it; they did not ask to read it, and marking it
+ *     as their active read would put a book on their profile they never took.
+ *   · Ownership follows the holder only when the departing member owned it —
+ *     `transferOwnership`, decided by the caller. A copy somebody else owns
+ *     keeps its owner; a copy the leaver owned would otherwise be left
+ *     belonging to an outsider, which is the same orphan in a different field.
+ */
+export async function reassignHeldBook({ bookId, toUserId, transferOwnership = false } = {}) {
+  if (!bookId) throw new Error("reassignHeldBook: missing bookId");
+  if (!toUserId) throw new Error("reassignHeldBook: missing toUserId");
+
+  const book = await getBook(bookId);
+  if (!book) throw new Error("reassignHeldBook: book not found");
+
+  const active = await getActiveBorrowingByBook(bookId).catch(() => null);
+  if (active?.id) {
+    await updateBorrowing(active.id, { status: "completed", returnDate: Date.now() });
+  }
+
+  const patch = { holderId: toUserId, status: "available", borrowerId: null };
+  await updateBook(bookId, patch);
+  if (transferOwnership) await reassignBookOwner(bookId, toUserId);
+
+  return {
+    ...book,
+    ...patch,
+    ownerId: transferOwnership ? toUserId : book.ownerId ?? null,
+  };
+}
+
 export async function releaseBookAfterReading({ bookId, holderId }) {
   if (!bookId) throw new Error("releaseBookAfterReading: missing bookId");
   if (!holderId) throw new Error("releaseBookAfterReading: missing holderId");
@@ -1298,6 +1343,38 @@ export async function syncPostVisibility(communityId, isPublic) {
 export async function listPostsByCommunity(communityId, pageSize = 30) {
   if (!communityId) return [];
   return getCollection("posts", communityPostsQuery(communityId, pageSize));
+}
+
+/** How many of somebody's posts a profile counts. A cap, not a page. */
+export const POSTS_BY_AUTHOR_MAX = 200;
+
+/**
+ * Everything one person has posted, as far as this caller is allowed to see it.
+ *
+ * The second filter is not optional and not a refinement — it is what makes the
+ * query legal. The rules can allow or deny a query but never filter one, so a
+ * post list has to *name* the ground it stands on: either the community the
+ * caller belongs to, or the public flag. `authorId` alone would be refused
+ * outright, which is a denied read rather than a smaller answer.
+ *
+ * Both shapes are equality-only with no ordering, so Firestore serves them by
+ * merging the single-field indexes it maintains on its own — no composite index,
+ * and nothing to add to firestore.indexes.json.
+ *
+ * It follows that the number this produces is the number *this viewer* may see,
+ * which is the honest one to show them: a stranger counting somebody's posts
+ * from outside their community is counting the public ones, because those are
+ * the only ones that exist as far as they are concerned.
+ */
+export async function listPostsByAuthor({ authorId, communityId = null, pageSize = POSTS_BY_AUTHOR_MAX } = {}) {
+  if (!authorId) return [];
+  return getCollection("posts", {
+    where: [
+      ["authorId", "==", authorId],
+      communityId ? ["communityId", "==", communityId] : ["isPublic", "==", true],
+    ],
+    pageSize,
+  });
 }
 
 function communityPostsQuery(communityId, pageSize) {
