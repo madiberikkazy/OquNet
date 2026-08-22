@@ -799,7 +799,8 @@ service cloud.firestore {
         && request.resource.data.body is string
         && request.resource.data.body.size() > 0;
 
-      allow update: if postAuthorEdit() || postVisibilitySync() || postLikeRollup();
+      allow update: if postAuthorEdit() || postVisibilitySync()
+        || postLikeRollup() || postCommentRollup();
 
       // The author takes their own notice down — and so may the admin of the
       // community it was posted to.
@@ -860,6 +861,65 @@ service cloud.firestore {
         && request.resource.data.likeCount >= 0
         && (request.resource.data.likeCount == resource.data.get('likeCount', 0) + 1
             || request.resource.data.likeCount == resource.data.get('likeCount', 0) - 1);
+    }
+
+    // A reply, counted on the post itself. The same shape as the like counter
+    // above and bounded the same way: anyone who can read the post may move it
+    // by one, in either direction, and never below zero. What stops it from
+    // being a way to write an arbitrary number onto somebody else's post is
+    // that bound — and the comment document itself, which is the thing that
+    // actually says a reply happened and can only be written by its author.
+    function postCommentRollup() {
+      return signedIn()
+        && (resource.data.isPublic == true || resource.data.communityId == myCommunity())
+        && touchesOnly(['commentCount'].toSet())
+        && request.resource.data.commentCount is int
+        && request.resource.data.commentCount >= 0
+        && (request.resource.data.commentCount == resource.data.get('commentCount', 0) + 1
+            || request.resource.data.commentCount == resource.data.get('commentCount', 0) - 1);
+    }
+
+    // ═══ comments ═══
+    //
+    // A reply under a post, in its own collection. It carries a copy of the
+    // post's audience — `communityId` and `isPublic` — so this rule is the post
+    // rule again, word for word, and costs no document reads: a thread renders
+    // without the rules engine touching the post at all.
+    //
+    // That copy is exactly what the create rule spends its one get() checking.
+    // A comment that claimed a different audience than the post it hangs under
+    // would be a reply to a private community's notice, readable by anybody.
+
+    match /comments/{commentId} {
+      allow get, list: if signedIn()
+        && (resource.data.isPublic == true
+            || resource.data.communityId == myCommunity());
+
+      allow create: if signedIn()
+        && request.resource.data.authorId == uid()
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.createdAt == request.time
+        && commentMatchesPost();
+
+      // A reply is written or removed, never edited: an edit would let somebody
+      // rewrite what is already sitting under a stranger's post as an answer.
+      allow update: if false;
+
+      // The author takes their own reply down, and the admin of the community
+      // it was posted in may remove anybody's — the same moderation the posts
+      // themselves have, and needed for the same reason.
+      allow delete: if signedIn()
+        && (resource.data.authorId == uid() || isAdminOf(resource.data.communityId));
+    }
+
+    /** The post this comment hangs under, and the audience it has to inherit. */
+    function commentMatchesPost() {
+      let post = get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data;
+      return request.resource.data.communityId == post.communityId
+        && request.resource.data.isPublic == post.get('isPublic', false)
+        // Only somebody who can read the post may answer it.
+        && (post.get('isPublic', false) == true || post.communityId == myCommunity());
     }
 
     // ═══ notifications ═══

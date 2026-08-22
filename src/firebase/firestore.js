@@ -18,6 +18,7 @@ import {
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
   normalizeNewChat, normalizeNewMessage, normalizeNewFollow, followIdFor,
   normalizeNewCommunity, normalizeCommunityPatch, normalizeNewPost, normalizePostPatch,
+  normalizeNewComment,
   normalizeJoinRequest, normalizeReturnRequest, newPickupCode,
   normalizeNewNotification, normalizeNewUser, normalizeRating,
   userSearchFields, USER_SEARCH_SOURCES,
@@ -60,7 +61,7 @@ function emptyDb() {
   return {
     users: [], usernames: [], communities: [], books: [], posts: [],
     notifications: [], requests: [], borrowings: [], ratings: [], reviews: [],
-    follows: [],
+    follows: [], comments: [],
     readingSessions: [], phoneVerifications: [],
   };
 }
@@ -1397,6 +1398,124 @@ export function watchPostsByCommunity(communityId, { pageSize = 100, ...handlers
 // query, so an unscoped list is denied rather than filtered. `listAllPosts`
 // used to be defined here, had no callers, and would have thrown for every one
 // it might have had.
+
+// ---------- Comments ----------
+//
+// Replies under a post. The audience is copied onto every comment at creation
+// (see schema.js), which is what makes both halves of this cheap: a list is one
+// indexed query with no document reads spent in the rules, and the counter on
+// the post is the only thing that has to be maintained alongside.
+
+/** How many replies one post's thread loads. A cap, not a page. */
+export const COMMENT_PAGE_MAX = 200;
+
+/** The `where` clause that makes a comment query legal for this caller. */
+function commentAudience(communityId) {
+  // Same rule the post itself is read under: the caller's own community, or
+  // the public flag. Naming one of the two is not optional — a query the rules
+  // cannot prove safe is refused outright rather than trimmed.
+  return communityId ? ["communityId", "==", communityId] : ["isPublic", "==", true];
+}
+
+/**
+ * The thread under one post, oldest first — the order a conversation is read in.
+ *
+ * Sorted here rather than by the database. Two equality filters with no ordering
+ * is a query Firestore serves from the single-field indexes it maintains by
+ * itself; adding `orderBy` would make it a composite index for no gain, since a
+ * thread is capped at two hundred replies and sorting that in the browser costs
+ * nothing measurable.
+ */
+export async function listComments({ postId, communityId = null, pageSize = COMMENT_PAGE_MAX } = {}) {
+  if (!postId) return [];
+  const rows = await getCollection("comments", {
+    where: [["postId", "==", postId], commentAudience(communityId)],
+    pageSize,
+  });
+  return rows.sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
+}
+
+/** The same thread, kept open — a reply from somebody else appears by itself. */
+export function watchComments({ postId, communityId = null, pageSize = COMMENT_PAGE_MAX } = {}, handlers = {}) {
+  if (!postId) return () => {};
+  const { onRows, ...rest } = handlers;
+  return watchCollection(
+    "comments",
+    { where: [["postId", "==", postId], commentAudience(communityId)], pageSize },
+    {
+      ...rest,
+      onRows: (rows) => onRows?.([...rows].sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt))),
+    }
+  );
+}
+
+/**
+ * Move a post's reply counter by ±1.
+ *
+ * The mirror of `adjustPostLikeCount`, and it exists for the same reason: the
+ * feed shows a total, and counting a collection it would have to page through
+ * to total is not something a feed row can do.
+ */
+async function adjustPostCommentCount(postId, delta) {
+  if (!postId) throw new Error("adjustPostCommentCount: missing postId");
+  if (delta === 0) return;
+  return runFs("adjustPostCommentCount", async () => {
+    if (isFirebaseConfigured) {
+      await updateDoc(doc(db, "posts", postId), { commentCount: increment(delta) });
+      return;
+    }
+    const data = readLS();
+    const idx = (data.posts || []).findIndex((r) => r.id === postId);
+    if (idx < 0) throw new Error(`adjustPostCommentCount: no post ${postId}`);
+    const stored = Number.isInteger(data.posts[idx].commentCount) ? data.posts[idx].commentCount : 0;
+    data.posts[idx] = { ...data.posts[idx], commentCount: Math.max(0, stored + delta) };
+    writeLS(data);
+  });
+}
+
+/**
+ * Write a reply.
+ *
+ * Two writes, and they are one action to whoever tapped send: the comment, then
+ * the total on the post. A refused counter takes the comment back out rather
+ * than leaving a thread whose length nobody else can see — the same undo
+ * `togglePostLike` does, for the same reason.
+ */
+export async function createComment(payload) {
+  const comment = await createOne("comments", normalizeNewComment(payload));
+  try {
+    await adjustPostCommentCount(comment.postId, 1);
+  } catch (err) {
+    await deleteOne("comments", comment.id).catch((undoErr) => {
+      logger.error("firestore.createComment.undo", undoErr?.message, { commentId: comment.id });
+    });
+    throw err;
+  }
+  return comment;
+}
+
+/**
+ * Take a reply back down. The author's own, or a community admin's moderation —
+ * the rules decide which, and this call is the same either way.
+ */
+export async function deleteComment({ id, postId } = {}) {
+  if (!id) throw new Error("deleteComment: missing id");
+  await deleteOne("comments", id);
+
+  // Nothing to subtract from a counter already at zero: the rules refuse it,
+  // and a post whose count was lost to an older build would otherwise be
+  // undeletable-from. Same guard an unlike carries.
+  if (postId) {
+    const post = await getOne("posts", postId).catch(() => null);
+    if (Number.isInteger(post?.commentCount) && post.commentCount > 0) {
+      await adjustPostCommentCount(postId, -1).catch((err) => {
+        // The comment is gone, which is what the caller asked for. A counter
+        // one too high is worth a log, not a failure they can act on.
+        logger.warn("firestore.deleteComment.count", err?.message, { postId });
+      });
+    }
+  }
+}
 
 // ---------- Notifications ----------
 export async function createNotification(payload) {

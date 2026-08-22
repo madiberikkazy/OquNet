@@ -1453,6 +1453,142 @@ describe("posts", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Replies. The interesting half is the audience a comment carries: it is what
+// every read of a thread is allowed by, so a comment that could claim a
+// different one than its post would be a private notice with a public answer
+// hanging off it.
+describe("comments", () => {
+  const PUBLIC_POST = "post-public";   // in C1, public
+  const CLOSED_POST = "post-closed";   // in C3, the private community
+
+  const reply = (postId, over = {}) => ({
+    postId, communityId: C1, isPublic: true, authorId: MEMBER_A,
+    authorName: "M A", photoURL: "", body: "nice",
+    createdAt: serverTimestamp(), ...over,
+  });
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, "posts", PUBLIC_POST), {
+        communityId: C1, authorId: ADMIN_A, authorName: "F L", isPublic: true,
+        body: "text", likeCount: 0, commentCount: 0, createdAt: Date.now(),
+      });
+      await setDoc(doc(db, "posts", CLOSED_POST), {
+        communityId: C3, authorId: MEMBER_C, authorName: "M C", isPublic: false,
+        body: "members only", likeCount: 0, commentCount: 0, createdAt: Date.now(),
+      });
+    });
+  });
+
+  it("a member may answer a post they can read", async () => {
+    await assertSucceeds(setDoc(doc(as(MEMBER_A), "comments", "c1"), reply(PUBLIC_POST)));
+  });
+
+  it("an outsider may answer a public post — the discovery feed reaches it", async () => {
+    await assertSucceeds(setDoc(doc(as(MEMBER_B), "comments", "c1"),
+      reply(PUBLIC_POST, { authorId: MEMBER_B })));
+  });
+
+  it("nobody may answer a post they cannot read", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "comments", "c1"),
+      reply(CLOSED_POST, { communityId: C3, isPublic: false })));
+  });
+
+  it("a reply may not claim a wider audience than its post", async () => {
+    // The one that would leak: a members-only post answered in public.
+    await assertFails(setDoc(doc(as(MEMBER_C), "comments", "c1"),
+      reply(CLOSED_POST, { authorId: MEMBER_C, communityId: C3, isPublic: true })));
+    // …and the mirror, a public post's reply pinned to the wrong community.
+    await assertFails(setDoc(doc(as(MEMBER_A), "comments", "c1"),
+      reply(PUBLIC_POST, { communityId: C2 })));
+  });
+
+  it("the member of a private community may answer its posts", async () => {
+    await assertSucceeds(setDoc(doc(as(MEMBER_C), "comments", "c1"),
+      reply(CLOSED_POST, { authorId: MEMBER_C, communityId: C3, isPublic: false })));
+  });
+
+  it("nobody may sign a reply with somebody else's name", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "comments", "c1"),
+      reply(PUBLIC_POST, { authorId: MEMBER_A2 })));
+  });
+
+  it("a reply must have text, and an honest timestamp", async () => {
+    await assertFails(setDoc(doc(as(MEMBER_A), "comments", "c1"), reply(PUBLIC_POST, { body: "" })));
+    await assertFails(setDoc(doc(as(MEMBER_A), "comments", "c1"),
+      reply(PUBLIC_POST, { createdAt: Date.now() })));
+  });
+
+  describe("reading and removing", () => {
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        const db = ctx.firestore();
+        await setDoc(doc(db, "comments", "open-1"), {
+          postId: PUBLIC_POST, communityId: C1, isPublic: true,
+          authorId: MEMBER_A, authorName: "M A", body: "hello", createdAt: Date.now(),
+        });
+        await setDoc(doc(db, "comments", "closed-1"), {
+          postId: CLOSED_POST, communityId: C3, isPublic: false,
+          authorId: MEMBER_C, authorName: "M C", body: "hidden", createdAt: Date.now(),
+        });
+      });
+    });
+
+    it("anyone signed in reads a public reply", async () => {
+      await assertSucceeds(getDoc(doc(as(MEMBER_B), "comments", "open-1")));
+      const q = query(collection(as(MEMBER_B), "comments"),
+        where("postId", "==", PUBLIC_POST), where("isPublic", "==", true));
+      await assertSucceeds(getDocs(q));
+    });
+
+    it("an outsider may not read a private community's reply", async () => {
+      await assertFails(getDoc(doc(as(MEMBER_A), "comments", "closed-1")));
+      const q = query(collection(as(MEMBER_A), "comments"),
+        where("postId", "==", CLOSED_POST), where("communityId", "==", C3));
+      await assertFails(getDocs(q));
+    });
+
+    it("a reply is never edited", async () => {
+      await assertFails(updateDoc(doc(as(MEMBER_A), "comments", "open-1"), { body: "rewritten" }));
+    });
+
+    it("the author takes their own reply down", async () => {
+      await assertSucceeds(deleteDoc(doc(as(MEMBER_A), "comments", "open-1")));
+    });
+
+    it("a bystander may not", async () => {
+      await assertFails(deleteDoc(doc(as(MEMBER_A2), "comments", "open-1")));
+    });
+
+    it("the community's admin may — that is the moderation", async () => {
+      await assertSucceeds(deleteDoc(doc(as(ADMIN_A), "comments", "open-1")));
+      await assertFails(deleteDoc(doc(as(ADMIN_B), "comments", "open-1")));
+    });
+
+    it("the counter on the post moves by one, in either direction", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A), "posts", PUBLIC_POST), {
+        commentCount: increment(1),
+      }));
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A), "posts", PUBLIC_POST), {
+        commentCount: increment(-1),
+      }));
+    });
+
+    it("...and no further, and takes nothing with it", async () => {
+      await assertFails(updateDoc(doc(as(MEMBER_A), "posts", PUBLIC_POST), {
+        commentCount: increment(-1),
+      }));
+      await assertFails(updateDoc(doc(as(MEMBER_A), "posts", PUBLIC_POST), {
+        commentCount: increment(7),
+      }));
+      await assertFails(updateDoc(doc(as(MEMBER_A), "posts", PUBLIC_POST), {
+        commentCount: increment(1), body: "Hijacked",
+      }));
+    });
+  });
+});
+
 describe("usernames index", () => {
   it("a user may claim a nickname for themselves", async () => {
     await assertSucceeds(setDoc(doc(as(MEMBER_A), "usernames", "abai"), {

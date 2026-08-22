@@ -39,6 +39,38 @@ export function formatPostDate(value) {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${pad(d.getFullYear() % 100)}`;
 }
 
+/**
+ * How long ago a post was written — `12 мин`, `4 сағ`, `3 күн`, then a date.
+ *
+ * A feed is read top-down and mostly minutes old, so the useful thing to say
+ * about the newest rows is how fresh they are, not what the calendar said. It
+ * turns into `formatPostDate` after a week, where "9 күн" stops being easier to
+ * read than the date itself.
+ *
+ * Short units — the same `мин`/`сағ` the reading times use — because this sits
+ * on the same line as a name and must not push it about. Empty for a stamp that
+ * has not resolved yet, so a caller can leave the line out rather than claim
+ * the post is from 1970.
+ */
+export function formatPostStamp(value, now = Date.now()) {
+  const ms = toMillis(value, null);
+  if (!ms) return "";
+
+  const seconds = Math.max(0, Math.round((now - ms) / 1000));
+  if (seconds < 60) return t.lastSeenJustNow;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} ${t.minutesShort}`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ${t.hoursShort}`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} ${t.daysShort}`;
+
+  return formatPostDate(ms);
+}
+
 /** Two digits, always — `9:5` is not a time anybody writes. */
 function pad2(n) {
   return String(n).padStart(2, "0");

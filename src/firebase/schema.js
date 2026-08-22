@@ -765,7 +765,7 @@ export const postSchema = Object.freeze({
   // see the post, and the create rule refuses a post that does not carry it as
   // a bool. Guessing a default here would be guessing at an audience.
   required: Object.freeze(["communityId", "authorId", "body"]),
-  defaults: Object.freeze({ title: "", likeCount: 0 }),
+  defaults: Object.freeze({ title: "", likeCount: 0, commentCount: 0 }),
   serverOwned: SERVER_OWNED_FIELDS,
 });
 
@@ -796,6 +796,10 @@ export function normalizeNewPost(payload) {
     body: requiredText("posts", "body", payload.body, LIMITS.DESCRIPTION_MAX, "fillAllFields"),
     isPublic: payload.isPublic,
     likeCount: 0,
+    // Same reasoning as `likeCount` above: a total every reader can see has to
+    // exist from birth, or the first comment looks like a number appearing out
+    // of nowhere rather than a count going up.
+    commentCount: 0,
   }, postSchema.required);
 }
 
@@ -830,6 +834,57 @@ export function normalizePostPatch(patch) {
     throw new SchemaError("posts: patch is empty", { collection: "posts" });
   }
   return out;
+}
+
+// ---------- comments ----------
+//
+// A reply under a post. Its own top-level collection rather than a subcollection
+// of the post, and it carries a copy of the post's audience — `communityId` and
+// `isPublic` — which is the whole reason it can be read cheaply.
+//
+// Rules are not filters: a list query has to be provably safe before it runs, so
+// every read has to *name* the ground it stands on. With the audience copied
+// onto the comment, "the comments under this post" is a query this caller is
+// plainly allowed to make, and the rule costs no document reads. A subcollection
+// would have to `get()` the post once per comment returned to learn the same
+// two fields, which is a billed read per row of a comment list.
+//
+// It is denormalisation, and it has the usual condition attached: the copy is
+// written once, at creation, from the post the rules re-read in the same write.
+// A post that later changes audience (a community going private, see
+// `syncPostVisibility`) leaves its comments behind — they stay as readable as
+// the post was when they were written, which is the safe direction for a flag
+// that says who may look.
+
+export const commentSchema = Object.freeze({
+  collection: "comments",
+  required: Object.freeze(["postId", "authorId", "body", "communityId"]),
+  defaults: Object.freeze({ authorName: "", photoURL: "" }),
+  serverOwned: SERVER_OWNED_FIELDS,
+});
+
+export function normalizeNewComment(payload) {
+  requirePayload("comments", payload);
+
+  if (typeof payload.isPublic !== "boolean") {
+    throw new SchemaError("comments: isPublic must be a boolean", {
+      collection: "comments", field: "isPublic",
+    });
+  }
+
+  return assertRequired("comments", {
+    ...commentSchema.defaults,
+    postId: requiredId("comments", "postId", payload.postId),
+    communityId: requiredId("comments", "communityId", payload.communityId),
+    authorId: requiredId("comments", "authorId", payload.authorId),
+    // Who wrote it, as they were called at the time — the same arrangement a
+    // loan uses for a book's name, and for the same reason: a list of replies
+    // renders without a profile fetch per row.
+    authorName: clampText(payload.authorName, LIMITS.NAME_MAX),
+    photoURL: safeImageUrl(payload.photoURL),
+    body: requiredText("comments", "body", payload.body, LIMITS.DESCRIPTION_MAX, "fillAllFields"),
+    isPublic: payload.isPublic,
+  }, commentSchema.required);
 }
 
 // ---------- chats ----------

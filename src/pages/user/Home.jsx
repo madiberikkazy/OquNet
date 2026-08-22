@@ -6,7 +6,7 @@ import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { useNotifications } from "../../contexts/NotificationContext.jsx";
-import LikeButton from "../../components/LikeButton.jsx";
+import PostCard from "../../components/PostCard.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
 import Fab from "../../components/Fab.jsx";
 import {
@@ -15,7 +15,6 @@ import {
 } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
 import { navIconSrc } from "../../utils/icons.js";
-import { formatPostDate } from "../../utils/time.js";
 import { t } from "../../utils/i18n.js";
 
 export default function Home() {
@@ -399,62 +398,14 @@ export default function Home() {
                       </div>
                     )}
 
-                    <article className="flex gap-3 px-4 py-4 border-b border-ink-100">
-                      <Link to={`/community/${p.communityId}`} className="shrink-0 active:opacity-70 transition">
-                        <Avatar
-                          src={p.communityMeta?.photoURL}
-                          name={p.communityMeta?.name ?? "?"}
-                          size={44}
-                        />
-                      </Link>
-
-                      <div className="flex-1 min-w-0">
-                        <Link
-                          to={`/community/${p.communityId}`}
-                          className="font-bold text-[15px] text-brand-700 active:opacity-70 transition"
-                        >
-                          {p.communityMeta?.nickname
-                            ? p.communityMeta.nickname
-                            : p.communityMeta?.name}
-                        </Link>
-
-                        {/* Who wrote it. It was not worth saying while the board
-                            was admin-only — every post in a community came from
-                            the same person — and it is the first thing you want
-                            to know now that anybody in it can post. The name is
-                            stored on the post, so this costs no read; a post
-                            written before it was stored simply has no line. */}
-                        {p.authorName ? (
-                          <p className="text-[13px] text-ink-500 leading-snug">{p.authorName}</p>
-                        ) : null}
-
-                        {/* The title carries the same weight as the handle above
-                            it, so a post that has one reads as a headline and a
-                            post that is only text still looks like the design. */}
-                        {p.title ? (
-                          <p className="text-[15px] text-ink-900 font-semibold leading-snug mt-1">
-                            {p.title}
-                          </p>
-                        ) : null}
-                        {p.body ? (
-                          <p className="text-[15px] text-ink-900 whitespace-pre-wrap leading-relaxed mt-0.5">
-                            {p.body}
-                          </p>
-                        ) : null}
-                      </div>
-
-                      <div className="flex flex-col items-end gap-3 shrink-0 w-14">
-                        <span className="text-[12px] text-ink-300 tabular-nums">
-                          {formatPostDate(p.createdAt)}
-                        </span>
-                        <LikeButton
-                          liked={likedIds.has(p.id)}
-                          count={(p.likeCount || 0) + (pending.get(p.id)?.delta ?? 0)}
-                          onClick={() => onLike(p)}
-                          disabled={!user?.id}
-                        />
-                      </div>
-                    </article>
+                    <PostCard
+                      post={p}
+                      community={p.communityMeta}
+                      liked={likedIds.has(p.id)}
+                      likeCount={(p.likeCount || 0) + (pending.get(p.id)?.delta ?? 0)}
+                      onLike={() => onLike(p)}
+                      likeDisabled={!user?.id}
+                    />
                   </li>
                 );
               })}

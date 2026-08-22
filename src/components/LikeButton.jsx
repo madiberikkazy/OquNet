@@ -11,8 +11,14 @@ import { t } from "../utils/i18n.js";
  * the same time — and made the first like look like a number appearing out of
  * nowhere rather than a count going up. A post everybody can see should say
  * exactly how many likes it has to everybody who can see it.
+ *
+ * `inline` puts the total beside the heart rather than under it — the shape an
+ * action row wants, where three controls sit on one line and a stacked number
+ * would make this one twice as tall as the two next to it.
  */
-export default function LikeButton({ liked, count = 0, onClick, disabled = false, size = 24 }) {
+export default function LikeButton({
+  liked, count = 0, onClick, disabled = false, size = 24, inline = false,
+}) {
   // The caller may hand over an optimistic total that a rollback has taken
   // under zero for a frame; a feed never shows a negative like count.
   const total = Math.max(0, Math.round(Number(count) || 0));
@@ -25,7 +31,8 @@ export default function LikeButton({ liked, count = 0, onClick, disabled = false
       aria-pressed={Boolean(liked)}
       aria-label={`${t.like} (${total})`}
       className={
-        "inline-flex flex-col items-center gap-0.5 text-brand-500 transition active:scale-90 " +
+        "inline-flex text-brand-500 transition active:scale-90 " +
+        (inline ? "items-center gap-1.5 " : "flex-col items-center gap-0.5 ") +
         (disabled ? "opacity-60" : "")
       }
     >
@@ -42,7 +49,11 @@ export default function LikeButton({ liked, count = 0, onClick, disabled = false
           strokeLinejoin="round"
         />
       </svg>
-      <span className="text-[11px] font-medium tabular-nums leading-none">{total}</span>
+      <span className={
+        "font-medium tabular-nums " + (inline ? "text-[12px]" : "text-[11px] leading-none")
+      }>
+        {total}
+      </span>
     </button>
   );
 }

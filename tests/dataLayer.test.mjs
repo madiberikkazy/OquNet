@@ -30,7 +30,7 @@ const {
   watchChatsForUser, chatIdFor,
   listBorrowingsForBook, getUsersByIds, BOOK_JOURNEY_MAX,
   createPost, getPost, listPublicPosts, listPostsByCommunity, togglePostLike,
-  listPostsByAuthor,
+  listPostsByAuthor, createComment, listComments, deleteComment,
   logReadingSession, listReadingSessions, getCommunityReadingRank,
   createJoinRequest, getRequestById, getPhoneVerification,
   openPickupRequest, getPickupRequest, getPendingPickupForUser,
@@ -391,6 +391,107 @@ describe("people search", () => {
     assert.equal((await searchUsers("madi")).length, 0);
     assert.equal((await searchUsers("berik")).length, 0);
     assert.equal((await searchUsers("deleted")).length, 1);
+  });
+});
+
+// Replies under a post. The comment is the fact and the counter on the post is
+// a summary of it, so every test here checks both — the pair going out of step
+// is the whole failure mode this arrangement has.
+describe("comments", () => {
+  const POST_COMMUNITY = "com-1";
+  let postId;
+
+  async function seedPost(over = {}) {
+    const p = await createPost({
+      communityId: POST_COMMUNITY, authorId: "u-author", authorName: "A",
+      isPublic: true, body: "text", ...over,
+    });
+    return p.id;
+  }
+
+  async function reply(over = {}) {
+    return createComment({
+      postId, communityId: POST_COMMUNITY, isPublic: true,
+      authorId: "u-reader", authorName: "R", body: "nice", ...over,
+    });
+  }
+
+  it("writes the reply and counts it on the post", async () => {
+    postId = await seedPost();
+    await reply();
+
+    assert.equal((await listComments({ postId, communityId: POST_COMMUNITY })).length, 1);
+    assert.equal((await getPost(postId)).commentCount, 1);
+  });
+
+  it("reads a thread oldest first", async () => {
+    postId = await seedPost();
+    await reply({ body: "first" });
+    await reply({ body: "second" });
+    await reply({ body: "third" });
+
+    assert.deepEqual(
+      (await listComments({ postId, communityId: POST_COMMUNITY })).map((c) => c.body),
+      ["first", "second", "third"]
+    );
+  });
+
+  it("keeps another post's replies out of it", async () => {
+    postId = await seedPost();
+    await reply({ body: "mine" });
+    const other = await seedPost();
+    await createComment({
+      postId: other, communityId: POST_COMMUNITY, isPublic: true,
+      authorId: "u-reader", body: "theirs",
+    });
+
+    const thread = await listComments({ postId, communityId: POST_COMMUNITY });
+    assert.deepEqual(thread.map((c) => c.body), ["mine"]);
+    assert.equal((await getPost(postId)).commentCount, 1);
+    assert.equal((await getPost(other)).commentCount, 1);
+  });
+
+  it("only answers a query that names an audience it may read", async () => {
+    postId = await seedPost();
+    await reply();
+    // Without a community, the public flag is the ground the query stands on —
+    // the same two shapes the security rules accept, and the reason a reply
+    // carries a copy of the post's audience at all.
+    assert.equal((await listComments({ postId })).length, 1);
+
+    const closed = await seedPost({ isPublic: false });
+    await createComment({
+      postId: closed, communityId: POST_COMMUNITY, isPublic: false,
+      authorId: "u-reader", body: "members only",
+    });
+    assert.equal((await listComments({ postId: closed })).length, 0, "a members-only reply was public");
+    assert.equal((await listComments({ postId: closed, communityId: POST_COMMUNITY })).length, 1);
+  });
+
+  it("takes the counter back down when a reply is removed", async () => {
+    postId = await seedPost();
+    const c = await reply();
+    await deleteComment({ id: c.id, postId });
+
+    assert.equal((await listComments({ postId, communityId: POST_COMMUNITY })).length, 0);
+    assert.equal((await getPost(postId)).commentCount, 0);
+  });
+
+  it("never takes the counter below zero", async () => {
+    postId = await seedPost();
+    const c = await reply();
+    await deleteComment({ id: c.id, postId });
+    // A second delete of the same reply — the row is gone, and there is nothing
+    // left to subtract from a counter already at zero.
+    await deleteComment({ id: c.id, postId });
+    assert.equal((await getPost(postId)).commentCount, 0);
+  });
+
+  it("refuses a reply with no text and one with no post", async () => {
+    postId = await seedPost();
+    await assert.rejects(() => reply({ body: "   " }));
+    await assert.rejects(() => reply({ postId: "" }));
+    assert.equal((await getPost(postId)).commentCount, 0);
   });
 });
 

@@ -37,6 +37,8 @@ const Settings           = lazyRoute(() => import("./pages/user/Settings.jsx"));
 const LikedPosts         = lazyRoute(() => import("./pages/user/LikedPosts.jsx"));
 // Writing a post — a screen of its own, reached from the "+" on the feed.
 const CreatePost         = lazyRoute(() => import("./pages/user/CreatePost.jsx"));
+// One post and its replies — where the comment icon in the feed leads.
+const PostDetail         = lazyRoute(() => import("./pages/user/PostDetail.jsx"));
 
 // Settings sub-screens — one topic each, reached from the settings hub.
 const PersonalData         = lazyRoute(() => import("./pages/user/settings/PersonalData.jsx"));
@@ -136,6 +138,7 @@ export default function App() {
             {/* Deliberately not a modal over the feed: writing is the one
                 thing in this app you do at length. */}
             <Route path="/posts/new" element={<CreatePost />} />
+            <Route path="/posts/:id" element={<PostDetail />} />
 
             <Route path="/notifications" element={<Notification />} />
             {/* Join and leave requests are decided here, by whoever the request
