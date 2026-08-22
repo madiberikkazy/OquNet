@@ -291,8 +291,6 @@ const kz = {
   openLibraryHint: "Кітапханаді ашып, бір кітап алыңыз.",
   remainingDays: "Қалған күндер",
   memberHeldTitle: "Қазір қолында",
-  memberReadingTitle: "Қазір оқып жатыр",
-  memberOwnedTitle: "Мүшенің кітаптары",
   communityAdmin: "Қоғамдастық әкімшісі",
   exit: "Шығу",
   shareProfile: "Профильмен бөлісу",
@@ -322,8 +320,6 @@ const kz = {
   statSaved: "Сақталған",
   statCompleted: "Аяқталған",
   statHeld: "Қазір бар",
-  // Fourth counter, member profiles only — how many books belong to them.
-  statOwned: "Кітаптары",
 
   // ── Following ───────────────────────────────────────────────────────────────
   // The two counters under the name on every profile, and the button that moves
@@ -994,8 +990,6 @@ const ru = {
   openLibraryHint: "Откройте библиотеку и возьмите книгу.",
   remainingDays: "Осталось дней",
   memberHeldTitle: "Сейчас на руках",
-  memberReadingTitle: "Читает сейчас",
-  memberOwnedTitle: "Книги участника",
   communityAdmin: "Администратор сообщества",
   exit: "Выйти",
   shareProfile: "Поделиться профилем",
@@ -1025,7 +1019,6 @@ const ru = {
   statSaved: "Сохранено",
   statCompleted: "Завершено",
   statHeld: "Сейчас есть",
-  statOwned: "Книги",
 
   // Following
   follow: "Подписаться",
@@ -1689,8 +1682,6 @@ const en = {
   openLibraryHint: "Open the library and borrow a book.",
   remainingDays: "Days left",
   memberHeldTitle: "Currently holding",
-  memberReadingTitle: "Reading now",
-  memberOwnedTitle: "Their books",
   communityAdmin: "Community administrator",
   exit: "Exit",
   shareProfile: "Share profile",
@@ -1720,7 +1711,6 @@ const en = {
   statSaved: "Saved",
   statCompleted: "Finished",
   statHeld: "In hand",
-  statOwned: "Owns",
 
   // Following
   follow: "Follow",

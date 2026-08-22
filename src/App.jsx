@@ -69,6 +69,8 @@ const ReturnBook         = lazyRoute(() => import("./pages/community/ReturnBook.
 const UserProfile        = lazyRoute(() => import("./pages/community/UserProfile.jsx"));
 // Ejecting a member, and settling the books they are holding on the way out.
 const RemoveMember       = lazyRoute(() => import("./pages/community/RemoveMember.jsx"));
+// One of another member's shelves — what a counter on their profile opens.
+const MemberBooks        = lazyRoute(() => import("./pages/community/MemberBooks.jsx"));
 // The two lists behind the follow counters — one screen, both directions.
 const FollowList         = lazyRoute(() => import("./pages/user/FollowList.jsx"));
 
@@ -177,6 +179,7 @@ export default function App() {
             {/* Who follows this person, and who they follow. The same two
                 routes serve the reader's own profile — a followers list is the
                 same list whoever opened it. */}
+            <Route path="/users/:id/books/:kind" element={<MemberBooks />} />
             <Route path="/users/:id/followers" element={<FollowList mode="followers" />} />
             <Route path="/users/:id/following" element={<FollowList mode="following" />} />
           </Route>

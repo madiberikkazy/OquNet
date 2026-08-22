@@ -47,10 +47,14 @@ export default function MessageButton({ userId, compact = false, className = "" 
   }
 
   return (
+    // Grey rather than brand-coloured: on a profile it now sits beside the
+    // follow button, and two filled buttons of equal weight ask the reader to
+    // choose between them. Following is the thing to do on a profile you have
+    // just found; writing to a stranger is the quieter, rarer one.
     <Link
       to={`/chats/${userId}`}
       className={
-        "w-full btn-primary flex items-center justify-center gap-2 py-3 rounded-2xl font-medium " + className
+        "w-full btn-secondary flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold " + className
       }
     >
       {icon}

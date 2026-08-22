@@ -137,9 +137,10 @@ export default function FollowButton({
         className={
           "w-full font-semibold transition active:scale-[0.98] disabled:opacity-60 " +
           (compact ? "px-3 py-2 rounded-xl text-[13px] " : "py-3 rounded-2xl text-[15px] ") +
-          (following
-            ? "border border-brand-200 text-tintInk bg-tint"
-            : "bg-brand-500 text-white")
+          // Green once it has worked. The two states have to be told apart at a
+          // glance from across the screen, and a filled colour change says
+          // "done" in a way that a swap of label alone does not.
+          (following ? "bg-ok text-white" : "bg-brand-500 text-white")
         }
       >
         {following ? t.following : t.follow}

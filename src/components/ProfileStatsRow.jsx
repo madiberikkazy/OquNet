@@ -19,27 +19,25 @@ export const PROFILE_STATS = Object.freeze([
 ]);
 
 /**
- * The same row, on somebody else's profile.
- *
- * The first three are the reader's own three, in the reader's own order, so a
- * member profile and your own read as one design rather than two. `owned` is a
- * fourth column here because it is the question a member profile exists to
- * answer — what does this person have that I could ask to borrow — and there is
- * nowhere else in the app to ask it.
+ * The same row, on somebody else's profile — the reader's own three columns, in
+ * the reader's own order, so a member profile and your own read as one design
+ * rather than two.
  *
  * There is deliberately no `reading` column: the book somebody has open is shown
  * by the CurrentBookCard below, which names it instead of counting it, exactly
- * as on the reader's own profile.
+ * as on the reader's own profile. There is no `owned` column either; it was a
+ * fourth number nobody asked of a person, and the books somebody owns are on
+ * the community's own shelf, which is where you go to borrow one.
  *
- * No `route`, either. These counters expand their list in place — a member's
- * shelves have nothing to act on, so five read-only routes to render them would
- * be five routes that only ever list.
+ * `route` is absent because the routes are per member — the screen builds them
+ * from the id in its own URL and passes an `onSelect`. They *are* routes now,
+ * though: a counter opens a page, the same as the reader's own does, rather
+ * than unfolding a list under the profile it belongs to.
  */
 export const MEMBER_STATS = Object.freeze([
   { key: "saved",     labelKey: "statSaved" },
   { key: "completed", labelKey: "statCompleted" },
   { key: "held",      labelKey: "statHeld" },
-  { key: "owned",     labelKey: "statOwned" },
 ]);
 
 /**
