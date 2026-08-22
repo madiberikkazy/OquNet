@@ -18,7 +18,7 @@ import { navIconSrc } from "../../utils/icons.js";
 import { t } from "../../utils/i18n.js";
 
 export default function Home() {
-  const { user, refresh } = useAuth();
+  const { user, setUser } = useAuth();
   const { community }     = useCommunity();
   const { unreadCount }   = useNotifications();
 
@@ -178,6 +178,12 @@ export default function Home() {
   // again until the screen was rebuilt.
   const PENDING_GRACE_MS = 6000;
   const releaseTimers = useRef(new Map());
+
+  // One write per post at a time. Kept apart from the bump above, which is a
+  // *drawing* that can linger for six seconds: while the two were the same map,
+  // a reader who liked a post and immediately thought better of it found the
+  // heart dead until the bump expired.
+  const writing = useRef(new Set());
   useEffect(() => () => {
     releaseTimers.current.forEach((timer) => clearTimeout(timer));
     releaseTimers.current.clear();
@@ -193,12 +199,34 @@ export default function Home() {
     }, afterMs));
   }
 
+  /**
+   * Like, or take a like back.
+   *
+   * The state this reads is `user.likedPostIds` — the profile document — and
+   * that is the fix for a bug worth writing down, because the two obvious ways
+   * to write this screen each look right on their own.
+   *
+   * The heart used to flip a local set while the *write* was told what to do
+   * from `user.likedPostIds`, which only caught up when a background `refresh()`
+   * landed. Between the tap and that refresh the two disagreed, and tapping
+   * twice quickly did this: the second tap asked to unlike, the data layer
+   * compared it against the stale array that still said "not liked", decided
+   * nothing had changed and wrote nothing — so a third tap asked to like again
+   * and was granted. Two likes from one heart, on a post the reader had tapped
+   * an even number of times.
+   *
+   * So there is one source of truth now, and the write's answer goes straight
+   * back into it: `togglePostLike` returns the array it stored, which is put
+   * into the context without a re-read. The optimistic set below is only a
+   * drawing of that same fact, a frame or two early.
+   */
   async function onLike(post) {
-    // One in flight per post: a second tap before the first settles would stack
-    // two bumps on one `base` and undo only one of them.
-    if (!user?.id || pending.has(post.id)) return;
-    const wasLiked = likedIds.has(post.id);
+    if (!user?.id || writing.current.has(post.id)) return;
 
+    const current = user.likedPostIds || [];
+    const wasLiked = current.includes(post.id);
+
+    writing.current.add(post.id);
     setLikedIds((prev) => {
       const next = new Set(prev);
       if (wasLiked) next.delete(post.id); else next.add(post.id);
@@ -210,17 +238,19 @@ export default function Home() {
     }));
 
     try {
-      const { likeDelta } = await togglePostLike({
+      const { likedPostIds, likeDelta } = await togglePostLike({
         postId: post.id,
         userId: user.id,
-        likedPostIds: user.likedPostIds || [],
+        likedPostIds: current,
         liked: !wasLiked,
       });
+      // What was written, not what a later read might say: the next tap has to
+      // compare against this, and it may come before any refresh could land.
+      setUser((prev) => (prev && prev.id === user.id ? { ...prev, likedPostIds } : prev));
       // A delta of zero means the total was already at zero and there was
       // nothing to subtract: it will never move off `base`, so the bump comes
       // down now rather than on the grace timer.
       releasePending(post.id, likeDelta ? PENDING_GRACE_MS : 0);
-      refresh();
     } catch (err) {
       logger.error("home.like", err?.message, { postId: post.id });
       setLikedIds((prev) => {
@@ -229,6 +259,8 @@ export default function Home() {
         return next;
       });
       releasePending(post.id, 0);
+    } finally {
+      writing.current.delete(post.id);
     }
   }
 

@@ -2,7 +2,6 @@ import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
-import SearchBar from "../../components/SearchBar.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import SaveButton from "../../components/SaveButton.jsx";
 import Avatar from "../../components/Avatar.jsx";
@@ -13,17 +12,19 @@ import {
   getPickupRequest, getPendingPickupForUser,
   getActiveBorrowingByBook, createNotification,
   releaseBookAfterReading, updateBorrowing, submitRating, getUserRatingForBook, hasUserCompletedBook,
+  getActiveBorrowingForUser, transferBookHolder,
   toMillis,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { t, genreLabel } from "../../utils/i18n.js";
-import { isPageBand, pagesForBook, pagesRangeLabel } from "../../utils/bookPages.js";
+import { isPageBand, loanDaysForPages, pagesForBook, pagesRangeLabel } from "../../utils/bookPages.js";
 import { ratingSummary, reviewsFromRatings, formatRating } from "../../utils/rating.js";
 import { safeImageUrl } from "../../utils/validators.js";
 import { holderIdOf, readerHolderIdOf } from "../../utils/bookHolder.js";
 import { isReservedForReturn } from "../../utils/bookReturn.js";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 import { logger } from "../../utils/logger.js";
+import { writeError } from "../../utils/writeError.js";
 
 export default function BookDetail() {
   const { id } = useParams();
@@ -220,6 +221,51 @@ export default function BookDetail() {
     navigate(`/books/${id}/pickup`);
   }
 
+  /**
+   * The owner starting a read of their own copy.
+   *
+   * No pickup flow and no code: the two-step handshake exists so that two
+   * people can agree a book changed hands, and there is only one person here.
+   * The book is already in their hands, so this is the same write the second
+   * step of a pickup makes — a loan, and the book marked as being read — minus
+   * the digits nobody would be reading out.
+   *
+   * The one thing it does share with a pickup is the rule that a reader has one
+   * book open at a time, checked here against the server rather than trusted
+   * from the screen.
+   */
+  const ownReadMutation = useMutation({
+    mutationFn: async () => {
+      const active = await getActiveBorrowingForUser(user.id);
+      if (active && active.bookId !== id) {
+        const err = new Error(t.pickupReturnOtherBook);
+        err.handled = true;
+        throw err;
+      }
+      // The book's own allowance — one day per fifty pages, the same sum the
+      // pickup screen shows the reader before they take one.
+      const days = loanDaysForPages(pagesForBook(book));
+      return transferBookHolder({
+        bookId: id,
+        toUserId: user.id,
+        borrowing: {
+          bookName: book.name,
+          communityId: book.communityId,
+          startDate: Date.now(),
+          returnDate: Date.now() + days * 24 * 60 * 60 * 1000,
+        },
+      });
+    },
+    onSuccess: () => {
+      setError(null);
+      invalidateHolderCaches(id);
+    },
+    onError: (err) => {
+      logger.error("bookDetail.ownRead", err?.message, { bookId: id, code: err?.code });
+      setError(err?.handled ? err.message : writeError(err));
+    },
+  });
+
   function openReturnModal() {
     setReturnStars(0);
     setReturnReview("");
@@ -373,6 +419,13 @@ export default function BookDetail() {
   const reviews = reviewsFromRatings(ratings);
 
   const isOwner     = book.ownerId === user?.id;
+  // Owning it is not the same as having it. A book of theirs that is out with a
+  // another reader cannot be started here — taking it back is a handshake with
+  // whoever is holding it, not a button on this page.
+  const ownerHasCopy = isOwner && !!user?.id && holderId === user.id;
+  // Read once, and then let it travel. The one exception is the person it
+  // belongs to: their own copy is theirs to pick up again whenever they like.
+  const alreadyRead = !isOwner && canRateQuery.data === true;
   const isCurrentHolder =
     !!user?.id && readerHolderIdOf(book) === user.id;
   // Has the book but isn't reading it: they finished (or the loan lapsed) and
@@ -426,10 +479,36 @@ export default function BookDetail() {
           {t.youHoldBook}
         </p>
       </div>
+    ) : ownerHasCopy ? (
+      /* Their own copy, in their own hands: readable, and by the one person
+         who never has to ask anybody for it. */
+      <div className="space-y-2">
+        <button
+          onClick={() => ownReadMutation.mutate()}
+          disabled={ownReadMutation.isPending}
+          className="btn-primary"
+        >
+          {ownReadMutation.isPending ? "…" : t.startReadingOwn}
+        </button>
+        <p className="text-[12px] text-ink-500 text-center">{t.yourBook}</p>
+      </div>
     ) : isOwner ? (
+      /* Theirs, but somebody else has it. The badge above says who and until
+         when; there is nothing to press here, because getting it back is
+         arranged with the reader holding it. */
       <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
         {t.yourBook}
       </p>
+    ) : alreadyRead ? (
+      /* One read each — a lending library only works while its books keep
+         moving, and a second turn is a book parked with somebody who has
+         finished it. The owner is exempt above; nobody else is. */
+      <div className="space-y-1">
+        <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+          {t.alreadyReadBook}
+        </p>
+        <p className="text-[12px] text-ink-500 text-center">{t.alreadyReadHint}</p>
+      </div>
     ) : isBookHolder ? (
       /* Finished reading but nobody has collected it yet — the book is
          still on this user's shelf, so there is nothing to request. */
@@ -528,7 +607,19 @@ export default function BookDetail() {
 
   return (
     <MobileShell bottomBar={actionBar} overlay={returnSheet}>
-      <SearchBar value="" onChange={() => {}} onBack={() => navigate(-1)} placeholder={t.searchPlaceholder} />
+      {/* A back button and nothing else. This used to be a SearchBar with its
+          field wired to nothing — `value=""` and an onChange that discarded the
+          keystroke — and a filter button beside it with no handler at all. Two
+          controls that looked like the ones on the shelf screen and did nothing
+          on this one; a dead search box is worse than no search box, because a
+          reader has to try it to find out. */}
+      <div className="px-4 pb-1">
+        <button onClick={() => navigate(-1)} aria-label={t.back} className="icon-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
 
       <div className="px-4 pt-4 flex gap-3">
         <img

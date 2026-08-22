@@ -21,7 +21,7 @@ import { t } from "../../utils/i18n.js";
  * opens up again the post comes back.
  */
 export default function LikedPosts() {
-  const { user, refresh } = useAuth();
+  const { user, setUser } = useAuth();
 
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -57,13 +57,17 @@ export default function LikedPosts() {
     if (!user?.id) return;
     setPosts((list) => list.filter((p) => p.id !== post.id));
     try {
-      await togglePostLike({
+      const { likedPostIds } = await togglePostLike({
         postId: post.id,
         userId: user.id,
         likedPostIds: user.likedPostIds || [],
         liked: false,
       });
-      refresh();
+      // The stored list, straight back into the context, rather than a re-read
+      // that may not land before the next tap. Two quick unlikes used to build
+      // the second write from a list that still had the first post in it, which
+      // put that post back on the profile with its counter already taken down.
+      setUser((prev) => (prev && prev.id === user.id ? { ...prev, likedPostIds } : prev));
     } catch (err) {
       logger.error("likedPosts.unlike", err?.message, { postId: post.id });
       setPosts((list) => [post, ...list]);

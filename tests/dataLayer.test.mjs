@@ -394,6 +394,70 @@ describe("people search", () => {
   });
 });
 
+// The like path, driven the way a screen drives it — because the bug this
+// covers was not in the data layer at all, it was in a screen telling the data
+// layer what to do from a copy of the answer that had gone stale.
+describe("liking, tap after tap", () => {
+  const READER = "u-reader";
+  let postId;
+
+  beforeEach(async () => {
+    await createUserDoc({ id: READER, email: "r@example.com", nickname: "reader", firstName: "R" });
+    const post = await createPost({
+      communityId: "com-1", authorId: "u-author", isPublic: true, body: "text",
+    });
+    postId = post.id;
+  });
+
+  /** One tap, done the way the screen does it: state in, new state out. */
+  async function tap(likedPostIds) {
+    const result = await togglePostLike({
+      postId, userId: READER, likedPostIds, liked: !likedPostIds.includes(postId),
+    });
+    return result.likedPostIds;
+  }
+
+  it("counts an even number of taps as no like at all", async () => {
+    let liked = [];
+    liked = await tap(liked);
+    liked = await tap(liked);
+
+    assert.deepEqual(liked, []);
+    assert.equal((await getPost(postId)).likeCount, 0);
+  });
+
+  it("counts three taps as one", async () => {
+    let liked = [];
+    for (let i = 0; i < 3; i += 1) liked = await tap(liked);
+
+    assert.deepEqual(liked, [postId]);
+    assert.equal((await getPost(postId)).likeCount, 1);
+  });
+
+  // The regression. A screen that answered "am I liking this?" from its own
+  // optimistic state while handing the data layer a `likedPostIds` that had not
+  // caught up got two likes out of two taps: the unlike was compared against an
+  // array that still said "not liked", changed nothing, and the next like was
+  // therefore a second one.
+  it("a stale list makes the unlike a no-op — which is why it must not be used", async () => {
+    const stale = [];
+    await tap(stale);                       // like: stored as [postId]
+    const second = await togglePostLike({   // the screen says "unlike"…
+      postId, userId: READER, likedPostIds: stale, liked: false,
+    });
+
+    assert.equal(second.changed, false, "the write happened against a stale list");
+    assert.equal((await getPost(postId)).likeCount, 1);
+
+    // Handed what was actually stored, the same tap does what it says.
+    const undone = await togglePostLike({
+      postId, userId: READER, likedPostIds: [postId], liked: false,
+    });
+    assert.deepEqual(undone.likedPostIds, []);
+    assert.equal((await getPost(postId)).likeCount, 0);
+  });
+});
+
 // Replies under a post. The comment is the fact and the counter on the post is
 // a summary of it, so every test here checks both — the pair going out of step
 // is the whole failure mode this arrangement has.

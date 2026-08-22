@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
@@ -30,7 +30,7 @@ import { t } from "../../utils/i18n.js";
 export default function PostDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, refresh } = useAuth();
+  const { user, setUser } = useAuth();
   const { community: myCommunity } = useCommunity();
 
   const [post, setPost] = useState(null);
@@ -42,8 +42,12 @@ export default function PostDetail() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
+  // Drawn from the profile document, which is also what the write compares
+  // against — see the note on Home's onLike for what happens when a screen
+  // keeps its own answer to this instead.
   const [liked, setLiked] = useState(false);
   useEffect(() => { setLiked((user?.likedPostIds || []).includes(id)); }, [user?.likedPostIds, id]);
+  const writing = useRef(false);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -122,23 +126,29 @@ export default function PostDetail() {
   }
 
   async function onLike() {
-    if (!user?.id || !post?.id) return;
-    const wasLiked = liked;
+    if (!user?.id || !post?.id || writing.current) return;
+
+    const current = user.likedPostIds || [];
+    const wasLiked = current.includes(post.id);
+
+    writing.current = true;
     setLiked(!wasLiked);
     setPost((prev) => (prev
       ? { ...prev, likeCount: Math.max(0, (prev.likeCount || 0) + (wasLiked ? -1 : 1)) }
       : prev));
     try {
-      await togglePostLike({
-        postId: post.id, userId: user.id, likedPostIds: user.likedPostIds || [], liked: !wasLiked,
+      const { likedPostIds } = await togglePostLike({
+        postId: post.id, userId: user.id, likedPostIds: current, liked: !wasLiked,
       });
-      refresh();
+      setUser((prev) => (prev && prev.id === user.id ? { ...prev, likedPostIds } : prev));
     } catch (err) {
       logger.error("postDetail.like", err?.message, { postId: post.id });
       setLiked(wasLiked);
       setPost((prev) => (prev
         ? { ...prev, likeCount: Math.max(0, (prev.likeCount || 0) + (wasLiked ? 1 : -1)) }
         : prev));
+    } finally {
+      writing.current = false;
     }
   }
 

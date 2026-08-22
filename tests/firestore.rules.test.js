@@ -380,6 +380,16 @@ describe("books: an owner collecting their own copy", () => {
     });
   }
 
+  // The owner reading their own book — BOOK_1 starts with MEMBER_A holding it,
+  // which is where a book sits until somebody borrows it. No pickup, no code:
+  // one person cannot hand a book to themselves, so the button on the book page
+  // writes the loan directly, and this is the rule that has to accept it.
+  it("the owner may start reading the copy in their own hands", async () => {
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", holderId: MEMBER_A, borrowerId: MEMBER_A,
+    }));
+  });
+
   it("the owner may reserve their copy, leaving it where it is", async () => {
     await withHolder();
     await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {

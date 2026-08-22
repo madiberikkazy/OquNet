@@ -6,6 +6,7 @@ import {
   getUserById,
   getActiveBorrowingByBook,
   getActiveBorrowingForUser,
+  hasUserCompletedBook,
   getPendingPickupForUser,
   getPendingReturnForBook,
   getPickupRequest,
@@ -359,6 +360,18 @@ export default function PickupBook() {
     try {
       const active = await getActiveBorrowingForUser(user.id);
       if (active && active.bookId !== id) { setError(t.pickupReturnOtherBook); return; }
+
+      // One read each. The book page stops offering the button to somebody who
+      // has already finished this book, but a typed URL reaches this screen
+      // without passing that, and the rules cannot express "has read this
+      // before" — it is a question about a collection, not about this document.
+      // So it is asked here, at the write, where it decides something.
+      //
+      // The owner is exempt: their own copy is theirs to pick up again.
+      if (book.ownerId !== user.id && await hasUserCompletedBook(id, user.id).catch(() => false)) {
+        setError(t.alreadyReadBook);
+        return;
+      }
 
       // Re-asked at the moment of the write, not only on arrival: a request
       // opened days ago is a code this reader still has, and the owner may have
