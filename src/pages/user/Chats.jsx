@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
+import { Skeleton } from "../../components/Skeleton.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
@@ -135,11 +136,11 @@ export default function Chats() {
       {loading && rows.length === 0 ? (
         <ul className="mt-1">
           {[1, 2, 3, 4].map((i) => (
-            <li key={i} className="flex gap-3 px-4 py-3.5 border-b border-ink-100 animate-pulse">
-              <div className="w-12 h-12 rounded-full bg-ink-100 shrink-0" />
+            <li key={i} className="flex gap-3 px-4 py-3.5 border-b border-ink-100">
+              <Skeleton className="w-12 h-12 rounded-full shrink-0" />
               <div className="flex-1 space-y-2 py-1">
-                <div className="h-3 w-32 rounded bg-ink-100" />
-                <div className="h-3 w-48 rounded bg-ink-100" />
+                <Skeleton className="h-3 w-32 rounded" />
+                <Skeleton className="h-3 w-48 rounded" />
               </div>
             </li>
           ))}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
@@ -7,13 +7,20 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { useNotifications } from "../../contexts/NotificationContext.jsx";
 import PostCard from "../../components/PostCard.jsx";
+import { SkeletonList, PostCardSkeleton } from "../../components/Skeleton.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
 import Fab from "../../components/Fab.jsx";
 import {
   watchPostsByCommunity, watchPublicPosts, getCommunity,
-  searchCommunities, searchUsers, togglePostLike,
+  listFollowing, searchCommunities, searchUsers, togglePostLike,
 } from "../../firebase/firestore.js";
+import { useQuery } from "@tanstack/react-query";
+import { qk } from "../../lib/queryKeys.js";
 import { logger } from "../../utils/logger.js";
+import { attempt, release } from "../../utils/rateLimit.js";
+import { track } from "../../utils/analytics.js";
+import { newFeedSeed, orderFeed } from "../../utils/feedOrder.js";
+import { useInfiniteScroll } from "../../utils/useIntersectionHooks.js";
 import { navIconSrc } from "../../utils/icons.js";
 import { t } from "../../utils/i18n.js";
 
@@ -83,10 +90,36 @@ export default function Home() {
 
   const loading = !mineLoaded || !discoveredLoaded;
 
+  // Everything both shelves know about, each post once. What *order* it comes
+  // in is decided below; this is only the set.
   const ordered = useMemo(() => {
     const seen = new Set(mine.map((p) => p.id));
     return [...mine, ...discovered.filter((p) => !seen.has(p.id))];
   }, [mine, discovered]);
+
+  // ── The order ───────────────────────────────────────────────────────────────
+  //
+  // Two rules, and the first one is the only thing in this app that says what a
+  // reader wants to read: the people they follow come first. Everything else is
+  // shuffled, because a feed sorted by time hands the top of the screen to
+  // whoever posted last, permanently — the same three notices, every visit,
+  // until somebody writes a fourth.
+  //
+  // The seed lives in state so the order holds still while the reader scrolls
+  // and changes when they come back to the screen.
+  const [feedSeed] = useState(newFeedSeed);
+
+  const followingQuery = useQuery({
+    queryKey: qk.follows.following(user?.id),
+    enabled: !!user?.id,
+    staleTime: 60_000,
+    queryFn: () => listFollowing(user.id),
+  });
+
+  const followedIds = useMemo(
+    () => new Set((followingQuery.data ?? []).map((edge) => edge.followingId)),
+    [followingQuery.data]
+  );
 
   // One fetch per distinct community in the feed, not per post — the header
   // needs a name and a photo, and a page of posts is usually a handful of
@@ -119,9 +152,30 @@ export default function Home() {
   }, [metaKey, community]);
 
   const feed = useMemo(
-    () => ordered.map((p) => ({ ...p, communityMeta: metaById.get(p.communityId) ?? null })),
-    [ordered, metaById]
+    () => orderFeed(ordered, { followedIds, seed: feedSeed })
+      .map((p) => ({ ...p, communityMeta: metaById.get(p.communityId) ?? null })),
+    [ordered, metaById, followedIds, feedSeed]
   );
+
+  // ── Lazy rendering ──────────────────────────────────────────────────────────
+  //
+  // The two subscriptions bring more than a screenful; drawing all of it costs
+  // a long first paint for rows nobody has scrolled to yet. So the feed is
+  // revealed a batch at a time as the reader reaches the end of it.
+  //
+  // Nothing is fetched here — the posts are already in hand, live — so this is
+  // rendering work rather than loading, and the sentinel simply asks for more
+  // of what is already known.
+  const FEED_BATCH = 8;
+  const [shown, setShown] = useState(FEED_BATCH);
+  useEffect(() => { setShown(FEED_BATCH); }, [search]);
+
+  const revealMore = useCallback(async () => {
+    setShown((n) => (n >= feed.length ? n : n + FEED_BATCH));
+  }, [feed.length]);
+  const { sentinelRef } = useInfiniteScroll({ onLoadMore: revealMore, threshold: 400 });
+
+  const visibleFeed = useMemo(() => feed.slice(0, shown), [feed, shown]);
 
   // ── Likes ───────────────────────────────────────────────────────────────────
   //
@@ -222,6 +276,12 @@ export default function Home() {
    */
   async function onLike(post) {
     if (!user?.id || writing.current.has(post.id)) return;
+    // A like is a toggle, so a finger held on the heart writes the same
+    // document over and over. `writing` stops the overlapping ones; this stops
+    // the sequential ones. Silent by design — a heart that refuses to move is
+    // legible on its own, and a toast on a tap this small is worse noise than
+    // the thing it is reporting.
+    if (!attempt("post.like").allowed) return;
 
     const current = user.likedPostIds || [];
     const wasLiked = current.includes(post.id);
@@ -251,8 +311,10 @@ export default function Home() {
       // nothing to subtract: it will never move off `base`, so the bump comes
       // down now rather than on the grace timer.
       releasePending(post.id, likeDelta ? PENDING_GRACE_MS : 0);
+      track("post.like", { liked: !wasLiked });
     } catch (err) {
       logger.error("home.like", err?.message, { postId: post.id });
+      release("post.like");
       setLikedIds((prev) => {
         const next = new Set(prev);
         if (wasLiked) next.add(post.id); else next.delete(post.id);
@@ -384,18 +446,12 @@ export default function Home() {
         /* ── Community feed ── */
         <div className="mt-1">
           {loading ? (
-            <div>
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex gap-3 px-4 py-4 border-b border-ink-100 animate-pulse">
-                  <div className="w-11 h-11 rounded-full bg-ink-100 shrink-0" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-3 w-28 rounded bg-ink-100" />
-                    <div className="h-3 w-full rounded bg-ink-100" />
-                    <div className="h-3 w-2/3 rounded bg-ink-100" />
-                  </div>
-                </div>
-              ))}
-            </div>
+            /* Was three hand-rolled pulsing rows here. Same idea, but the
+               shared component keeps the placeholder in step with PostCard's
+               real box — the local copy had drifted to a 3-line body with no
+               action row and was visibly shorter than the post it stood in
+               for, so the feed still jumped when the subscription landed. */
+            <SkeletonList count={4} label={t.loading} Item={PostCardSkeleton} />
           ) : feed.length === 0 ? (
             <div className="py-16 text-center">
               <div className="w-16 h-16 rounded-full bg-ink-100 mx-auto flex items-center justify-center mb-4">
@@ -412,35 +468,29 @@ export default function Home() {
                avatar, the post, then the date and its heart stacked at the
                right edge. */
             <ul className="pb-4">
-              {feed.map((p, idx) => {
-                const isOwnCommunity = p.communityId === community?.id;
-                const prevIsOwnCommunity = idx > 0 && feed[idx - 1].communityId === community?.id;
-                const showDivider = idx > 0 && !isOwnCommunity && prevIsOwnCommunity;
+              {visibleFeed.map((p) => (
+                <li key={p.id}>
+                  <PostCard
+                    post={p}
+                    community={p.communityMeta}
+                    liked={likedIds.has(p.id)}
+                    likeCount={(p.likeCount || 0) + (pending.get(p.id)?.delta ?? 0)}
+                    onLike={() => onLike(p)}
+                    likeDisabled={!user?.id}
+                  />
+                </li>
+              ))}
 
-                return (
-                  <li key={p.id}>
-                    {/* Where the user's own community ends and discovery begins */}
-                    {showDivider && (
-                      <div className="flex items-center gap-3 px-4 py-3">
-                        <div className="flex-1 h-px bg-ink-100" />
-                        <p className="text-[11px] text-ink-400 font-medium shrink-0">
-                          {t.otherCommunities}
-                        </p>
-                        <div className="flex-1 h-px bg-ink-100" />
-                      </div>
-                    )}
-
-                    <PostCard
-                      post={p}
-                      community={p.communityMeta}
-                      liked={likedIds.has(p.id)}
-                      likeCount={(p.likeCount || 0) + (pending.get(p.id)?.delta ?? 0)}
-                      onLike={() => onLike(p)}
-                      likeDisabled={!user?.id}
-                    />
-                  </li>
-                );
-              })}
+              {/* Where the next batch is asked for. There is no divider between
+                  "your community" and "everybody else" any more: the feed is no
+                  longer grouped that way — it is the people you follow, then
+                  everything else — so a line claiming otherwise would be
+                  pointing at nothing. */}
+              {shown < feed.length ? (
+                <li ref={sentinelRef}>
+                  <PostCardSkeleton />
+                </li>
+              ) : null}
             </ul>
           )}
         </div>

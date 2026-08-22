@@ -368,6 +368,116 @@ describe("books: holder transitions", () => {
 // The three lanes a member on their way out of a community needs: taking their
 // own copy off the shelf while they arrange to collect it, putting it back if
 // they change their mind, and receiving it. See utils/bookReturn.js.
+// Taking a book off the shelf while you go and fetch it. The state is the same
+// one an owner's return reservation uses — unavailable with no borrower — and
+// `reservedBy` is what says whose hold it is, which is the whole reason a
+// stranger cannot undo one.
+describe("books: holding a copy for a pickup", () => {
+  /** BOOK_1 belongs to MEMBER_A; park it with MEMBER_A2 so A2 can be collected from. */
+  async function heldBy(uid, over = {}) {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
+        status: "available", borrowerId: null, holderId: uid, reservedBy: null, ...over,
+      });
+    });
+  }
+
+  it("a member may hold an available copy somebody else is keeping", async () => {
+    await heldBy(MEMBER_A2);
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null, reservedBy: MEMBER_A,
+    }));
+  });
+
+  it("but not in somebody else's name", async () => {
+    // The caller is a plain member here, not the owner: an owner writing this
+    // shape is making a *return* reservation, which is a different rule and a
+    // legitimate one.
+    await heldBy(MEMBER_A);
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null, reservedBy: MEMBER_A,
+    }));
+  });
+
+  it("an owner reserving their copy for return may not touch the hold", async () => {
+    await heldBy(MEMBER_A2);
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null, reservedBy: MEMBER_A2,
+    }));
+    // The reservation itself, without reaching for the field, still works.
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null,
+    }));
+  });
+
+  it("not a copy already held for another reader", async () => {
+    await heldBy(MEMBER_A2, { status: "unavailable", reservedBy: MEMBER_A2 });
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null, reservedBy: MEMBER_A,
+    }));
+  });
+
+  it("not a copy the caller is already holding in their hands", async () => {
+    await heldBy(MEMBER_A);
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null, reservedBy: MEMBER_A,
+    }));
+  });
+
+  it("not a book from another community", async () => {
+    await heldBy(MEMBER_A2);
+    await assertFails(updateDoc(doc(as(MEMBER_B), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null, reservedBy: MEMBER_B,
+    }));
+  });
+
+  it("a hold may not carry the book somewhere else", async () => {
+    await heldBy(MEMBER_A2);
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", borrowerId: null, reservedBy: MEMBER_A, holderId: MEMBER_A,
+    }));
+  });
+
+  describe("putting it back", () => {
+    beforeEach(() => heldBy(MEMBER_A2, { status: "unavailable", reservedBy: MEMBER_A2 }));
+
+    it("the reader who made the hold may drop it", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+        status: "available", borrowerId: null, reservedBy: null,
+      }));
+    });
+
+    it("so may the book's owner — a forgotten hold is theirs to clear", async () => {
+      await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+        status: "available", borrowerId: null, reservedBy: null,
+      }));
+    });
+
+    it("a bystander may NOT", async () => {
+      // This is what `reservedBy` buys: without it the rule would have to allow
+      // any member to put a reserved book back, which would also break the
+      // reservation an owner makes to get their own copy home.
+      await assertFails(updateDoc(doc(as(MEMBER_B), "books", BOOK_1), {
+        status: "available", borrowerId: null, reservedBy: null,
+      }));
+    });
+  });
+
+  it("collecting the book clears the hold in the same write", async () => {
+    await heldBy(MEMBER_A2, { status: "unavailable", reservedBy: MEMBER_A });
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", holderId: MEMBER_A, borrowerId: MEMBER_A, reservedBy: null,
+    }));
+  });
+
+  it("...and may not leave somebody else's hold standing", async () => {
+    await heldBy(MEMBER_A2, { status: "unavailable", reservedBy: MEMBER_A2 });
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "unavailable", holderId: MEMBER_A, borrowerId: MEMBER_A,
+    }));
+  });
+});
+
 describe("books: an owner collecting their own copy", () => {
   /** Park BOOK_1 on MEMBER_A2's shelf, free (the usual case) or on loan. */
   async function withHolder({ onLoan = false } = {}) {

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
+import { Skeleton } from "../../components/Skeleton.jsx";
 import Avatar from "../../components/Avatar.jsx";
 import FollowButton from "../../components/FollowButton.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
@@ -104,11 +105,11 @@ export default function FollowList({ mode = "followers" }) {
       {loading ? (
         <ul>
           {[1, 2, 3].map((i) => (
-            <li key={i} className="flex gap-3 px-4 py-3 border-b border-ink-100 animate-pulse">
-              <div className="w-11 h-11 rounded-full bg-ink-100 shrink-0" />
+            <li key={i} className="flex gap-3 px-4 py-3 border-b border-ink-100">
+              <Skeleton className="w-11 h-11 rounded-full shrink-0" />
               <div className="flex-1 space-y-2 py-1">
-                <div className="h-3 w-28 rounded bg-ink-100" />
-                <div className="h-3 w-20 rounded bg-ink-100" />
+                <Skeleton className="h-3 w-28 rounded" />
+                <Skeleton className="h-3 w-20 rounded" />
               </div>
             </li>
           ))}

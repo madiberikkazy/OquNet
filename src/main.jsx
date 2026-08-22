@@ -14,14 +14,24 @@ import { queryPersister, shouldPersistQuery } from "./lib/queryPersister.js";
 import "./index.css";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import { installGlobalErrorHandlers } from "./utils/logger.js";
+import { installAnalytics } from "./utils/analytics.js";
 
 installGlobalErrorHandlers();
+// Registers the visibility/pagehide/online flush triggers, and drains
+// whatever the previous session left in the queue. A no-op when the reader
+// has Do Not Track on.
+installAnalytics();
 
 // Buster tied to app version so a deploy discards persisted cache with
 // incompatible shape. Bump when Firestore doc shapes change.
 // Bumped for the indexed-query migration: books gained `searchPrefixes`, and
 // the paged list functions changed the shape of what they return.
-const CACHE_BUSTER = "oqunet-v2";
+//
+// v3: the member-profile entry changed shape — it carries the member's posts
+// now and no longer carries their owned books — and posts themselves gained a
+// comment counter. A cached v2 entry read by v3 code is a screen that throws
+// on the way in, which is exactly what this constant is for.
+const CACHE_BUSTER = "oqunet-v3";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

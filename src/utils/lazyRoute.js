@@ -10,6 +10,7 @@
 
 import { lazy } from "react";
 import { safeGet, safeSet } from "./safeStorage.js";
+import { registerRoute } from "./prefetch.js";
 import { logger } from "./logger.js";
 
 const RELOAD_KEY = "oqunet:chunk-reload-at";
@@ -26,8 +27,17 @@ function reloadOnce() {
 /**
  * Like React.lazy, but recovers from the post-deploy stale-chunk 404 instead of
  * blanking the route. Use for every route component.
+ *
+ * `path` is optional and is purely for prefetching: giving a route its own
+ * path here files the importer in the registry that `preloadRoute` reads, so
+ * the tab bar can pull a screen's chunk down while the reader is still looking
+ * at the previous one. Registering the *same* importer the router uses is the
+ * point — Rollup emits one chunk for it, so a preload and the real navigation
+ * are the same request, and a route that is renamed cannot fall out of sync
+ * with its own preloader.
  */
-export function lazyRoute(importer) {
+export function lazyRoute(importer, path) {
+  registerRoute(path, importer);
   return lazy(() =>
     importer().catch((err) => {
       logger.warn("router", "lazy chunk failed to load", { err: err?.message });

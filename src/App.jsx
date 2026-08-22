@@ -1,11 +1,13 @@
-import { Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Suspense, useEffect } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useLang } from "./contexts/LanguageContext.jsx";
 import OfflineIndicator from "./components/OfflineIndicator.jsx";
 import SystemBars from "./components/SystemBars.jsx";
 import { t } from "./utils/i18n.js";
 import { lazyRoute } from "./utils/lazyRoute.js";
 import { useInstallNotification } from "./utils/useInstallNotification.js";
+import { useRoutePreload } from "./utils/prefetch.js";
+import { trackScreen } from "./utils/analytics.js";
 
 // Eager: the auth screens and the route gate. These are on the critical path
 // for a signed-out visitor, so splitting them would only add a round trip.
@@ -16,18 +18,18 @@ import ProtectedRoute from "./components/ProtectedRoute.jsx";
 // Lazy: everything behind the gate. Each becomes its own chunk, fetched the
 // first time its route renders. The two book-editing screens matter most here —
 // the large majority of accounts never open them.
-const Home               = lazyRoute(() => import("./pages/user/Home.jsx"));
-const Books              = lazyRoute(() => import("./pages/user/Books.jsx"));
-const BookDetail         = lazyRoute(() => import("./pages/user/BookDetail.jsx"));
+const Home               = lazyRoute(() => import("./pages/user/Home.jsx"), "/");
+const Books              = lazyRoute(() => import("./pages/user/Books.jsx"), "/books");
+const BookDetail         = lazyRoute(() => import("./pages/user/BookDetail.jsx"), "/books/:id");
 const BookJourney        = lazyRoute(() => import("./pages/user/BookJourney.jsx"));
 const PickupBook         = lazyRoute(() => import("./pages/user/PickupBook.jsx"));
 const ReturnToOwner      = lazyRoute(() => import("./pages/user/ReturnToOwner.jsx"));
-const Notification       = lazyRoute(() => import("./pages/user/Notification.jsx"));
+const Notification       = lazyRoute(() => import("./pages/user/Notification.jsx"), "/notifications");
 const NotificationDetail = lazyRoute(() => import("./pages/user/NotificationDetail.jsx"));
-const Chats              = lazyRoute(() => import("./pages/user/Chats.jsx"));
-const Chat               = lazyRoute(() => import("./pages/user/Chat.jsx"));
+const Chats              = lazyRoute(() => import("./pages/user/Chats.jsx"), "/chats");
+const Chat               = lazyRoute(() => import("./pages/user/Chat.jsx"), "/chats/:userId");
 const NewChat            = lazyRoute(() => import("./pages/user/NewChat.jsx"));
-const Profile            = lazyRoute(() => import("./pages/user/Profile.jsx"));
+const Profile            = lazyRoute(() => import("./pages/user/Profile.jsx"), "/profile");
 const OwnedBooks         = lazyRoute(() => import("./pages/user/OwnedBooks.jsx"));
 const ReadingTimer       = lazyRoute(() => import("./pages/user/ReadingTimer.jsx"));
 const ReadingNow         = lazyRoute(() => import("./pages/user/ReadingNow.jsx"));
@@ -36,9 +38,11 @@ const SavedBooks         = lazyRoute(() => import("./pages/user/SavedBooks.jsx")
 const Settings           = lazyRoute(() => import("./pages/user/Settings.jsx"));
 const LikedPosts         = lazyRoute(() => import("./pages/user/LikedPosts.jsx"));
 // Writing a post — a screen of its own, reached from the "+" on the feed.
-const CreatePost         = lazyRoute(() => import("./pages/user/CreatePost.jsx"));
+const CreatePost         = lazyRoute(() => import("./pages/user/CreatePost.jsx"), "/posts/new");
 // One post and its replies — where the comment icon in the feed leads.
-const PostDetail         = lazyRoute(() => import("./pages/user/PostDetail.jsx"));
+const PostDetail         = lazyRoute(() => import("./pages/user/PostDetail.jsx"), "/posts/:id");
+// Passing a post to somebody — a chat first, the OS sheet second.
+const SharePost          = lazyRoute(() => import("./pages/user/SharePost.jsx"));
 
 // Settings sub-screens — one topic each, reached from the settings hub.
 const PersonalData         = lazyRoute(() => import("./pages/user/settings/PersonalData.jsx"));
@@ -84,11 +88,30 @@ function RouteFallback() {
   );
 }
 
+/**
+ * One `screen.view` per navigation.
+ *
+ * Here rather than in each screen, because a screen that forgets to call it is
+ * a hole in the funnel that nobody notices — and there are sixty of them.
+ * `trackScreen` masks the id segments out of the path, so what is recorded is
+ * `/books/:id`, not which book.
+ */
+function useScreenTracking() {
+  const { pathname } = useLocation();
+  useEffect(() => { trackScreen(pathname); }, [pathname]);
+}
+
 export default function App() {
   useLang(); // re-render entire tree whenever language changes so all t.key proxies update
   // Says hello once, when the app is added to the home screen. Here rather than
   // on a screen, because the install can happen on any of them.
   useInstallNotification();
+  // Speculative, idle-time, and staggered — see utils/prefetch.js. These four
+  // are the tab bar: whatever screen the reader is on, each of them is a
+  // single tap away, and paying for the chunk during a pause beats paying for
+  // it under a finger.
+  useRoutePreload(["/books", "/chats", "/profile", "/"]);
+  useScreenTracking();
   return (
     <>
       {/* Paints the OS strips above and below the app the colour of whatever
@@ -141,6 +164,7 @@ export default function App() {
                 thing in this app you do at length. */}
             <Route path="/posts/new" element={<CreatePost />} />
             <Route path="/posts/:id" element={<PostDetail />} />
+            <Route path="/posts/:id/share" element={<SharePost />} />
 
             <Route path="/notifications" element={<Notification />} />
             {/* Join and leave requests are decided here, by whoever the request

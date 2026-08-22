@@ -350,6 +350,12 @@ export const bookSchema = Object.freeze({
    */
   defaults: Object.freeze({
     borrowerId: null,
+    // Who has this copy held off the shelf while they go and collect it — see
+    // the pickup hold in firestore.js. Null on a book nobody is collecting,
+    // which is nearly always. Written from birth for the same reason
+    // `borrowerId` is: a field that only appears once somebody uses it is a
+    // field every reader has to guess the absence of.
+    reservedBy: null,
     rating: 0,
     ratingSum: 0,
     ratingCount: 0,
@@ -470,6 +476,7 @@ const BOOK_PATCH_FIELDS = Object.freeze({
   status: bookStatus,
   holderId: (v) => requiredId("books", "holderId", v),
   borrowerId: (v) => nullableId("borrowerId", v),
+  reservedBy: (v) => nullableId("reservedBy", v),
   rating: (v) => bookCount("rating", v),
   ratingSum: (v) => bookCount("ratingSum", v),
   ratingCount: (v) => bookCount("ratingCount", v),

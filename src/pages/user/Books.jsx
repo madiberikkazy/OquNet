@@ -2,12 +2,14 @@ import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
-import BookCard from "../../components/BookCard.jsx";
+import BookCard, { BOOK_ROW_HEIGHT } from "../../components/BookCard.jsx";
+import { WindowVirtualList } from "../../components/VirtualList.jsx";
 import GenreBar from "../../components/GenreBar.jsx";
 import NewBooksRail from "../../components/NewBooksRail.jsx";
 import BookCoverflow from "../../components/BookCoverflow.jsx";
 import GenreShelves from "../../components/GenreShelves.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
+import { SkeletonList, BookCardSkeleton, BookCoverSkeleton } from "../../components/Skeleton.jsx";
 import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
@@ -15,6 +17,7 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listBooks, listNewBooks, updateUser } from "../../firebase/firestore.js";
 import { genreLabel, t } from "../../utils/i18n.js";
 import { useInfiniteScroll } from "../../utils/useIntersectionHooks.js";
+import { newFeedSeed, shuffleStable } from "../../utils/feedOrder.js";
 import { safeGet, safeSet } from "../../utils/safeStorage.js";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { qk } from "../../lib/queryKeys.js";
@@ -36,6 +39,16 @@ const VIEW_KEY = "oqunet.books.view";
 // per genre, and the tiles are a way in rather than a report. Opening a tile
 // re-queries that genre properly — filtered, paged, and complete.
 const GENRE_SAMPLE = 120;
+
+// Above this many rows the shelf stops rendering the whole list and windows it.
+//
+// A threshold rather than always-on, because virtualising is not free: it adds
+// a scroll listener, a measurement per frame, and a slice recomputation, and
+// below a couple of hundred nodes the browser was never the bottleneck. Four
+// pages of results is where the DOM starts costing more than the machinery to
+// avoid it — a reader who has scrolled that far is going to keep scrolling,
+// which is exactly when a list of eight hundred `<li>`s starts to stutter.
+const VIRTUALIZE_ABOVE = 100;
 
 // The search text updates every keystroke, but we don't want to refire the
 // query on every character — this delays the value used as a query key until
@@ -134,9 +147,29 @@ export default function Books() {
     getNextPageParam: (last) => (last.hasMore ? last.nextCursor : undefined),
   });
 
+  // One seed per visit to the shelf. In state rather than computed inline: the
+  // order has to hold still while the reader scrolls, and a seed made during
+  // render is a new order on every render.
+  const [shelfSeed] = useState(newFeedSeed);
+
+  /**
+   * The shelf, in an order that is not "newest first".
+   *
+   * Firestore cannot sort randomly, and a shelf ordered by `createdAt` shows
+   * every reader the same handful of books at the top for as long as nobody
+   * adds one — the rest of the community's library is three screens down and
+   * effectively invisible.
+   *
+   * So each *page* is shuffled where it lands, and the pages themselves keep
+   * arriving in the database's own order. That is what keeps infinite scroll
+   * honest: the cursor still walks `createdAt`, so no book is served twice and
+   * none is skipped, and — because the shuffle is per page rather than over the
+   * whole accumulated list — the rows already on screen do not rearrange
+   * themselves when the next page loads.
+   */
   const books = useMemo(
-    () => (listQuery.data?.pages || []).flatMap((p) => p.items),
-    [listQuery.data]
+    () => (listQuery.data?.pages || []).flatMap((p, i) => shuffleStable(p.items, shelfSeed + i)),
+    [listQuery.data, shelfSeed]
   );
 
   // The rail is a browsing shortcut, not a filter result: while the user is
@@ -262,7 +295,11 @@ export default function Books() {
         // chips are what the tiles replace, and the paged list underneath is a
         // query this screen is not showing.
         genreQuery.isLoading ? (
-          <EmptyState title={t.loading} subtitle="" />
+          // Nine tiles because that is what the grid holds above the fold —
+          // enough that the page has its real height before the covers land.
+          <div role="status" aria-busy="true" aria-label={t.loading} className="grid grid-cols-3 gap-3 px-4 pt-2">
+            {Array.from({ length: 9 }, (_, i) => <BookCoverSkeleton key={i} />)}
+          </div>
         ) : (genreQuery.data?.items?.length || 0) === 0 ? (
           <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
         ) : (
@@ -291,7 +328,7 @@ export default function Books() {
           {hasNewBooks ? <NewBooksRail books={newBooksQuery.data} /> : null}
 
           {isInitialLoading ? (
-            <EmptyState title="Загрузка..." subtitle="" />
+            <SkeletonList count={7} label={t.loading} Item={BookCardSkeleton} />
           ) : books.length === 0 ? (
             <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
           ) : (
@@ -317,6 +354,37 @@ export default function Books() {
                   onLoadMore={loadMore}
                   activeGenre={openGenre}
                 />
+              ) : books.length > VIRTUALIZE_ABOVE ? (
+                /* Same rows, same order, same handlers — only the ones inside
+                   the viewport exist in the DOM. Not a <ul>: the virtualiser
+                   inserts spacer padding on its own container, and a list whose
+                   children are mostly absent is a lie to a screen reader
+                   anyway, so the rows stay plain links.
+
+                   The sentinel goes after it, where it always was: the padding
+                   below the slice reserves the full height of the remaining
+                   rows, so "the bottom of the list" is still the bottom of the
+                   list and infinite scroll keeps firing at the same point. */
+                <>
+                  <WindowVirtualList
+                    items={books}
+                    itemHeight={BOOK_ROW_HEIGHT}
+                    className="mt-1"
+                    keyExtractor={(b) => b.id}
+                    renderItem={(b) => (
+                      <BookCard book={b} saved={effectiveSaved.has(b.id)} onSaveToggle={onSaveToggle} />
+                    )}
+                  />
+                  {listQuery.hasNextPage && (
+                    <div ref={sentinelRef}>
+                      {listQuery.isFetchingNextPage ? (
+                        <SkeletonList count={2} label={t.loading} Item={BookCardSkeleton} />
+                      ) : (
+                        <p className="py-4 text-center text-ink-500 text-[13px]">Прокрутите для загрузки больше</p>
+                      )}
+                    </div>
+                  )}
+                </>
               ) : (
                 <ul className="mt-1">
                   {books.map((b) => (
@@ -326,11 +394,16 @@ export default function Books() {
                   ))}
 
                   {listQuery.hasNextPage && (
-                    <li ref={sentinelRef} className="py-4 text-center">
+                    /* The sentinel carries the next page's placeholder rather
+                       than a line of text: the two rows that appear here are
+                       the same height as the two that replace them, so the
+                       scroll position the reader is holding does not shift
+                       under them when the page lands. */
+                    <li ref={sentinelRef}>
                       {listQuery.isFetchingNextPage ? (
-                        <p className="text-ink-500 text-[14px]">{t.loading || "Загрузка..."}</p>
+                        <SkeletonList count={2} label={t.loading} Item={BookCardSkeleton} />
                       ) : (
-                        <p className="text-ink-500 text-[13px]">Прокрутите для загрузки больше</p>
+                        <p className="py-4 text-center text-ink-500 text-[13px]">Прокрутите для загрузки больше</p>
                       )}
                     </li>
                   )}

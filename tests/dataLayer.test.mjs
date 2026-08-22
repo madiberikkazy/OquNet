@@ -34,6 +34,7 @@ const {
   logReadingSession, listReadingSessions, getCommunityReadingRank,
   createJoinRequest, getRequestById, getPhoneVerification,
   openPickupRequest, getPickupRequest, getPendingPickupForUser,
+  holdBookForPickup, releasePickupHold,
   cancelPickupRequest, fulfillPickupRequest, createBorrowing, PickupBlockedError,
   openReturnRequest, offerReturnToOwner, getReturnRequest, getPendingReturnForBook,
   listPendingReturnsForUser, listPendingReturnsForHolder,
@@ -51,6 +52,10 @@ const {
 } = await import("../src/utils/bookPages.js");
 
 const { requestBook } = await import("../src/firebase/schema.js");
+
+const { withCompleteLists } = await import("../src/utils/useMemberProfile.js");
+
+const { newFeedSeed, orderFeed, shuffleStable } = await import("../src/utils/feedOrder.js");
 
 const { toE164, isE164 } = await import("../src/utils/validators.js");
 
@@ -391,6 +396,192 @@ describe("people search", () => {
     assert.equal((await searchUsers("madi")).length, 0);
     assert.equal((await searchUsers("berik")).length, 0);
     assert.equal((await searchUsers("deleted")).length, 1);
+  });
+});
+
+// The order a feed comes in. The property that matters is not "random" — it is
+// that the same seed gives the same order, because a list that re-shuffles on
+// every render moves rows out from under the reader's thumb.
+describe("feed order", () => {
+  const posts = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, authorId: `a${i % 4}` }));
+
+  it("keeps every item, exactly once", () => {
+    const out = shuffleStable(posts, 42);
+    assert.equal(out.length, posts.length);
+    assert.deepEqual(new Set(out.map((p) => p.id)).size, posts.length);
+  });
+
+  it("gives the same order for the same seed, and a different one otherwise", () => {
+    const a = shuffleStable(posts, 42).map((p) => p.id);
+    const b = shuffleStable(posts, 42).map((p) => p.id);
+    assert.deepEqual(a, b, "the order moved without the seed moving");
+
+    const c = shuffleStable(posts, 43).map((p) => p.id);
+    assert.notDeepEqual(a, c, "the seed made no difference");
+  });
+
+  it("does not simply hand back the order it was given", () => {
+    const before = posts.map((p) => p.id);
+    const after = shuffleStable(posts, newFeedSeed()).map((p) => p.id);
+    assert.equal(after.length, before.length);
+    assert.notDeepEqual(after, before);
+  });
+
+  it("puts the people you follow first, and keeps the rest", () => {
+    const followedIds = new Set(["a1"]);
+    const out = orderFeed(posts, { followedIds, seed: 7 });
+
+    const firstFive = out.slice(0, 5);
+    assert.ok(firstFive.every((p) => p.authorId === "a1"), "a followed author was not at the front");
+    assert.equal(out.length, posts.length);
+    assert.equal(out.filter((p) => p.authorId === "a1").length, 5);
+  });
+
+  it("is a plain shuffle when you follow nobody", () => {
+    const out = orderFeed(posts, { followedIds: new Set(), seed: 7 });
+    assert.deepEqual(
+      out.map((p) => p.id),
+      shuffleStable(posts, 7).map((p) => p.id)
+    );
+  });
+
+  it("survives an empty feed and a missing follow set", () => {
+    assert.deepEqual(orderFeed([], { seed: 1 }), []);
+    assert.deepEqual(orderFeed(null, { seed: 1 }), []);
+    assert.equal(orderFeed(posts, { seed: 1 }).length, posts.length);
+  });
+});
+
+// The hold a pickup puts on a copy: on when the errand starts, off when it is
+// cancelled or lapses, and gone the moment the book actually changes hands.
+describe("holding a book for a pickup", () => {
+  const OWNER = "u-owner";
+  const READER = "u-reader";
+  const OTHER = "u-other";
+  const COMMUNITY = "com-1";
+  let bookId;
+
+  beforeEach(async () => {
+    const book = await createBook({
+      name: "Abai", author: "Auezov", genre: "novel", genres: ["novel"], pages: 100,
+      communityId: COMMUNITY, ownerId: OWNER, holderId: OWNER,
+    });
+    bookId = book.id;
+  });
+
+  it("takes the copy off the shelf, in the reader's name", async () => {
+    await holdBookForPickup({ bookId, userId: READER });
+
+    const held = await getBook(bookId);
+    assert.equal(held.status, "unavailable");
+    assert.equal(held.borrowerId, null, "a hold is not a loan");
+    assert.equal(held.reservedBy, READER);
+    assert.equal(held.holderId, OWNER, "the book did not move");
+  });
+
+  it("puts it back when the reader gives up", async () => {
+    await holdBookForPickup({ bookId, userId: READER });
+    await releasePickupHold({ bookId, userId: READER });
+
+    const free = await getBook(bookId);
+    assert.equal(free.status, "available");
+    assert.equal(free.reservedBy, null);
+  });
+
+  it("is not something a bystander can drop", async () => {
+    await holdBookForPickup({ bookId, userId: READER });
+    await releasePickupHold({ bookId, userId: OTHER });
+
+    assert.equal((await getBook(bookId)).reservedBy, READER);
+  });
+
+  it("is the owner's to clear — a forgotten hold is their book", async () => {
+    await holdBookForPickup({ bookId, userId: READER });
+    await releasePickupHold({ bookId, userId: OWNER });
+
+    assert.equal((await getBook(bookId)).status, "available");
+  });
+
+  it("does not take a copy somebody else is already collecting", async () => {
+    await holdBookForPickup({ bookId, userId: READER });
+    await holdBookForPickup({ bookId, userId: OTHER });
+
+    assert.equal((await getBook(bookId)).reservedBy, READER, "a second hold overwrote the first");
+  });
+
+  it("never puts a book somebody is reading back on the shelf", async () => {
+    await transferBookHolder({
+      bookId, toUserId: READER,
+      borrowing: { bookName: "Abai", communityId: COMMUNITY, startDate: Date.now() },
+    });
+    await releasePickupHold({ bookId, userId: OWNER });
+
+    const still = await getBook(bookId);
+    assert.equal(still.status, "unavailable");
+    assert.equal(still.borrowerId, READER);
+  });
+
+  it("is cleared by the handover it was holding the book for", async () => {
+    await holdBookForPickup({ bookId, userId: READER });
+    await transferBookHolder({
+      bookId, toUserId: READER,
+      borrowing: { bookName: "Abai", communityId: COMMUNITY, startDate: Date.now() },
+    });
+
+    const taken = await getBook(bookId);
+    assert.equal(taken.reservedBy, null, "the hold outlived the pickup it belonged to");
+    assert.equal(taken.borrowerId, READER);
+    assert.equal(taken.holderId, READER);
+  });
+
+  it("refuses a new pickup on a copy held for somebody else", async () => {
+    await holdBookForPickup({ bookId, userId: READER });
+
+    await assert.rejects(
+      () => openPickupRequest({ bookId, requesterId: OTHER, requesterName: "O", communityId: COMMUNITY }),
+      (err) => err instanceof PickupBlockedError && err.reason === "held"
+    );
+  });
+
+  it("still lets the reader who holds it open their own request", async () => {
+    await holdBookForPickup({ bookId, userId: READER });
+
+    const { created } = await openPickupRequest({
+      bookId, requesterId: READER, requesterName: "R", communityId: COMMUNITY,
+    });
+    assert.equal(created, true);
+  });
+});
+
+// A profile read back out of yesterday's cache. The query cache is persisted to
+// IndexedDB for a day, so a screen reads what the *previous* build wrote as well
+// as what this one does — and this entry has changed shape twice.
+describe("member profile, read from an older cache", () => {
+  it("fills in a list the stored entry never had", () => {
+    // Exactly what a build before the posts section wrote: `owned` present,
+    // `posts` absent. Reading `lists.posts.length` off this threw, and took the
+    // whole profile screen down with it.
+    const stale = {
+      user: { id: "u1" },
+      community: null,
+      sameCommunity: true,
+      lists: { held: [{ id: "b1" }], owned: [{ id: "b2" }], reading: [], completed: [], saved: [] },
+    };
+
+    const fixed = withCompleteLists(stale);
+
+    assert.deepEqual(fixed.lists.posts, [], "posts was left undefined");
+    assert.equal(fixed.lists.held.length, 1, "a list that was there did not survive");
+    assert.equal(fixed.user.id, "u1");
+  });
+
+  it("leaves a current entry exactly as it is, and passes null through", () => {
+    const fresh = {
+      user: { id: "u1" }, sameCommunity: true,
+      lists: { held: [], reading: [], completed: [], saved: [], posts: [{ id: "p1" }] },
+    };
+    assert.deepEqual(withCompleteLists(fresh).lists.posts, [{ id: "p1" }]);
+    assert.equal(withCompleteLists(null), null);
   });
 });
 
@@ -783,6 +974,13 @@ describe("read and delivery receipts", () => {
   it("owes a read receipt for a message that arrived while the thread was open", async () => {
     await conversation();
     await markChatRead({ chatId: CHAT, userId: B });
+    // A millisecond of daylight between the read and what follows it. Both
+    // stamps come from `Date.now()`, and `needsReadReceipt` asks whether the
+    // message is *later* than the watermark — so a run fast enough to put them
+    // in the same millisecond answered "no" and failed a test about something
+    // else entirely. The wait is the test saying "afterwards", which is what it
+    // meant all along.
+    await new Promise((resolve) => { setTimeout(resolve, 2); });
     // B is sitting in the thread, so the counter never rises — but the sender
     // still has to see this one turn blue. The counter alone would miss it.
     await sendMessage({ senderId: A, recipientId: B, text: "көріп тұрсың ба?" });

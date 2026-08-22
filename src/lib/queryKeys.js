@@ -36,6 +36,13 @@ export const qk = {
   users: {
     byId: (id) => ["users", id],
   },
+  posts: {
+    // One thread's post document. The screen still holds the post in local
+    // state — it edits it optimistically on every like and reply — but it
+    // *reads* it through this key, so a row in the feed can fill the entry
+    // under a thumb before the tap lands. See utils/prefetch.js.
+    detail: (id) => ["posts", "detail", id],
+  },
   communities: {
     /** Everybody in one community — the member list, and who can take a book. */
     members: (communityId) => ["communities", communityId, "members"],

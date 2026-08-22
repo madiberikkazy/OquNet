@@ -44,6 +44,7 @@
 
 import express from "express";
 import admin from "firebase-admin";
+import { mountPushRoutes, watchNotifications, pushReady } from "./push.js";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -211,6 +212,28 @@ function replyText(outcome) {
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
+// The Telegram webhook is called by Telegram, server to server, and needs no
+// CORS. The push routes are called by the app in a browser, from whatever
+// origin it is deployed on — so they do, and only they do.
+//
+// APP_ORIGIN is a single origin rather than `*` on purpose: these routes take
+// a Firebase ID token, and a wildcard invites any page anywhere to relay one.
+// Unset means the routes are same-origin only, which is the safe default and
+// what a local `npm run dev` against a proxied app wants.
+const APP_ORIGIN = process.env.APP_ORIGIN || "";
+app.use("/push", (req, res, next) => {
+  if (APP_ORIGIN) {
+    res.set("Access-Control-Allow-Origin", APP_ORIGIN);
+    res.set("Vary", "Origin");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  return next();
+});
+
+mountPushRoutes(app, { db, admin });
+
 const telegramReady = Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_WEBHOOK_SECRET);
 
 /**
@@ -229,6 +252,7 @@ app.get("/health", (_req, res) => {
       webhookSecret: Boolean(TELEGRAM_WEBHOOK_SECRET),
       ready: telegramReady,
     },
+    push: { ready: pushReady },
   });
 });
 
@@ -361,6 +385,14 @@ app.listen(PORT, () => {
   console.log(`oqunet verification server listening on :${PORT}`);
   if (!TELEGRAM_BOT_TOKEN) console.error("TELEGRAM_BOT_TOKEN is not set — every update will be refused");
   if (!TELEGRAM_WEBHOOK_SECRET) console.error("TELEGRAM_WEBHOOK_SECRET is not set — every update will be refused");
+
+  // Started here rather than at import time so that importing this module —
+  // which webhooks.test.mjs does, to drive `app` over HTTP — does not open a
+  // Firestore listener the test never closes.
+  //
+  // The cursor defaults to now, which is what stops a restart from re-pushing
+  // every unread notification in the database. See watchNotifications.
+  watchNotifications(db, admin);
 });
 
 export { app, resolveAttempt, toE164, extractToken, loadServiceAccount };

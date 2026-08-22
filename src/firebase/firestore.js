@@ -1037,7 +1037,12 @@ export async function transferBookHolder({
   }
 
   // Note the absence of `ownerId`. The holder moves, the owner does not.
-  const patch = { status: "unavailable", borrowerId: toUserId, holderId: toUserId };
+  // `reservedBy` is cleared in the same write: the book is in somebody's hands
+  // now, so nobody is on their way to collect it — including the reader who
+  // held it, for whom this *is* the arrival.
+  const patch = {
+    status: "unavailable", borrowerId: toUserId, holderId: toUserId, reservedBy: null,
+  };
   await updateBook(bookId, patch);
 
   return { book: { ...book, ...patch }, borrowing: createdBorrowing, ownerId };
@@ -2107,6 +2112,13 @@ export async function openPickupRequest(payload) {
   });
   if (returning) throw new PickupBlockedError("returning", { bookId });
 
+  // Somebody else is already on their way to fetch this copy — see
+  // `holdBookForPickup`. Their hold is what took it off the shelf; this is the
+  // same fact reaching a reader who still had a button for it on an open page.
+  if (book?.reservedBy && book.reservedBy !== requesterId) {
+    throw new PickupBlockedError("held", { bookId });
+  }
+
   const request = await createPickupRequest(payload);
   return { request, created: true };
 }
@@ -2119,6 +2131,59 @@ export async function openPickupRequest(payload) {
  * automatic single-field ones — so the earlier compromise bought nothing and
  * cost a read of every pending request the user had anywhere.
  */
+/**
+ * Take a book off the shelf while somebody goes to collect it.
+ *
+ * A pickup is not instant — the two readers have to meet — and until this
+ * existed the book stayed available for the whole of that, so two people could
+ * each be halfway through collecting the same copy and the second to arrive
+ * found it gone. The hold is the same state an owner's return reservation uses,
+ * `unavailable` with no borrower, plus `reservedBy` saying whose it is.
+ *
+ * Not a lock and not a promise: it lasts as long as the pickup request it
+ * belongs to, which is three days, and the person who made it can drop it at
+ * any time. What it buys is that the shelf stops offering a book that is
+ * already spoken for.
+ */
+export async function holdBookForPickup({ bookId, userId } = {}) {
+  if (!bookId) throw new Error("holdBookForPickup: missing bookId");
+  if (!userId) throw new Error("holdBookForPickup: missing userId");
+
+  const book = await getBook(bookId);
+  if (!book) throw new Error("holdBookForPickup: book not found");
+  // Already held by this reader — the screen was reopened, which is not a
+  // second hold. Held by somebody else, or already on loan, and there is
+  // nothing here to take.
+  if (book.reservedBy === userId) return book;
+  if (book.status !== "available") return book;
+
+  const patch = { status: "unavailable", borrowerId: null, reservedBy: userId };
+  await updateBook(bookId, patch);
+  return { ...book, ...patch };
+}
+
+/**
+ * Put a held book back on the shelf.
+ *
+ * Called when the reader gives up, when their request lapses, and by the book's
+ * owner clearing a hold that was forgotten. A book that is out on loan is left
+ * alone: `borrowerId` is what separates a hold from a read, and putting a book
+ * somebody is reading back on the shelf would be the worse mistake by far.
+ */
+export async function releasePickupHold({ bookId, userId } = {}) {
+  if (!bookId) throw new Error("releasePickupHold: missing bookId");
+
+  const book = await getBook(bookId);
+  if (!book) return null;
+  if (book.borrowerId) return book;
+  if (!book.reservedBy) return book;
+  if (userId && book.reservedBy !== userId && book.ownerId !== userId) return book;
+
+  const patch = { status: "available", borrowerId: null, reservedBy: null };
+  await updateBook(bookId, patch);
+  return { ...book, ...patch };
+}
+
 export async function getPickupRequest(bookId, requesterId) {
   if (!bookId || !requesterId) return null;
   const rows = await getCollection("requests", {

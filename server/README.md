@@ -109,3 +109,59 @@ In order, because each rules out the one below:
    reaching you; check the URL in `getWebhookInfo`.
 5. The app's console → the attempt document has to exist before the bot can find
    it. `VITE_TELEGRAM_BOT` unset means the link never had a token to carry.
+
+## Web Push
+
+The same process also delivers notifications while the app is **closed**. The
+app's half is `src/utils/webPush.js`, this side is `push.js`; the short version:
+
+1. the app asks the browser for a push subscription and POSTs it to
+   `/push/subscribe` with a Firebase ID token — this server verifies the token,
+   so a subscription can only be filed against the account that holds the
+   session;
+2. `watchNotifications` listens to the `notifications` collection and, for each
+   newly created unread one, encrypts it to every subscription the recipient
+   has registered;
+3. the device wakes the service worker (`public/sw.js`), which draws the
+   notification and, on a tap, focuses the app at `/notifications/{id}`.
+
+Without this process running, notifications still appear inside the app — they
+are Firestore documents — but nothing arrives while it is closed.
+
+### Setting it up
+
+Generate the VAPID key pair once:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Then:
+
+| variable | where | value |
+| --- | --- | --- |
+| `VAPID_PUBLIC_KEY` | server | public half |
+| `VAPID_PRIVATE_KEY` | server | private half |
+| `VAPID_SUBJECT` | server | a real `mailto:` |
+| `APP_ORIGIN` | server | the origin the app is served from, for CORS on `/push/*` |
+| `VITE_VAPID_PUBLIC_KEY` | app | the same public half |
+| `VITE_PUSH_SERVER` | app | this server's origin |
+
+`GET /health` reports `push.ready`. With the keys unset the routes answer 503,
+the watcher never starts, and the app reports push as unsupported — everything
+else keeps working, so this is safe to leave unconfigured.
+
+Rotating the keys invalidates every existing subscription; each device has to
+re-register. `syncSubscription` in the app does that on the next launch, but
+only for readers who had push on.
+
+Two things worth knowing:
+
+- **iOS.** Push works only for an app installed to the home screen (Safari
+  16.4+). In a browser tab `PushManager` does not exist, and the settings
+  toggle says so rather than offering a switch that cannot work.
+- **A sleeping host.** `watchNotifications` bounds its query to documents
+  created after startup, so a restart does not re-push the backlog — which also
+  means a notification written while this process was asleep is never pushed.
+  If the host sleeps, the uptime pinger on `/health` is what keeps push alive,
+  not just verification.

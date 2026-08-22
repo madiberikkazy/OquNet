@@ -9,12 +9,33 @@ import {
   requestEmailChange as svcRequestEmailChange,
   syncEmailFromAuth,
 } from "../firebase/auth.js";
+import { setAnalyticsUser } from "../utils/analytics.js";
+import { syncSubscription } from "../utils/webPush.js";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+
+  // Analytics holds the current user id in a module variable so that `track`
+  // can be called from anywhere, including code with no access to a React
+  // context. This is the one place that knows when it changes — including
+  // back to null on sign-out, which matters: events attributed to the
+  // previous account after somebody else signs in on the same phone would be
+  // wrong in the worst possible direction.
+  useEffect(() => { setAnalyticsUser(user?.id); }, [user?.id]);
+
+  // Re-file this device's push subscription with the server, once a session
+  // exists. Quiet and idempotent — it asks for nothing, subscribes nothing
+  // that was not already subscribed, and does nothing at all for a reader who
+  // has never turned push on. It is here because subscriptions rotate and get
+  // pruned, and the symptom of a stale one is notifications silently stopping.
+  // See utils/webPush.js.
+  useEffect(() => {
+    if (!user?.id) return;
+    syncSubscription();
+  }, [user?.id]);
 
   useEffect(() => {
     let unsubscribe = () => {};

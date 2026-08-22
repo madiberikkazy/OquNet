@@ -307,35 +307,125 @@ async function getCacheSize() {
   return totalSize;
 }
 
-// Handle sync events for offline actions
-self.addEventListener('sync', (event) => {
-  console.log('[SW] Background sync event:', event.tag);
+// ─── Background Sync ────────────────────────────────────────────────────────
+//
+// What Background Sync is for, and what it is NOT doing here.
+//
+// It is for work that must survive the page: the browser fires `sync` once
+// connectivity is back, whether or not any tab of the app still exists. That
+// makes it the right home for exactly one thing in this app — draining the
+// analytics outbox, which is plain HTTP and needs no SDK.
+//
+// It is deliberately NOT replaying the reader's own writes (posts, comments,
+// messages). Those go through the Firestore SDK, which cannot run in a service
+// worker, and re-implementing its write protocol with raw REST calls out here
+// would be a second, worse copy of a queue the SDK already keeps. Since
+// src/firebase/config.js switched to `persistentLocalCache`, that queue lives
+// in IndexedDB and is replayed on the next launch even if the app was killed —
+// so an offline post is durable already, and this handler has nothing to add
+// to it. See the long comment in config.js.
+//
+// The two handlers that used to be here — `syncNotifications` and `syncData` —
+// were empty functions that logged and returned. Registering a sync tag whose
+// handler does nothing is worse than not registering it: it reports success to
+// the browser, so the work is never retried.
 
-  if (event.tag === 'sync-notifications') {
-    event.waitUntil(syncNotifications());
-  }
+// The outbox is written by src/utils/analytics.js through idb-keyval, whose
+// default store is the database 'keyval-store' with one object store named
+// 'keyval'. Read here with raw IndexedDB because a service worker served from
+// public/ has no bundler and therefore no import of the library.
+//
+// The value stored is `{ endpoint, events }`. The endpoint travels with the
+// batch because this file never passes through Vite and so cannot see
+// VITE_ANALYTICS_ENDPOINT.
+const IDB_NAME = 'keyval-store';
+const IDB_STORE = 'keyval';
+const ANALYTICS_KEY = 'oqunet:analytics:outbox';
 
-  if (event.tag === 'sync-data') {
-    event.waitUntil(syncData());
-  }
-});
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    // If the database does not exist yet the app has never written an event,
+    // so there is nothing to drain. Creating the store here would also risk
+    // racing idb-keyval's own upgrade — let it lose and resolve empty.
+    req.onupgradeneeded = () => { try { req.transaction.abort(); } catch { /* ignore */ } };
+  });
+}
 
-async function syncNotifications() {
+function idbRequest(store, op) {
+  return new Promise((resolve, reject) => {
+    const req = op(store);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function withOutbox(mode, fn) {
+  let db;
   try {
-    console.log('[SW] Syncing notifications...');
-    // Sync logic would go here
-  } catch (err) {
-    console.error('[SW] Sync failed:', err);
+    db = await idbOpen();
+  } catch {
+    return null;
+  }
+  try {
+    if (!db.objectStoreNames.contains(IDB_STORE)) return null;
+    const tx = db.transaction(IDB_STORE, mode);
+    const result = await fn(tx.objectStore(IDB_STORE));
+    return result;
+  } finally {
+    db.close();
   }
 }
 
-async function syncData() {
-  try {
-    console.log('[SW] Syncing data...');
-    // Sync logic would go here
-  } catch (err) {
-    console.error('[SW] Sync failed:', err);
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'oqunet-analytics') {
+    event.waitUntil(drainAnalyticsOutbox());
   }
+});
+
+/**
+ * Send whatever the app could not.
+ *
+ * Throwing is meaningful here: a rejected `waitUntil` tells the browser the
+ * sync failed, and it schedules another attempt with its own backoff. That is
+ * the whole value of this API over a retry loop of our own — so a network
+ * failure must propagate rather than be swallowed.
+ */
+async function drainAnalyticsOutbox() {
+  const stored = await withOutbox('readonly', (store) =>
+    idbRequest(store, (s) => s.get(ANALYTICS_KEY))
+  );
+
+  const endpoint = stored && stored.endpoint;
+  const events = stored && Array.isArray(stored.events) ? stored.events : [];
+  if (!endpoint || events.length === 0) return;
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ events }),
+  });
+
+  // A 4xx is the server rejecting this payload, and it will reject it again on
+  // every retry — drop it rather than looping for ever. A 5xx or a thrown
+  // fetch leaves the entry in place and fails the sync, so it is retried.
+  if (!res.ok && res.status < 500) {
+    await withOutbox('readwrite', (store) => idbRequest(store, (s) => s.delete(ANALYTICS_KEY)));
+    return;
+  }
+  if (!res.ok) throw new Error('[SW] analytics endpoint ' + res.status);
+
+  // Delete only the events that were actually sent. The app may have appended
+  // more while this request was in flight — clearing the whole key would throw
+  // those away, so what is written back is the difference.
+  await withOutbox('readwrite', async (store) => {
+    const latest = await idbRequest(store, (s) => s.get(ANALYTICS_KEY));
+    const remaining = (latest && Array.isArray(latest.events) ? latest.events : []).slice(events.length);
+    if (remaining.length === 0) return idbRequest(store, (s) => s.delete(ANALYTICS_KEY));
+    return idbRequest(store, (s) => s.put({ endpoint, events: remaining }, ANALYTICS_KEY));
+  });
 }
 
 // Handle push notifications

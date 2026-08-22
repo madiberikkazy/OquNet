@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
 import { signInWithIdentifier, signInWithGoogle, sendPasswordReset } from "../../firebase/auth.js";
+import { track } from "../../utils/analytics.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { t } from "../../utils/i18n.js";
 import { isEmail } from "../../utils/validators.js";
@@ -56,8 +57,10 @@ export default function Login() {
     try {
       const profile = await signInWithGoogle();
       setUser(profile);
+      track("auth.signIn", { method: "google" });
       navigate("/", { replace: true });
     } catch (err) {
+      track("auth.signIn.failed", { method: "google", code: err?.code });
       setError(err?.message || t.googleSignInError);
     } finally {
       setGoogleBusy(false);
@@ -71,8 +74,10 @@ export default function Login() {
     try {
       const profile = await signInWithIdentifier(form);
       setUser(profile);
+      track("auth.signIn", { method: "password" });
       navigate("/", { replace: true });
     } catch (err) {
+      track("auth.signIn.failed", { method: "password", code: err?.code });
       setError(prettyError(err));
     } finally {
       setSubmitting(false);

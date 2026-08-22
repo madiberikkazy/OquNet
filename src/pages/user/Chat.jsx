@@ -12,6 +12,8 @@ import MessageTicks from "../../components/MessageTicks.jsx";
 import { qk } from "../../lib/queryKeys.js";
 import { peerName } from "../../utils/chatPeer.js";
 import { logger } from "../../utils/logger.js";
+import { attempt, release, retryAfterSeconds } from "../../utils/rateLimit.js";
+import { track } from "../../utils/analytics.js";
 import { dayStamp, formatClock, formatDayLabel, formatLastSeen, toMillis } from "../../utils/time.js";
 import { t } from "../../utils/i18n.js";
 import { LIMITS } from "../../utils/validators.js";
@@ -160,6 +162,15 @@ export default function Chat() {
     e?.preventDefault?.();
     if (!canSend) return;
 
+    // The composer keeps its text on a refusal — nothing is cleared until the
+    // send is actually going, which is the same rule the failure path below
+    // follows.
+    const gate = attempt("chat.send");
+    if (!gate.allowed) {
+      setError(t.rateLimited(retryAfterSeconds(gate.retryAfterMs)));
+      return;
+    }
+
     const text = draft.trim();
     setSending(true);
     setError("");
@@ -171,8 +182,10 @@ export default function Chat() {
 
     try {
       await sendMessage({ senderId: selfId, recipientId: peerId, text });
+      track("chat.send", { length: text.length });
     } catch (err) {
       logger.error("chat.send", err?.message, { code: err?.code, chatId });
+      release("chat.send");
       setDraft(text);
       setError(t.chatSendFailed);
     } finally {

@@ -5,6 +5,8 @@ import EmptyState from "../../components/EmptyState.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { createPost } from "../../firebase/firestore.js";
+import { attempt, release, retryAfterSeconds } from "../../utils/rateLimit.js";
+import { track } from "../../utils/analytics.js";
 import { logger } from "../../utils/logger.js";
 import { writeError } from "../../utils/writeError.js";
 import { t } from "../../utils/i18n.js";
@@ -36,6 +38,18 @@ export default function CreatePost() {
   async function submit(e) {
     e.preventDefault();
     if (busy || !body.trim() || !community?.id || !user?.id) return;
+
+    // Before `setBusy`, so a refused attempt leaves the form exactly as it
+    // was — enabled, with the text still in it. `busy` already covers the
+    // double-tap *within* one submit; this covers the case it cannot, which
+    // is a second submit after the first has finished.
+    const gate = attempt("post.create");
+    if (!gate.allowed) {
+      setError(t.rateLimited(retryAfterSeconds(gate.retryAfterMs)));
+      track("post.create.rateLimited", { reason: gate.reason });
+      return;
+    }
+
     setBusy(true);
     setError("");
     try {
@@ -52,9 +66,14 @@ export default function CreatePost() {
       // Home rather than back: the post is on the feed now, and the feed is a
       // live subscription, so landing there shows the thing that was just
       // written instead of whatever screen happened to be underneath.
+      track("post.create", { length: body.trim().length, public: !community.isPrivate });
       navigate("/", { replace: true });
     } catch (err) {
       logger.error("createPost", err?.message, { code: err?.code });
+      // The post was not written, so the attempt should not count against the
+      // next one — a reader whose first try hit a permission error should not
+      // then be told to wait three seconds.
+      release("post.create");
       setError(writeError(err));
       setBusy(false);
     }

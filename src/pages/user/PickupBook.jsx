@@ -13,6 +13,8 @@ import {
   openPickupRequest,
   PickupBlockedError,
   cancelPickupRequest,
+  holdBookForPickup,
+  releasePickupHold,
   fulfillPickupRequest,
   transferBookHolder,
   updateBorrowing,
@@ -30,6 +32,7 @@ import { t, getCurrentLang } from "../../utils/i18n.js";
 import { canSeePhone } from "../../utils/contactVisibility.js";
 import MessageButton from "../../components/MessageButton.jsx";
 import { logger } from "../../utils/logger.js";
+import { attempt, retryAfterSeconds } from "../../utils/rateLimit.js";
 
 // A pickup that nobody acts on stops blocking the book after three days —
 // the same window the screen promises in its footer note.
@@ -61,6 +64,8 @@ function formatLongDate(ts) {
 /** Why a reader cannot start this pickup, in words. */
 export function blockMessage(reason) {
   if (reason === "other-pickup") return t.pickupOtherPending;
+  // Somebody else got to it first and is on their way to collect it.
+  if (reason === "held") return t.bookBeingCollected;
   // Not this reader's fault and not their errand: the copy is on its way back
   // to the person who owns it, who is on their way out of the community.
   if (reason === "returning") return t.bookBeingReturned;
@@ -104,6 +109,9 @@ export default function PickupBook() {
   // and both send a code. The data layer refuses the duplicate either way; this
   // is what stops the second notification from being written at all.
   const sendingRef = useRef(false);
+  // Whether the holder has already been told, for this visit. The request is
+  // opened on load now, so "was it created just now" no longer answers it.
+  const codeSentRef = useRef(false);
   const resendingRef = useRef(false);
   const submittingRef = useRef(false);
 
@@ -141,11 +149,17 @@ export default function PickupBook() {
       let blocker = returning ? { reason: "returning", bookId: null } : null;
       if (user?.id && !returning) {
         req = await getPickupRequest(id, user.id);
-        // Reopening a stale request would hand out a code nobody remembers.
+        // Reopening a stale request would hand out a code nobody remembers —
+        // and, now that a request holds the book off the shelf, would keep a
+        // book out of circulation for a reader who walked away three days ago.
+        // The hold goes back with it.
         if (req && isExpired(req)) {
           try { await cancelPickupRequest(req.id); } catch (err) {
             logger.warn("pickup.expireRequest", err?.message, { bookId: id });
           }
+          await releasePickupHold({ bookId: id, userId: user.id }).catch((err) => {
+            logger.warn("pickup.expireHold", err?.message, { bookId: id });
+          });
           req = null;
           setError(t.pickupRequestExpired);
         }
@@ -160,6 +174,47 @@ export default function PickupBook() {
           else if (loan && loan.bookId !== id) blocker = { reason: "other-loan", bookId: loan.bookId };
         }
       }
+      // ── Arriving here is the start of the errand, so the book comes off
+      //    the shelf now rather than when the code is sent.
+      //
+      // A pickup takes days. Leaving the copy available for all of them is how
+      // two readers each got halfway through collecting the same book, and the
+      // second one to arrive found an empty shelf and no explanation. The
+      // request is what records the hold — whose it is, and when it started, so
+      // that the three days above can be counted — which is why it is opened
+      // here rather than by the button below. The button now does what it says
+      // on it: sends the code.
+      //
+      // Nothing is held for a reader who is blocked, and nothing is held twice:
+      // `openPickupRequest` returns the existing request untouched, and the
+      // rules refuse a second hold on a book somebody else is collecting.
+      if (user?.id && !req && !blocker) {
+        try {
+          const opened = await openPickupRequest({
+            bookId: id,
+            requesterId: user.id,
+            requesterName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || `@${user.nickname ?? ""}`,
+            communityId: b?.communityId,
+            bookName: b?.name,
+          });
+          req = opened.request;
+          await holdBookForPickup({ bookId: id, userId: user.id }).catch((err) => {
+            // The request stands and the pickup can go ahead; the copy simply
+            // stays visible on the shelf. Worth a log, not worth stopping for.
+            logger.warn("pickup.hold", err?.message, { bookId: id, code: err?.code });
+          });
+          setBook(await getBook(id));
+          invalidatePickupRequest();
+          invalidateHolderCaches(id);
+        } catch (err) {
+          if (err instanceof PickupBlockedError) {
+            blocker = { reason: err.reason, bookId: err.bookId };
+          } else {
+            logger.error("pickup.open", err?.message, { bookId: id, code: err?.code });
+          }
+        }
+      }
+
       setPickupRequest(req);
       setBlockedBy(blocker);
       setStep(req ? 2 : 1);
@@ -177,9 +232,15 @@ export default function PickupBook() {
     try {
       if (pickupRequest?.id) {
         await cancelPickupRequest(pickupRequest.id);
+        // …and the book goes back on the shelf in the same breath. A cancelled
+        // errand that left the copy held would be worse than never starting.
+        await releasePickupHold({ bookId: id, userId: user?.id }).catch((err) => {
+          logger.warn("pickup.cancelHold", err?.message, { bookId: id });
+        });
         // Frees this reader to ask for a different book, and puts the book page
         // back to offering a fresh request rather than "continue".
         invalidatePickupRequest();
+        invalidateHolderCaches(id);
       }
     } catch (err) {
       logger.error("pickup.cancel", err?.message, { bookId: id });
@@ -190,18 +251,32 @@ export default function PickupBook() {
   }
 
   /**
-   * Step 1 → 2. Opens the pickup request and tells whoever holds the book which
-   * code to read out. The book itself does not move until that code comes back
-   * on step 2 — this only announces the intent.
+   * Step 1 → 2. Tells whoever holds the book which code to read out.
    *
-   * The code is sent exactly once per request, and that is structural rather
-   * than careful: `openPickupRequest` decides whether a request was *created*,
-   * and only a created one is announced. Pressing this button again — after
-   * going back to the book, on a second tab, or twice in a row — finds the open
-   * request and walks to step 2 in silence.
+   * The request itself was opened when this screen loaded — that is what holds
+   * the copy off the shelf while the two readers arrange to meet — so this
+   * button no longer creates anything. It announces. The book still does not
+   * move until the code comes back on step 2.
+   *
+   * `openPickupRequest` is called anyway, and returns the request that is
+   * already open. It is not a fallback bolted on: the load may have been
+   * refused for a reason that has since cleared, and this is the one place that
+   * can tell the reader why rather than leaving a button that does nothing.
+   * Whether a request was *created* here decides whether anybody is notified,
+   * so pressing this twice sends one code, not two.
    */
   async function handleSendCode() {
     if (sendingRef.current || !user?.id || !book) return;
+
+    // Opening a pickup writes a request, holds the book, and notifies the
+    // holder. Repeating it does not make the other person answer sooner, and
+    // each repeat is all three of those again.
+    const gate = attempt("pickup.request");
+    if (!gate.allowed) {
+      setError(t.rateLimited(retryAfterSeconds(gate.retryAfterMs)));
+      return;
+    }
+
     sendingRef.current = true;
     setSending(true);
     setError("");
@@ -226,12 +301,19 @@ export default function PickupBook() {
       setPickupRequest(request);
       setStep(2);
 
-      // Somebody else's copy of this screen already sent the code. Saying so
-      // beats silently doing nothing after a button press.
-      if (!created) {
+      if (created) {
+        // Only reachable when the load could not open the request — the hold
+        // belongs with it either way.
+        await holdBookForPickup({ bookId: id, userId: user.id }).catch((err) => {
+          logger.warn("pickup.hold", err?.message, { bookId: id, code: err?.code });
+        });
+      } else if (codeSentRef.current) {
+        // This screen already sent it. Saying so beats silently doing nothing
+        // after a button press.
         setError(t.pickupCodeAlreadySent);
         return;
       }
+      codeSentRef.current = true;
 
       // The book page asks whether this reader has a request open — for this
       // book, and for any book. Both answers just changed.
@@ -279,8 +361,15 @@ export default function PickupBook() {
 
   async function handleResend() {
     // Same reason as `sendingRef`: this rotates the code and notifies, so a
-    // double-tap is two codes, and the second invalidates the first.
+    // double-tap is two codes, and the second invalidates the first. The
+    // window below is the same guard held across a remount of this screen,
+    // which `resendingRef` cannot see.
     if (resendingRef.current || !user?.id || !book) return;
+    const gate = attempt("pickup.request");
+    if (!gate.allowed) {
+      setError(t.rateLimited(retryAfterSeconds(gate.retryAfterMs)));
+      return;
+    }
     resendingRef.current = true;
     setResending(true);
     setResent(false);

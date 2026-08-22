@@ -4,6 +4,7 @@ import BookStatusBadge from "./BookStatusBadge.jsx";
 import SaveButton from "./SaveButton.jsx";
 import { genreLabel } from "../utils/i18n.js";
 import { ratingSummary, formatRating } from "../utils/rating.js";
+import { useBookPrefetch } from "../utils/prefetch.js";
 
 // `width`/`height` are not decoration: an SVG with only a viewBox has no
 // intrinsic size, and an <img> sized by `max-width`/`max-height` alone then has
@@ -14,6 +15,28 @@ export const FALLBACK_COVER =
   encodeURIComponent(
     `<svg xmlns='http://www.w3.org/2000/svg' width='60' height='90' viewBox='0 0 60 90'><rect width='60' height='90' fill='#dde5ee'/><text x='50%' y='52%' text-anchor='middle' fill='#5b6573' font-family='Inter' font-size='9'>OquNet</text></svg>`
   );
+
+/**
+ * The rendered height of one row, in pixels, border included.
+ *
+ * Exported because the shelf virtualises itself once it gets long (see
+ * Books.jsx) and a virtualiser has to know the row height before it renders
+ * the row. Two copies of this number would drift the first time the padding
+ * changes, and the symptom of a drifted one is a list that scrolls to the
+ * wrong place — so there is one copy, here, next to the classes that produce
+ * it: `py-3` (12 + 12) around an 88px cover, plus the 1px bottom border.
+ *
+ * The Link below is given this height explicitly rather than being left to
+ * size itself, and the badge row below it is `flex-nowrap`. Both are needed,
+ * and the second is the one that is easy to miss: measured at four viewport
+ * widths, the badge row used to wrap onto a second line at 320px and 360px —
+ * both extremely common phone widths — which made the row 139px there and
+ * 113px on anything wider. In a plain list that is invisible. In a virtualised
+ * one it is a list that scrolls to the wrong place, and with a forced height
+ * it would be a clipped badge. Not wrapping fixes it at the source: the genre
+ * pill truncates instead, and the row is 113px at every width.
+ */
+export const BOOK_ROW_HEIGHT = 113;
 
 /**
  * Row layout, top to bottom on the right of the cover:
@@ -31,10 +54,19 @@ export default function BookCard({ book, onSaveToggle, saved, showRating = true 
   // rather than leaving the browser's broken-image glyph in the row.
   const [broken, setBroken] = useState(false);
 
+  // A finger landing on the row is the earliest honest signal that this book
+  // is the one being opened, and the gap between touchstart and the tap that
+  // follows is most of a Firestore round trip. Nothing is rendered from this —
+  // it only fills the cache entry the detail screen is about to read, and the
+  // detail screen behaves identically if it never fired.
+  const prefetchProps = useBookPrefetch()(book.id);
+
   return (
     <Link
       to={`/books/${book.id}`}
-      className="flex gap-3 px-4 py-3 border-b border-ink-100 last:border-b-0 active:bg-ink-100/40 transition"
+      {...prefetchProps}
+      style={{ height: BOOK_ROW_HEIGHT }}
+      className="flex gap-3 px-4 py-3 border-b border-ink-100 last:border-b-0 active:bg-ink-100/40 transition box-border overflow-hidden"
     >
       <img
         src={(!broken && book.coverUrl) || FALLBACK_COVER}
@@ -53,10 +85,16 @@ export default function BookCard({ book, onSaveToggle, saved, showRating = true 
         <p className="text-[13px] text-ink-500 truncate">{book.author}</p>
 
         <div className="mt-auto pt-1.5 flex items-end justify-between gap-2">
-          <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <BookStatusBadge status={status} daysLeft={book.daysLeft} />
+          {/* `flex-nowrap`, and the status badge does not shrink: it is the
+              fact about this copy that the row exists to state, so when there
+              is not enough width for both it is the genre that gives way. See
+              BOOK_ROW_HEIGHT above for why wrapping is not an option here. */}
+          <div className="flex items-center gap-2 flex-nowrap min-w-0">
+            <span className="shrink-0">
+              <BookStatusBadge status={status} daysLeft={book.daysLeft} />
+            </span>
             {book.genre ? (
-              <span className="px-2 py-0.5 rounded-full bg-ink-100 text-ink-500 text-[11px] font-medium">
+              <span className="px-2 py-0.5 rounded-full bg-ink-100 text-ink-500 text-[11px] font-medium truncate">
                 {genreLabel(book.genre)}
               </span>
             ) : null}

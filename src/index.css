@@ -231,3 +231,51 @@
    ═══════════════════════════════════════════════════════════════════ */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   SKELETON PLACEHOLDERS
+   ═══════════════════════════════════════════════════════════════════ */
+/* The shimmer is a gradient swept across the block, not an opacity pulse.
+ * A pulse dims the whole page rhythmically, which is tiring on a list of
+ * twelve rows; a sweep reads as one motion across the group because every
+ * block shares the same animation clock.
+ *
+ * Painted with a background gradient rather than an ::after overlay so the
+ * shape stays a single element — these are rendered a dozen at a time and an
+ * extra composited layer each is not free on a mid-range phone.
+ *
+ * The highlight is a translucent white in both themes: `--ink-100` is dark in
+ * dark mode, so a light sweep lifts it, and at 6% it does not glare. */
+.skeleton {
+  background-color: var(--ink-100);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.28) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeletonSweep 1.4s ease-in-out infinite;
+}
+
+.dark .skeleton {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 100%
+  );
+}
+
+@keyframes skeletonSweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* Motion here is decoration, and for a reader who has asked the OS for less of
+ * it a bar sweeping every 1.4 seconds is exactly the kind they turned off. The
+ * grey boxes still do the layout-reservation half of the job without it. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}

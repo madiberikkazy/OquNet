@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
+import { BookDetailSkeleton } from "../../components/Skeleton.jsx";
 import BookStatusBadge from "../../components/BookStatusBadge.jsx";
 import SaveButton from "../../components/SaveButton.jsx";
 import Avatar from "../../components/Avatar.jsx";
@@ -380,7 +381,7 @@ export default function BookDetail() {
   if (bookQuery.isLoading) {
     return (
       <MobileShell>
-        <p className="px-6 py-12 text-ink-500 text-center">{t.loading}</p>
+        <BookDetailSkeleton />
       </MobileShell>
     );
   }
@@ -423,6 +424,9 @@ export default function BookDetail() {
   // another reader cannot be started here — taking it back is a handshake with
   // whoever is holding it, not a button on this page.
   const ownerHasCopy = isOwner && !!user?.id && holderId === user.id;
+  // Off the shelf because another reader is on their way to fetch it. Their
+  // hold, not a loan — `reservedBy` is what tells the two apart.
+  const heldByOther = !!book.reservedBy && book.reservedBy !== user?.id;
   // Read once, and then let it travel. The one exception is the person it
   // belongs to: their own copy is theirs to pick up again whenever they like.
   const alreadyRead = !isOwner && canRateQuery.data === true;
@@ -498,6 +502,12 @@ export default function BookDetail() {
          arranged with the reader holding it. */
       <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
         {t.yourBook}
+      </p>
+    ) : heldByOther ? (
+      /* First come, first served, and this reader was second. Said plainly
+         rather than left as a button that fails two screens later. */
+      <p className="text-center text-[13px] text-ink-500 py-3 bg-ink-100 rounded-xl">
+        {t.bookBeingCollected}
       </p>
     ) : alreadyRead ? (
       /* One read each — a lending library only works while its books keep

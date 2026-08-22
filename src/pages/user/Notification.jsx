@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
+import { SkeletonList, PersonRowSkeleton } from "../../components/Skeleton.jsx";
 import NotificationItem from "../../components/NotificationItem.jsx";
 import {
   deleteNotification,
@@ -118,7 +119,9 @@ export default function Notification() {
 
       <ul className="mt-2">
         {loading ? (
-          <li className="px-6 py-12 text-center text-ink-500">{t.loading}</li>
+          <li>
+            <SkeletonList count={6} label={t.loading} Item={PersonRowSkeleton} />
+          </li>
         ) : filtered.length === 0 ? (
           <li>
             <EmptyState

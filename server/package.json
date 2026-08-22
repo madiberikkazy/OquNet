@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Telegram phone-verification webhook \u2014 the only writer of a verified number.",
+  "description": "Telegram phone-verification webhook — the only writer of a verified number.",
   "main": "server.js",
   "engines": {
     "node": ">=20"
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "firebase-admin": "^12.7.0"
+    "firebase-admin": "^12.7.0",
+    "web-push": "^3.6.7"
   }
 }

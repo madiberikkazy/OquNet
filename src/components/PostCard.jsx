@@ -1,8 +1,7 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
+import { usePostPrefetch } from "../utils/prefetch.js";
 import Avatar from "./Avatar.jsx";
 import LikeButton from "./LikeButton.jsx";
-import { logger } from "../utils/logger.js";
 import { formatPostStamp } from "../utils/time.js";
 import { t } from "../utils/i18n.js";
 
@@ -105,7 +104,7 @@ export default function PostCard({
             inline
           />
           <CommentAction post={post} standalone={standalone} />
-          <ShareAction post={post} handle={handle} />
+          <ShareAction post={post} />
         </div>
       </div>
     </article>
@@ -122,6 +121,10 @@ export default function PostCard({
  */
 function CommentAction({ post, standalone }) {
   const total = Math.max(0, Math.round(Number(post.commentCount) || 0));
+  // Warms the thread's document and its chunk on hover/touch. Hooks run
+  // unconditionally, `standalone` or not — the props are simply not spread on
+  // the branch that renders a plain span.
+  const prefetchProps = usePostPrefetch()(post.id);
   const inner = (
     <>
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -139,7 +142,12 @@ function CommentAction({ post, standalone }) {
     return <span className={className} aria-label={`${t.comments} (${total})`}>{inner}</span>;
   }
   return (
-    <Link to={`/posts/${post.id}`} aria-label={`${t.comments} (${total})`} className={className + " active:scale-90"}>
+    <Link
+      to={`/posts/${post.id}`}
+      {...prefetchProps}
+      aria-label={`${t.comments} (${total})`}
+      className={className + " active:scale-90"}
+    >
       {inner}
     </Link>
   );
@@ -148,38 +156,20 @@ function CommentAction({ post, standalone }) {
 /**
  * Passing a post on.
  *
- * The OS share sheet where there is one — on a phone that is the whole point,
- * since it is the sheet the reader already knows and it reaches every app they
- * have. Everywhere else the link goes to the clipboard and the button says so
- * for a moment, because a share button that appears to do nothing is worse than
- * no share button. Same arrangement the profile's share has.
+ * It goes to a screen rather than straight to the OS share sheet, and the
+ * reason is who the reader is usually sharing with. A notice about a book in
+ * one community is interesting mostly to the people in that community — who are
+ * all in this app, most of them one tap from a conversation the reader already
+ * has open. The sheet hands the link to WhatsApp instead, where the recipient
+ * has to come back from. So the people come first and the sheet is at the
+ * bottom of that screen, for everybody who is not in here.
  */
-function ShareAction({ post, handle }) {
-  const [copied, setCopied] = useState(false);
-  const url = `${window.location.origin}/posts/${post.id}`;
-
-  async function share() {
-    try {
-      if (navigator.share) {
-        await navigator.share({ text: t.sharePostText(handle || t.app), url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch (err) {
-      // A cancelled share sheet rejects exactly like a failure does, and it is
-      // by far the more common of the two — logged, never surfaced.
-      logger.warn("post.share", err?.message, { postId: post.id });
-    }
-  }
-
+function ShareAction({ post }) {
   return (
-    <button
-      type="button"
-      onClick={share}
+    <Link
+      to={`/posts/${post.id}/share`}
       aria-label={t.forward}
-      className="relative inline-flex items-center text-ink-500 transition active:scale-90"
+      className="inline-flex items-center text-ink-500 transition active:scale-90"
     >
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
@@ -187,14 +177,6 @@ function ShareAction({ post, handle }) {
           stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"
         />
       </svg>
-      {copied ? (
-        <span
-          className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink-900 px-2 py-1 text-[11px] font-medium"
-          style={{ color: "var(--bg-base)" }}
-        >
-          {t.linkCopied}
-        </span>
-      ) : null}
-    </button>
+    </Link>
   );
 }

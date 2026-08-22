@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "seed": "node scripts/seed.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project demo-oqunet-rules 'node --test tests/firestore.rules.test.js'",
-    "test:data": "node --import ./tests/helpers/register.mjs --test tests/dataLayer.test.mjs tests/installNotification.test.mjs tests/chat.test.mjs",
+    "test:data": "node --import ./tests/helpers/register.mjs --test tests/dataLayer.test.mjs tests/installNotification.test.mjs tests/chat.test.mjs tests/rateLimit.test.mjs tests/analytics.test.mjs",
     "test:queries": "firebase emulators:exec --only firestore --project demo-oqunet-idx 'node --test tests/queries.emulator.test.mjs'",
     "test": "npm run test:data && npm run test:queries && npm run test:rules"
   },

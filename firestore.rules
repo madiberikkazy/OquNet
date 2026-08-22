@@ -363,7 +363,8 @@ service cloud.firestore {
         && request.resource.data.status == 'available'
         && request.resource.data.createdAt == request.time;
 
-      allow update: if bookAdminEdit() || bookRatingRollup() || bookHandoff();
+      allow update: if bookAdminEdit() || bookRatingRollup()
+        || bookHandoff() || bookPickupHold();
 
       // The owner deletes their own copies on the way out of the community
       // (LeaveCommunity); the admin curates the shelf (AdminBooks).
@@ -409,9 +410,65 @@ service cloud.firestore {
     // set: `ownerId` cannot ride along on a handoff even by accident.
     function bookHandoff() {
       return isMemberOf(resource.data.communityId)
-        && touchesOnly(['status', 'borrowerId', 'holderId'].toSet())
-        && (takesBook() || releasesBook() || sendsBookHome()
-            || reservesForReturn() || releasesReservation() || ownerReclaims());
+        && (
+          // Only *taking* a book may touch `reservedBy`, and only to clear it:
+          // a book in somebody's hands is not a book anybody is on their way to
+          // collect. Every other handoff leaves the field exactly as it found
+          // it, which is what keeps an owner's return reservation from being a
+          // side door onto somebody else's hold.
+          (touchesOnly(['status', 'borrowerId', 'holderId', 'reservedBy'].toSet())
+           && takesBook())
+          || (touchesOnly(['status', 'borrowerId', 'holderId'].toSet())
+              && (releasesBook() || sendsBookHome()
+                  || reservesForReturn() || releasesReservation() || ownerReclaims()))
+        );
+    }
+
+    // ── Holding a book while you go and fetch it ────────────────────────────
+    //
+    // A pickup takes days: the two readers have to meet. Until this existed the
+    // book stayed on the shelf that whole time, so two people could each be
+    // halfway through collecting the same copy, and the second one to arrive
+    // found it gone. The hold takes it off the shelf the moment somebody starts
+    // — `unavailable` with no borrower, which is the same state an owner's
+    // return reservation uses — and `reservedBy` records whose hold it is.
+    //
+    // That name is the whole point of the field. Without it the release rule
+    // would have to be "any member may put a reserved book back", which would
+    // also let a stranger cancel the reservation an owner made to get their own
+    // copy home. With it, a hold is only ever undone by the person who made it,
+    // by the book's owner, or by the admin (through bookAdminEdit) — and the
+    // three-day expiry in the app is what stops a forgotten hold from being
+    // permanent.
+    //
+    // Note what this does *not* add: the power to make a book unavailable to
+    // everybody else. `takesBook()` above has always let a member write
+    // themselves in as the holder without anybody's agreement — the four-digit
+    // code is a handshake between two people, not a permission — so a hold is
+    // strictly weaker than what a member could already do.
+    function bookPickupHold() {
+      return isMemberOf(resource.data.communityId)
+        && touchesOnly(['status', 'borrowerId', 'reservedBy'].toSet())
+        && (holdsForPickup() || releasesPickupHold());
+    }
+
+    function holdsForPickup() {
+      return resource.data.status == 'available'
+        && resource.data.get('reservedBy', null) == null
+        // You do not collect a book you are already holding.
+        && currentHolder() != uid()
+        && request.resource.data.status == 'unavailable'
+        && request.resource.data.borrowerId == null
+        && request.resource.data.reservedBy == uid();
+    }
+
+    function releasesPickupHold() {
+      return (resource.data.get('reservedBy', null) == uid()
+              || resource.data.ownerId == uid())
+        && resource.data.get('reservedBy', null) != null
+        && request.resource.data.status == 'available'
+        && request.resource.data.borrowerId == null
+        && request.resource.data.reservedBy == null;
     }
 
     // Mirrors utils/bookHolder.js — a book with no holderId is with its owner.
@@ -423,7 +480,11 @@ service cloud.firestore {
     function takesBook() {
       return request.resource.data.status == 'unavailable'
         && request.resource.data.holderId == uid()
-        && request.resource.data.borrowerId == uid();
+        && request.resource.data.borrowerId == uid()
+        // A book in somebody's hands is not a book anybody is on their way to
+        // collect: taking it clears the hold, and may not leave somebody
+        // else's standing.
+        && request.resource.data.get('reservedBy', null) == null;
     }
 
     // releaseBookAfterReading — finished, but the copy stays on the caller's
@@ -1106,6 +1167,19 @@ service cloud.firestore {
       // it — which is also why the unread counter can be a plain number rather
       // than something that has to be recomputed when history changes.
       allow update, delete: if false;
+    }
+
+    // Web Push registrations: one document per device, written and read only by
+    // the Admin SDK in server/push.js, which bypasses these rules entirely.
+    //
+    // Spelled out rather than left to the catch-all below, because the closure
+    // is deliberate and a future reader should not have to guess. Each document
+    // holds a push endpoint plus the two keys a payload is encrypted to, and
+    // those three together are a capability: anybody who can read them can send
+    // a notification to that device. No client needs them — the app already
+    // holds its own subscription, from the browser — so no client gets them.
+    match /pushSubscriptions/{subscriptionId} {
+      allow read, write: if false;
     }
 
     // Everything not matched above is already denied — this only says so out

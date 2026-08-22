@@ -9,6 +9,28 @@ import { logger } from "./logger.js";
 export const EMPTY_LISTS = Object.freeze({ held: [], reading: [], completed: [], saved: [], posts: [] });
 
 /**
+ * Fill in whatever a stored answer is missing.
+ *
+ * This exists because of a bug worth keeping the guard for. The query cache is
+ * persisted to IndexedDB for a day, so a screen does not only read what *this*
+ * build wrote — it reads what the build before it wrote, too. When this entry
+ * gained a `posts` list and lost an `owned` one, every reader with a day-old
+ * profile in their cache got an entry of the previous shape, and a screen that
+ * did `lists.posts.length` on it threw before it drew anything. A crash on the
+ * one screen you were trying to open, for a day, with nothing in the interface
+ * to explain it.
+ *
+ * The buster in main.jsx is the blunt instrument for that and has been bumped.
+ * This is the sharp one, and the reason to have both: a cache older than the
+ * code is a normal condition, not an emergency, and the screen should survive
+ * it whether or not somebody remembered to bump a constant.
+ */
+export function withCompleteLists(data) {
+  if (!data) return data;
+  return { ...data, lists: { ...EMPTY_LISTS, ...(data.lists || {}) } };
+}
+
+/**
  * Everything one member's profile shows, in one query.
  *
  * A hook rather than a block inside a screen because two screens need exactly
@@ -35,6 +57,10 @@ export function useMemberProfile(id, viewer) {
     // a number other people move while this reader is not looking.
     staleTime: 0,
     refetchOnMount: "always",
+    // Runs over cached data as well as freshly fetched, which is the point:
+    // what comes back from IndexedDB was written by whichever build was
+    // installed yesterday.
+    select: withCompleteLists,
     queryFn: async () => {
       const user = await getUserById(id);
       if (!user) return null;
