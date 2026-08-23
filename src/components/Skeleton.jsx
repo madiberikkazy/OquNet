@@ -94,14 +94,14 @@ export function BookCoverSkeleton() {
 
 /**
  * One genre holder on the Books grid. Its own shape rather than the cover
- * skeleton: a holder is 6/7 with the name centred under it, a cover is 2/3
+ * skeleton: a holder is 8/7 with the name centred under it, a cover is 2/3
  * with the name flush left, and standing in for one with the other means the
  * grid changes height and alignment the moment the real tiles land.
  */
 export function GenreTileSkeleton() {
   return (
     <div>
-      <Skeleton className="w-full aspect-[6/7] rounded-xl" />
+      <Skeleton className="w-full aspect-[8/7] rounded-xl" />
       <Skeleton className="mt-2 h-3 w-3/5 rounded mx-auto" />
     </div>
   );

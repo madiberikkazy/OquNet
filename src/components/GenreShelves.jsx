@@ -12,40 +12,67 @@ import { GENRES, genreLabel, t } from "../utils/i18n.js";
  *
  * The covers are a sample, not the genre. They come from one page of the shelf
  * (see `GENRE_SAMPLE` in the Books screen), so a genre with two hundred books
- * shows five of whichever came back — while the count beside the name is the
+ * shows four of whichever came back — while the count beside the name is the
  * count of that sample too, and says so by being the number of books the tile
  * could actually reach. Opening a genre re-queries it properly, filtered and
  * paged, which is where an exact answer belongs.
  */
 
-// Five is what the holder takes before the ones at the back are further off
-// the right edge than they are visible. Past that the fan stops reading as
-// depth and starts reading as clipping.
-const MAX_IN_STACK = 5;
+// Four. The fan has to fit *inside* the tile now — see `layoutFor` — so every
+// book added past this one buys its place by making all of them narrower, and
+// four covers at a readable size is a better tile than six at slivers.
+const MAX_IN_STACK = 4;
 
 // All as percentages of the tile. The pane covers the lower half so the books
 // stand a clear head above it — under about 40% it stops reading as a holder
 // and starts reading as a caption bar.
-const PANE_HEIGHT = 48;
+const PANE_HEIGHT = 44;
 
-// 58 is not a look, it is the number that makes the fan fit. A cover is 2/3, so
-// this width fixes the height at ~75% of a 6/7 tile — which is exactly what the
-// backmost book has left once it has been lifted four steps up the fan. Widen
-// the covers and the back of the fan grows out through the top of the tile.
-const COVER_WIDTH = 58;
+// A cover is 2/3, and the tile is 8/7, so this width puts the cover at ~79% of
+// the tile's height: tall enough that a third of it clears the pane, short
+// enough that the book at the back of the fan — lifted three steps — still has
+// its top inside the tile.
+const COVER_WIDTH = 46;
 
 // How far each book behind the front one steps right, and how far it rides up.
-// The step is wide enough that a cover shows a readable strip of itself rather
-// than a sliver — under about 15 the fan collapses into one cover with coloured
-// edges — and wide enough that the last of five is mostly past the right edge,
-// which is the point: the fan should look like it continues past the tile.
-const STEP_X = 20;
+const STEP_X = 11;
 const STEP_Y = 2.5;
+
+// Degrees between one book and the next. Small on purpose: the fan is centred,
+// so the outermost book leans by `TILT * (n-1) / 2`, and every degree of lean
+// swings its top corner sideways by the cover's whole height — which is what
+// used to push the front book out through the left edge of the tile.
+const TILT = 4;
 
 // The one fixed measurement: a screw is hardware, and hardware is the same size
 // on a big shelf as on a small one. Scaled with the tile it would read as four
 // different-sized screws across a grid of two columns.
 const SCREW = 11;
+
+/**
+ * Where one book sits, given how many are in the holder with it.
+ *
+ * Centred as a group rather than anchored to an edge. Anchoring was what broke
+ * this: a fixed left inset plus a fixed step means the width the fan needs
+ * grows with the number of books, and past three the ones at the back ran off
+ * the right edge while the front one — leaning left — ran off the left. Here
+ * the group's total spread is computed first and the leftovers are split
+ * evenly, so a fan of four and a fan of one are both inside the tile with the
+ * same margin.
+ *
+ * The tilt is symmetric around the middle of the fan for the same reason, and
+ * it has a second effect worth having: with one book the middle *is* that
+ * book, so it comes out at zero degrees and stands straight. A lone cover
+ * leaning over looks like a mistake rather than a stack.
+ */
+function layoutFor(depth, count) {
+  const spread = COVER_WIDTH + (count - 1) * STEP_X;
+  return {
+    left: `${((100 - spread) / 2 + depth * STEP_X).toFixed(2)}%`,
+    bottom: `${(6 + depth * STEP_Y).toFixed(2)}%`,
+    rotate: (depth - (count - 1) / 2) * TILT,
+  };
+}
 
 export default function GenreShelves({ books, onOpen }) {
   // Genre order comes from the canonical list rather than from the data, so the
@@ -127,13 +154,21 @@ function GenreStack({ books }) {
   const depth = stack.length;
 
   return (
-    <div className="relative w-full aspect-[6/7] overflow-hidden">
+    <div className="relative w-full aspect-[8/7] overflow-hidden">
       {stack.map((book, i) => {
-        // 0 is the cover in front and lowest; larger d leans further right,
-        // sits higher, and turns further clockwise — the way the books at the
-        // back of a bin fan out from the one you are holding forward.
+        // 0 is the cover in front and lowest; larger d sits further right and
+        // higher — the way the books at the back of a bin fan out from the one
+        // you are holding forward.
         const d = depth - 1 - i;
-        return <StackCover key={book.id} book={book} depth={d} style={{ zIndex: depth - d }} />;
+        return (
+          <StackCover
+            key={book.id}
+            book={book}
+            depth={d}
+            layout={layoutFor(d, depth)}
+            style={{ zIndex: depth - d }}
+          />
+        );
       })}
 
       {/* Above every cover, so it frosts all of them equally — the covers are
@@ -185,7 +220,7 @@ function Screw({ className }) {
   );
 }
 
-function StackCover({ book, depth, style }) {
+function StackCover({ book, depth, layout, style }) {
   const [broken, setBroken] = useState(false);
   const cover = (!broken && book.coverUrl) || FALLBACK_COVER;
 
@@ -196,15 +231,13 @@ function StackCover({ book, depth, style }) {
         ...style,
         width: `${COVER_WIDTH}%`,
         aspectRatio: "2 / 3",
-        left: `${3 + depth * STEP_X}%`,
-        bottom: `${8 + depth * STEP_Y}%`,
+        left: layout.left,
+        bottom: layout.bottom,
         // About the bottom edge, because that is where the books are resting.
         // Rotating about the centre would swing the feet out from under them
         // and the fan would look like it was floating.
         transformOrigin: "50% 100%",
-        // Front book tipped slightly the other way, so the fan opens from a
-        // book that is leaning against the rest rather than from a neat edge.
-        transform: `rotate(${-5 + depth * 4.5}deg) scale(${(1 - depth * 0.03).toFixed(3)})`,
+        transform: `rotate(${layout.rotate.toFixed(2)}deg) scale(${(1 - depth * 0.03).toFixed(3)})`,
       }}
     >
       <img
