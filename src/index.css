@@ -140,6 +140,36 @@
     .app-glass { background: var(--bg-base); }
   }
 
+  /* The acrylic pane across the front of a genre tile — the sheet a shop's
+     display holder has, with the books standing behind it and their spines
+     going soft where they pass under.
+
+     Not `.app-glass`. That material is a *bar*: heavy blur, high opacity, made
+     to be read against, and using it here would fog the covers into a grey
+     smear — the covers are the content of this tile, so the sheet has to stay
+     genuinely see-through. Light blur and a low tint, and the covers keep their
+     colour behind it.
+
+     Two tints rather than one because the sheet's job flips with the theme: on
+     white it is a pane catching a little light (a white wash reads as glass
+     over dark artwork), and on the dark page the same white at a tenth of an
+     alpha is the whole effect.
+
+     No @supports fallback of the kind `.app-glass` needs: without frosting this
+     is a faint tinted sheet over the covers rather than a bug, because nothing
+     is being read through it. */
+  .shelf-glass {
+    background: rgba(255, 255, 255, 0.26);
+    border: 1px solid rgba(255, 255, 255, 0.42);
+    -webkit-backdrop-filter: saturate(120%) blur(7px);
+    backdrop-filter: saturate(120%) blur(7px);
+  }
+
+  .dark .shelf-glass {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
   .card {
     background: var(--bg-surface);
     @apply rounded-2xl;

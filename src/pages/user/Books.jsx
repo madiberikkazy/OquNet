@@ -9,7 +9,7 @@ import NewBooksRail from "../../components/NewBooksRail.jsx";
 import BookCoverflow from "../../components/BookCoverflow.jsx";
 import GenreShelves from "../../components/GenreShelves.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
-import { SkeletonList, BookCardSkeleton, BookCoverSkeleton } from "../../components/Skeleton.jsx";
+import { SkeletonList, BookCardSkeleton, GenreTileSkeleton } from "../../components/Skeleton.jsx";
 import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
@@ -312,7 +312,7 @@ export default function Books() {
           // Six tiles in the same two columns the grid uses — enough to fill
           // the fold, so the page has its real height before the covers land.
           <div role="status" aria-busy="true" aria-label={t.loading} className="grid grid-cols-2 gap-x-4 gap-y-5 px-4 pt-1">
-            {Array.from({ length: 6 }, (_, i) => <BookCoverSkeleton key={i} />)}
+            {Array.from({ length: 6 }, (_, i) => <GenreTileSkeleton key={i} />)}
           </div>
         ) : (genreQuery.data?.items?.length || 0) === 0 ? (
           <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />

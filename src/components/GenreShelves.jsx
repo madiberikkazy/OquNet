@@ -3,24 +3,49 @@ import { FALLBACK_COVER } from "./BookCard.jsx";
 import { GENRES, genreLabel, t } from "../utils/i18n.js";
 
 /**
- * The shelf seen from above: one tile per genre, each a fan of the covers filed
- * under it.
+ * The library seen as its shelves: one display holder per genre, the books of
+ * that genre stood up in it behind an acrylic pane.
  *
- * A stack rather than a grid of thumbnails because a stack says two things at
- * once that a count cannot — what this genre *looks* like, and that there is
- * more behind the one in front. Six is the most that reads as a stack; past
- * that the slivers are thinner than the gap between them and it turns into
- * texture.
+ * A fan of real covers rather than a grid of thumbnails or a labelled box,
+ * because a fan says two things at once that a count cannot — what this genre
+ * *looks* like, and that there is more behind the one in front.
  *
  * The covers are a sample, not the genre. They come from one page of the shelf
  * (see `GENRE_SAMPLE` in the Books screen), so a genre with two hundred books
- * shows six of whichever came back — while the count beside the name is the
+ * shows five of whichever came back — while the count beside the name is the
  * count of that sample too, and says so by being the number of books the tile
  * could actually reach. Opening a genre re-queries it properly, filtered and
  * paged, which is where an exact answer belongs.
  */
 
-const MAX_IN_STACK = 6;
+// Five is what the holder takes before the ones at the back are further off
+// the right edge than they are visible. Past that the fan stops reading as
+// depth and starts reading as clipping.
+const MAX_IN_STACK = 5;
+
+// All as percentages of the tile. The pane covers the lower half so the books
+// stand a clear head above it — under about 40% it stops reading as a holder
+// and starts reading as a caption bar.
+const PANE_HEIGHT = 48;
+
+// 58 is not a look, it is the number that makes the fan fit. A cover is 2/3, so
+// this width fixes the height at ~75% of a 6/7 tile — which is exactly what the
+// backmost book has left once it has been lifted four steps up the fan. Widen
+// the covers and the back of the fan grows out through the top of the tile.
+const COVER_WIDTH = 58;
+
+// How far each book behind the front one steps right, and how far it rides up.
+// The step is wide enough that a cover shows a readable strip of itself rather
+// than a sliver — under about 15 the fan collapses into one cover with coloured
+// edges — and wide enough that the last of five is mostly past the right edge,
+// which is the point: the fan should look like it continues past the tile.
+const STEP_X = 20;
+const STEP_Y = 2.5;
+
+// The one fixed measurement: a screw is hardware, and hardware is the same size
+// on a big shelf as on a small one. Scaled with the tile it would read as four
+// different-sized screws across a grid of two columns.
+const SCREW = 11;
 
 export default function GenreShelves({ books, onOpen }) {
   // Genre order comes from the canonical list rather than from the data, so the
@@ -80,42 +105,83 @@ export default function GenreShelves({ books, onOpen }) {
 }
 
 /**
- * One fan. The front cover sits upright against the right edge and every cover
- * behind it steps left, shrinks and turns a little further away, so the stack
- * reads back-to-front the way a shelf does when you tilt the front book
- * forward to see what is behind it.
+ * One genre, as a display holder: the books stood up in a loose fan and an
+ * acrylic pane screwed across the front of them.
  *
- * Laid out back-to-front in the DOM so that paint order alone gives the
- * overlap; the z-index is stated anyway because the rotation puts these in a
- * 3D context, where document order stops being the tie-breaker.
+ * The pane is what makes it a holder rather than a pile. Books behind glass
+ * are *filed* — they read as a place things are kept, which is what a genre is
+ * — and the sheet gives the tile one clean rectangle at the bottom for the
+ * name to sit under while the covers above it stay ragged and various. A fan
+ * with nothing across it is just an untidy stack.
+ *
+ * The fan is flat, rotated in the plane rather than turned in 3D. These are
+ * books leaning against each other in a bin, not a coverflow; a perspective
+ * turn here would compete with the shelf view that already does that, and at
+ * tile size a rotateY reads as a squash rather than a turn.
+ *
+ * Every measurement is a percentage of the tile, so the same numbers hold at
+ * every column width — 171px on a phone, ~320 at the desktop max-width.
  */
 function GenreStack({ books }) {
   const stack = books.slice(0, MAX_IN_STACK);
   const depth = stack.length;
 
   return (
-    <div
-      // An aspect ratio rather than a fixed height, and every measurement
-      // inside stated as a percentage of it. The grid is two columns of
-      // whatever the shell is wide — 171px on a phone, up to ~320 on the
-      // desktop max-width — and a stack sized in pixels fits exactly one of
-      // those. Sized in ratios it fits all of them.
-      className="relative w-full aspect-[5/4] rounded-2xl bg-ink-100 overflow-hidden"
-      style={{ perspective: "700px" }}
-    >
+    <div className="relative w-full aspect-[6/7] overflow-hidden">
       {stack.map((book, i) => {
-        // 0 is the cover in front; larger d is further back and further left.
+        // 0 is the cover in front and lowest; larger d leans further right,
+        // sits higher, and turns further clockwise — the way the books at the
+        // back of a bin fan out from the one you are holding forward.
         const d = depth - 1 - i;
-        return (
-          <StackCover
-            key={book.id}
-            book={book}
-            depth={d}
-            style={{ zIndex: depth - d }}
-          />
-        );
+        return <StackCover key={book.id} book={book} depth={d} style={{ zIndex: depth - d }} />;
       })}
+
+      {/* Above every cover, so it frosts all of them equally — the covers are
+          laid out to be looked *through* it, not around it. The z-index is
+          load-bearing and not decoration: the covers each carry one, and a
+          later sibling at `auto` loses to an earlier one at 5, so without a
+          number here the pane paints *behind* the whole fan and the tile is
+          just an untidy stack with a smudge under it. */}
+      <div
+        className="shelf-glass absolute inset-x-0 bottom-0 rounded-xl"
+        style={{ height: `${PANE_HEIGHT}%`, zIndex: MAX_IN_STACK + 1 }}
+      >
+        <Screw className="left-[6%] top-[9%]" />
+        <Screw className="right-[6%] top-[9%]" />
+        <Screw className="left-[6%] bottom-[9%]" />
+        <Screw className="right-[6%] bottom-[9%]" />
+      </div>
     </div>
+  );
+}
+
+/**
+ * One fixing. Round-headed and slotted, lit from the top left like everything
+ * else on the page — it is the detail that says the pane is a separate object
+ * fastened over the books rather than a gradient painted on them.
+ */
+function Screw({ className }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`absolute rounded-full ${className}`}
+      style={{
+        width: SCREW,
+        height: SCREW,
+        background: "radial-gradient(circle at 32% 28%, #fdfdfe, #c3c9d2 62%, #8f97a4)",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.35)",
+      }}
+    >
+      <span
+        className="absolute left-1/2 top-1/2"
+        style={{
+          width: "58%",
+          height: 1,
+          transform: "translate(-50%,-50%) rotate(-32deg)",
+          background: "rgba(80, 88, 100, 0.75)",
+        }}
+      />
+    </span>
   );
 }
 
@@ -125,18 +191,20 @@ function StackCover({ book, depth, style }) {
 
   return (
     <div
-      className="absolute top-1/2"
+      className="absolute"
       style={{
         ...style,
-        // Anchored to the right edge: the front cover is the one you are meant
-        // to read, so it is the one that gets the whole width it needs. Both
-        // numbers are percentages of the tile, so the fan opens by the same
-        // proportion at every column width.
-        right: `${5 + depth * 7.5}%`,
-        height: `${86 - depth * 3}%`,
+        width: `${COVER_WIDTH}%`,
         aspectRatio: "2 / 3",
-        transform: `translateY(-50%) rotateY(${depth * 5}deg)`,
-        transformOrigin: "right center",
+        left: `${3 + depth * STEP_X}%`,
+        bottom: `${8 + depth * STEP_Y}%`,
+        // About the bottom edge, because that is where the books are resting.
+        // Rotating about the centre would swing the feet out from under them
+        // and the fan would look like it was floating.
+        transformOrigin: "50% 100%",
+        // Front book tipped slightly the other way, so the fan opens from a
+        // book that is leaning against the rest rather than from a neat edge.
+        transform: `rotate(${-5 + depth * 4.5}deg) scale(${(1 - depth * 0.03).toFixed(3)})`,
       }}
     >
       <img
@@ -147,10 +215,10 @@ function StackCover({ book, depth, style }) {
         onError={() => setBroken(true)}
         className="w-full h-full object-cover rounded-md shadow-soft"
         style={{
-          // The stack recedes into the tile rather than lying flat on it. A
-          // plain opacity fade would wash the covers into the tile's own
-          // background; darkening keeps them looking like paper in shadow.
-          filter: depth ? `brightness(${(1 - depth * 0.07).toFixed(2)})` : "none",
+          // The fan recedes rather than fading. A plain opacity drop would
+          // wash the back covers into the page behind them; darkening keeps
+          // them looking like paper in the shade of the one in front.
+          filter: depth ? `brightness(${(1 - depth * 0.08).toFixed(2)})` : "none",
         }}
       />
     </div>
