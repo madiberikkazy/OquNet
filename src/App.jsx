@@ -20,6 +20,7 @@ import ProtectedRoute from "./components/ProtectedRoute.jsx";
 // the large majority of accounts never open them.
 const Home               = lazyRoute(() => import("./pages/user/Home.jsx"), "/");
 const Books              = lazyRoute(() => import("./pages/user/Books.jsx"), "/books");
+const BooksFilter        = lazyRoute(() => import("./pages/user/BooksFilter.jsx"), "/books/filter");
 const BookDetail         = lazyRoute(() => import("./pages/user/BookDetail.jsx"), "/books/:id");
 const BookJourney        = lazyRoute(() => import("./pages/user/BookJourney.jsx"));
 const PickupBook         = lazyRoute(() => import("./pages/user/PickupBook.jsx"));
@@ -130,6 +131,10 @@ export default function App() {
                 which is where the extra controls live. */}
             <Route path="/" element={<Home />} />
             <Route path="/books" element={<Books />} />
+            {/* Before "/books/:id": react-router ranks a static segment above a
+                dynamic one, but writing them in this order keeps that visible
+                rather than relying on the ranking. */}
+            <Route path="/books/filter" element={<BooksFilter />} />
             <Route path="/books/:id" element={<BookDetail />} />
             {/* Where the book has been, read off its loans. */}
             <Route path="/books/:id/journey" element={<BookJourney />} />

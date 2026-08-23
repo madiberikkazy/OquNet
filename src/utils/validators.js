@@ -3,6 +3,9 @@
 // of the app can trust what it receives.
 
 import { clampPages, isPageBand, loanDaysForPages } from "./bookPages.js";
+// i18n is a leaf — the dictionaries import nothing — so this is a safe edge and
+// not a cycle, the same reason utils/time.js may import it.
+import { BOOK_LANGUAGES } from "./i18n.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const NICK_RE = /^[a-z0-9_]{2,24}$/;
@@ -126,6 +129,20 @@ export function isYear(n) {
   return Number.isInteger(y) && y >= LIMITS.YEAR_MIN && y <= LIMITS.YEAR_MAX;
 }
 
+/**
+ * True when `value` names one of the languages a book may be written in.
+ *
+ * Checked against the list rather than merely required to be a non-empty
+ * string, which is what `genres` settles for. The difference is what the field
+ * is *for*: a genre is read back as a label, so an unknown value renders as
+ * itself and looks odd at worst, while a language is read back as a filter
+ * predicate — one book stored as "kaz" instead of "kk" is a book that vanishes
+ * from every language filter including its own, and nothing on screen says so.
+ */
+export function isBookLanguage(value) {
+  return BOOK_LANGUAGES.some((l) => l.value === value);
+}
+
 export function isLoanDays(n) {
   const d = Number(n);
   return Number.isInteger(d) && d >= LIMITS.LOAN_DAYS_MIN && d <= LIMITS.LOAN_DAYS_MAX;
@@ -213,6 +230,13 @@ export function validateBookPayload(form) {
   if (form?.year && !isYear(form.year)) {
     return { ok: false, errorKey: "addBookErrYear" };
   }
+  // Required, like the genre and the page band, because the shelf now filters
+  // on it. An optional field that the filter treats as a hard equality is the
+  // worst of both: the book is invisible under every language including its
+  // own, and the person who added it has no idea why.
+  if (!isBookLanguage(form?.language)) {
+    return { ok: false, errorKey: "addBookErrLanguage" };
+  }
 
   const pages = clampPages(form.pages);
 
@@ -231,6 +255,7 @@ export function validateBookPayload(form) {
       // keeps reading one number rather than re-deriving the rule.
       maxDays: loanDaysForPages(pages),
       year: form?.year ? Number(form.year) : "",
+      language: String(form.language),
       ownerId: form?.ownerId || "",
     },
   };

@@ -872,6 +872,30 @@ const kz = {
   removeFilter: "Сүзгіні алып тастау",
   unsaveBook: "Сақтаудан алу",
 
+  // The language a book is written in — see BOOK_LANGUAGES.
+  bookLanguage: "Кітап тілі",
+  addBookErrLanguage: "Кітаптың тілін таңдаңыз",
+
+  // ── The filter screen ──
+  filterScreenTitle: "Сүзгі",
+  filterAuthorLabel: "Автор",
+  filterAuthorPlaceholder: "Автордың атын жазыңыз",
+  filterPagesLabel: "Бет саны",
+  filterYearLabel: "Шыққан жылы",
+  filterLanguageLabel: "Кітап тілі",
+  filterAvailabilityLabel: "Қолжетімділігі",
+  filterGenreLabel: "Жанр",
+  filterAnyOption: "Кез келген",
+  filterShowResults: "Нәтижелерді көрсету",
+  filterClearAll: "Барлығын тазалау",
+  filterActiveCount: (n) => `${n} сүзгі қосулы`,
+  filterRangeFrom: "бастап",
+  filterRangeTo: "дейін",
+  filterNoMatches: "Сүзгіге сай кітап табылмады",
+  filterNoMatchesHint: "Сүзгілерді азайтып көріңіз.",
+  filterScanning: "Сөреде іздеу жүріп жатыр…",
+  filterLanguageUnset: "Тілі көрсетілмеген",
+
 };
 
 const ru = {
@@ -1725,6 +1749,30 @@ const ru = {
   removeFilter: "Убрать фильтр",
   unsaveBook: "Убрать из сохранённых",
 
+  // The language a book is written in — see BOOK_LANGUAGES.
+  bookLanguage: "Язык книги",
+  addBookErrLanguage: "Выберите язык книги",
+
+  // ── The filter screen ──
+  filterScreenTitle: "Фильтр",
+  filterAuthorLabel: "Автор",
+  filterAuthorPlaceholder: "Введите имя автора",
+  filterPagesLabel: "Количество страниц",
+  filterYearLabel: "Год издания",
+  filterLanguageLabel: "Язык книги",
+  filterAvailabilityLabel: "Доступность",
+  filterGenreLabel: "Жанр",
+  filterAnyOption: "Любой",
+  filterShowResults: "Показать результаты",
+  filterClearAll: "Сбросить всё",
+  filterActiveCount: (n) => `фильтров: ${n}`,
+  filterRangeFrom: "от",
+  filterRangeTo: "до",
+  filterNoMatches: "По фильтрам ничего не найдено",
+  filterNoMatchesHint: "Попробуйте убрать часть фильтров.",
+  filterScanning: "Идёт поиск по полке…",
+  filterLanguageUnset: "Язык не указан",
+
 };
 
 const en = {
@@ -2575,6 +2623,30 @@ const en = {
   removeFilter: "Remove filter",
   unsaveBook: "Remove from saved",
 
+  // The language a book is written in — see BOOK_LANGUAGES.
+  bookLanguage: "Book language",
+  addBookErrLanguage: "Pick the book's language",
+
+  // ── The filter screen ──
+  filterScreenTitle: "Filters",
+  filterAuthorLabel: "Author",
+  filterAuthorPlaceholder: "Type an author's name",
+  filterPagesLabel: "Pages",
+  filterYearLabel: "Year published",
+  filterLanguageLabel: "Book language",
+  filterAvailabilityLabel: "Availability",
+  filterGenreLabel: "Genre",
+  filterAnyOption: "Any",
+  filterShowResults: "Show results",
+  filterClearAll: "Clear all",
+  filterActiveCount: (n) => `${n} filters on`,
+  filterRangeFrom: "from",
+  filterRangeTo: "to",
+  filterNoMatches: "No books match these filters",
+  filterNoMatchesHint: "Try removing some of the filters.",
+  filterScanning: "Searching the shelf…",
+  filterLanguageUnset: "Language not set",
+
 };
 
 export const translations = { kz, ru, en };
@@ -2654,6 +2726,35 @@ export const GENRES = [
   { value: "horror",      kz: "Қорқынышты",       ru: "Ужасы",           en: "Horror" },
   { value: "other",       kz: "Басқа",            ru: "Другое",          en: "Other" },
 ];
+
+/**
+ * The language a book is *written in* — not the language the app is shown in.
+ *
+ * A separate list from SUPPORTED_LANGS on purpose, and it must stay separate:
+ * the app speaks three languages because that is what it has been translated
+ * into, while a shelf in Kazakhstan holds books in languages nobody has
+ * translated the interface into. The two lists answer different questions and
+ * would drift the moment a fourth interface language arrived.
+ *
+ * `other` is the escape hatch that keeps the field answerable. Without it an
+ * admin holding a book in Turkish has no true option, and the field turns into
+ * a guess — which is worse than a coarse answer, because the filter then
+ * quietly excludes books that were mislabelled rather than unlabelled.
+ */
+export const BOOK_LANGUAGES = [
+  { value: "kk", kz: "Қазақша",  ru: "Казахский",  en: "Kazakh" },
+  { value: "ru", kz: "Орысша",   ru: "Русский",    en: "Russian" },
+  { value: "en", kz: "Ағылшынша", ru: "Английский", en: "English" },
+  { value: "tr", kz: "Түрікше",  ru: "Турецкий",   en: "Turkish" },
+  { value: "other", kz: "Басқа", ru: "Другой",     en: "Other" },
+];
+
+/** The localised name of a book's language, or the stored value as fallback. */
+export function bookLanguageLabel(value) {
+  const lang = getCurrentLang();
+  const found = BOOK_LANGUAGES.find((l) => l.value === value);
+  return found ? found[lang] ?? found.kz : value;
+}
 
 /** Return the localised label for a genre value, or the value itself as fallback. */
 export function genreLabel(value) {

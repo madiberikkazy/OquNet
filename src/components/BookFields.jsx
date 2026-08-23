@@ -1,4 +1,4 @@
-import { GENRES, t } from "../utils/i18n.js";
+import { BOOK_LANGUAGES, GENRES, t } from "../utils/i18n.js";
 import { PAGE_BANDS, loanDaysForPages } from "../utils/bookPages.js";
 
 /**
@@ -67,6 +67,22 @@ export default function BookFields({ form, onChange }) {
           ))}
         </select>
       </div>
+
+      {/* The language the book is written in. A required select rather than an
+          optional one, and it sits with the year and the page band because it
+          is the same kind of fact — something read off the book itself, not a
+          judgement about it. The shelf filters on this, and a blank here is a
+          book that no language filter can reach. */}
+      <select
+        value={form.language || ""}
+        onChange={(e) => onChange("language", e.target.value)}
+        className="input"
+      >
+        <option value="">{t.bookLanguage}</option>
+        {BOOK_LANGUAGES.map((l) => (
+          <option key={l.value} value={l.value}>{l[lang] ?? l.kz}</option>
+        ))}
+      </select>
 
       {form.pages ? (
         <p className="text-[13px] text-ink-500">

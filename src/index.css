@@ -170,6 +170,46 @@
     border-color: rgba(255, 255, 255, 0.16);
   }
 
+  /* The two stacked handles of RangeSlider.
+     `pointer-events: none` on the input and `auto` on its thumb is the whole
+     trick: without it the input painted on top covers the track and the handle
+     underneath can never be grabbed. The native track is hidden — the coloured
+     one the component draws sits below both inputs — and the thumb is all that
+     is left visible of the control. */
+  .range-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    pointer-events: none;
+    height: 24px;
+    margin: 0;
+  }
+  .range-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--bg-surface);
+    border: 2px solid var(--brand-500);
+    box-shadow: 0 1px 4px rgba(15, 23, 36, 0.25);
+    cursor: grab;
+  }
+  .range-thumb::-moz-range-thumb {
+    pointer-events: auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--bg-surface);
+    border: 2px solid var(--brand-500);
+    box-shadow: 0 1px 4px rgba(15, 23, 36, 0.25);
+    cursor: grab;
+  }
+  .range-thumb::-moz-range-track { background: transparent; }
+  .range-thumb:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--brand-600); outline-offset: 2px; }
+  .range-thumb:focus-visible::-moz-range-thumb { outline: 2px solid var(--brand-600); outline-offset: 2px; }
+
   .card {
     background: var(--bg-surface);
     @apply rounded-2xl;

@@ -41,7 +41,7 @@ export default function CommunityProfile() {
   // document they will be approving.
   const [joinOpen, setJoinOpen]     = useState(false);
   const [bookForm, setBookForm]     = useState({
-    name: "", author: "", year: "", pages: "", genres: [], description: "", coverUrl: "",
+    name: "", author: "", year: "", pages: "", language: "", genres: [], description: "", coverUrl: "",
   });
   const [coverFile, setCoverFile]   = useState(null);
   // Contacts are collected here rather than on the book screens: joining is the

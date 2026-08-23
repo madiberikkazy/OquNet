@@ -19,7 +19,7 @@ export default function AddBook() {
   const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
-    name: "", author: "", year: "", givenAt: "", pages: "",
+    name: "", author: "", year: "", givenAt: "", pages: "", language: "",
     description: "", ownerId: "", coverUrl: "", genres: [],
   });
   // The cover can come from the device or from a URL. A picked file is held

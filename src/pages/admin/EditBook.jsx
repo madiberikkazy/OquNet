@@ -46,6 +46,10 @@ export default function EditBook() {
         // band is read back out of it — the form opens on the band that grants
         // the allowance the book already has, not on a blank.
         pages:       pagesForBook(book),
+        // Blank for every book added before the field existed, which is exactly
+        // right: the edit form is where an admin fills that gap in, and a
+        // guessed default would silently label a shelf of unknowns.
+        language:    book.language    || "",
         description: book.description || "",
         ownerId:     book.ownerId     || "",
         coverUrl:    book.coverUrl    || "",

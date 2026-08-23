@@ -33,6 +33,7 @@ import {
   clampLoanDays,
   clampText,
   isLoanDays,
+  isBookLanguage,
   isYear,
   safeImageUrl,
   validateBookPayload,
@@ -394,6 +395,21 @@ function bookGenres(value, { collection = "books" } = {}) {
   return genres.slice(0, 3);
 }
 
+/**
+ * The language the book is written in. Refused rather than blanked when it is
+ * not one of the known ones: see isBookLanguage for why this field cannot
+ * afford the leniency `genres` gets.
+ */
+function bookLanguage(value) {
+  const language = str(value);
+  if (!isBookLanguage(language)) {
+    throw new SchemaError(`books: unknown language "${value}"`, {
+      collection: "books", field: "language", errorKey: "addBookErrLanguage",
+    });
+  }
+  return language;
+}
+
 function bookYear(value) {
   if (value === "" || value == null) return "";
   if (!isYear(value)) {
@@ -469,6 +485,7 @@ const BOOK_PATCH_FIELDS = Object.freeze({
   description: (v) => clampText(v, LIMITS.DESCRIPTION_MAX),
   coverUrl: (v) => safeImageUrl(v),
   year: bookYear,
+  language: bookLanguage,
   maxDays: bookMaxDays,
   genres: (v) => bookGenres(v),
   genre: (v) => requiredId("books", "genre", v),
@@ -524,6 +541,7 @@ export function normalizeNewBook(payload) {
     description: safe.description,
     coverUrl: safe.coverUrl,
     year: safe.year,
+    language: safe.language,
     pages: safe.pages,
     // Derived from `pages` by validateBookPayload, and stored beside it: the
     // band is the fact about the book, the days are what the loan screens read.
@@ -633,6 +651,7 @@ export function requestBook(request) {
     genres: [],
     pages: "",
     year: "",
+    language: "",
   };
 }
 

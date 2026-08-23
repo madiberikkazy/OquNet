@@ -94,6 +94,7 @@ async function seedBooks(n) {
       communityId: COMMUNITY,
       ownerId: `u${i % 3}`,
       genres: [i % 2 ? "fiction" : "history"],
+      language: i % 2 ? "kk" : "ru",
       // A page band, not a loan length: `maxDays` is derived from this now.
       pages: 700,
     });
@@ -209,7 +210,7 @@ describe("holder and owner queries", () => {
 describe("loan period follows the page band", () => {
   const book = (pages) => ({
     name: "Abai Zholy", author: "Auezov", communityId: COMMUNITY,
-    ownerId: "u1", genres: ["fiction"], pages,
+    ownerId: "u1", genres: ["fiction"], pages, language: "kk",
   });
 
   it("gives one day per fifty pages, from one band to twenty", async () => {
@@ -258,7 +259,7 @@ describe("join requests carry the whole book", () => {
   });
   const fullBook = {
     name: "Qahar", author: "Esenberlin", description: "A novel.",
-    genres: ["history"], pages: 450, year: 1969,
+    genres: ["history"], pages: 450, year: 1969, language: "kk",
   };
 
   it("stores the book validated, with the loan period already derived", async () => {
@@ -463,7 +464,7 @@ describe("holding a book for a pickup", () => {
 
   beforeEach(async () => {
     const book = await createBook({
-      name: "Abai", author: "Auezov", genre: "novel", genres: ["novel"], pages: 100,
+      name: "Abai", author: "Auezov", genre: "novel", genres: ["novel"], pages: 100, language: "kk",
       communityId: COMMUNITY, ownerId: OWNER, holderId: OWNER,
     });
     bookId = book.id;
@@ -1617,7 +1618,7 @@ describe("return requests", () => {
   async function bookWithHolder({ onLoan = false } = {}) {
     const { id } = await createBook({
       name: "Wild Apple", author: "Muratbekov", communityId: COMMUNITY,
-      ownerId: OWNER, genres: ["fiction"], pages: 300,
+      ownerId: OWNER, genres: ["fiction"], pages: 300, language: "kk",
     });
     await transferBookHolder({
       bookId: id, toUserId: HOLDER,
@@ -1726,7 +1727,7 @@ describe("return requests", () => {
   it("has nothing to open for a book already with its owner", async () => {
     const { id } = await createBook({
       name: "At Home", author: "Auezov", communityId: COMMUNITY,
-      ownerId: OWNER, genres: ["fiction"], pages: 300,
+      ownerId: OWNER, genres: ["fiction"], pages: 300, language: "kk",
     });
     const result = await open(id);
     assert.equal(result.created, false);
@@ -1815,7 +1816,7 @@ describe("return requests", () => {
     it("is a no-op on a book already with its owner", async () => {
       const { id } = await createBook({
         name: "At Home", author: "Nobody", communityId: COMMUNITY,
-        ownerId: OWNER, genres: ["fiction"], pages: 300,
+        ownerId: OWNER, genres: ["fiction"], pages: 300, language: "kk", language: "kk",
       });
       const result = await offerReturnToOwner({ bookId: id, holderId: OWNER });
       assert.equal(result.alreadyHome, true);

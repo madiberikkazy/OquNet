@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import SearchBar from "../../components/SearchBar.jsx";
 import BookCard, { BOOK_ROW_HEIGHT } from "../../components/BookCard.jsx";
@@ -10,7 +10,6 @@ import BookCoverflow from "../../components/BookCoverflow.jsx";
 import GenreShelves from "../../components/GenreShelves.jsx";
 import EmptyState from "../../components/EmptyState.jsx";
 import { SkeletonList, BookCardSkeleton, GenreTileSkeleton } from "../../components/Skeleton.jsx";
-import Modal from "../../components/Modal.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
@@ -21,15 +20,17 @@ import { newFeedSeed, shuffleStable } from "../../utils/feedOrder.js";
 import { safeGet, safeSet } from "../../utils/safeStorage.js";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { qk } from "../../lib/queryKeys.js";
-
-const STATUS_OPTIONS = [
-  { v: null,          labelKey: "allBooks"          },
-  { v: "available",   labelKey: "statusAvailable"   },
-  { v: "soon",        labelKey: "statusSoon"        },
-  { v: "unavailable", labelKey: "statusUnavailable" },
-];
+import {
+  activeFilterCount, hasClientFilters, matchesFilters, readFilters, writeFilters,
+} from "../../utils/bookFilters.js";
 
 const PAGE_SIZE = 25;
+
+// The page size while a client-side filter is on. Those filters run over rows
+// that have already been fetched (see utils/bookFilters.js), so a page is a
+// page of *candidates* rather than of results — asking for more of them per
+// round trip is what keeps a narrow filter from turning into twenty requests.
+const SCAN_PAGE_SIZE = 100;
 
 const VIEW = { LIST: "list", CARD: "card" };
 const VIEW_KEY = "oqunet.books.view";
@@ -68,10 +69,17 @@ export default function Books() {
   useLang();
   const queryClient = useQueryClient();
 
+  const navigate = useNavigate();
+
+  // The filters live in the URL, because the screen that sets them is a route
+  // of its own now: component state would not survive the trip there and back.
+  // It also means the back button undoes a narrowing, and a filtered shelf is
+  // a link.
+  const [params, setParams] = useSearchParams();
+  const filters = useMemo(() => readFilters(params), [params]);
+  const { status, genres } = filters;
+
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState(null);
-  const [genres, setGenres] = useState([]);
-  const [filterOpen, setFilterOpen] = useState(false);
 
   // How the shelf is drawn. Remembered across sessions: which of the two a
   // person reads a shelf in is a preference about their own eyes, not about
@@ -95,12 +103,17 @@ export default function Books() {
     setOpenGenre(null);
   }
 
-  const [draftStatus, setDraftStatus] = useState(null);
-
-  // Genres live in the bar under the search field now, so the dot on the filter
-  // icon only has to speak for what the modal still hides — the status.
-  const isFilterActive = status !== null;
+  // The dot on the filter icon now speaks for all six, since none of them are
+  // visible on this screen any more.
+  const activeCount = activeFilterCount(filters);
+  const isFilterActive = activeCount > 0;
   const debouncedSearch = useDebounced(search, 300);
+
+  /** Replace one filter without disturbing the other five. */
+  const setFilters = useCallback(
+    (patch) => setParams(writeFilters({ ...filters, ...patch }), { replace: true }),
+    [filters, setParams]
+  );
 
   // An opened tile *is* the genre filter while it is open — it replaces the
   // chips rather than intersecting them, so a tile always shows the whole
@@ -115,13 +128,23 @@ export default function Books() {
     [openGenre, genres]
   );
 
-  const filters = useMemo(
+  // Only the part the *query* can carry. Language, author, page band and year
+  // are absent on purpose — Firestore would need a composite index per
+  // combination, and utils/bookFilters.js explains where that line is drawn.
+  const queryFilters = useMemo(
     () => ({ search: debouncedSearch, status, genres: activeGenres }),
     [debouncedSearch, status, activeGenres]
   );
 
+  // With a client-side filter on, each page is a page of candidates, so the
+  // scan asks for more per round trip. It is part of the key: changing the page
+  // size changes the cursors, and two different sizes under one key would
+  // interleave pages that do not line up.
+  const scanning = hasClientFilters(filters);
+  const pageSize = scanning ? SCAN_PAGE_SIZE : PAGE_SIZE;
+
   const listQuery = useInfiniteQuery({
-    queryKey: qk.books.list(community?.id, filters),
+    queryKey: qk.books.list(community?.id, { ...queryFilters, pageSize }),
     // The grid does not render this list, and asking for a page nobody is
     // going to see is a billed read per visit to the genre screen. The tile
     // that opens turns it back on with the genre already in `filters`.
@@ -129,8 +152,8 @@ export default function Books() {
     queryFn: async ({ pageParam }) => {
       const result = await listBooks({
         communityId: community.id,
-        ...filters,
-        pageSize: PAGE_SIZE,
+        ...queryFilters,
+        pageSize,
         cursor: pageParam ?? null,
       });
 
@@ -167,14 +190,17 @@ export default function Books() {
    * whole accumulated list — the rows already on screen do not rearrange
    * themselves when the next page loads.
    */
-  const books = useMemo(
-    () => (listQuery.data?.pages || []).flatMap((p, i) => shuffleStable(p.items, shelfSeed + i)),
-    [listQuery.data, shelfSeed]
-  );
+  const books = useMemo(() => {
+    const fetched = (listQuery.data?.pages || [])
+      .flatMap((p, i) => shuffleStable(p.items, shelfSeed + i));
+    // The four filters the query could not carry, applied here. Last, after the
+    // shuffle, so removing a book does not change the order of the ones left.
+    return scanning ? fetched.filter((b) => matchesFilters(b, filters)) : fetched;
+  }, [listQuery.data, shelfSeed, scanning, filters]);
 
   // The rail is a browsing shortcut, not a filter result: while the user is
-  // searching or narrowing by genre it would only push their results off screen.
-  const showNewBooks = !debouncedSearch && genres.length === 0 && status === null;
+  // searching or narrowing by anything it would only push their results off screen.
+  const showNewBooks = !debouncedSearch && !isFilterActive;
 
   const newBooksQuery = useQuery({
     queryKey: qk.books.recent(community?.id),
@@ -213,6 +239,17 @@ export default function Books() {
     }
   }, [listQuery.hasNextPage, listQuery.isFetchingNextPage, listQuery.fetchNextPage]);
 
+  // A scan that has filtered away everything it has fetched so far has no rows
+  // to hang a sentinel on, so nothing would ever ask for the next page and the
+  // screen would settle on "nothing found" while most of the shelf was still
+  // unread. Keep pulling until a match turns up or the shelf runs out.
+  useEffect(() => {
+    if (!scanning) return;
+    if (books.length) return;
+    if (!listQuery.hasNextPage || listQuery.isFetchingNextPage) return;
+    listQuery.fetchNextPage();
+  }, [scanning, books.length, listQuery.hasNextPage, listQuery.isFetchingNextPage, listQuery.fetchNextPage]);
+
   const { sentinelRef } = useInfiniteScroll({ onLoadMore: loadMore, threshold: 300 });
 
   const savedSet = useMemo(() => new Set(user?.savedBookIds || []), [user?.savedBookIds]);
@@ -244,20 +281,10 @@ export default function Books() {
     });
   }
 
-  function removeStatus() { setStatus(null); }
-
+  /** Hand the current filters to the filter screen so it opens on them. */
   function openFilter() {
-    setDraftStatus(status);
-    setFilterOpen(true);
-  }
-
-  function applyFilter() {
-    setStatus(draftStatus);
-    setFilterOpen(false);
-  }
-
-  function resetDraft() {
-    setDraftStatus(null);
+    const query = writeFilters(filters).toString();
+    navigate(query ? `/books/filter?${query}` : "/books/filter");
   }
 
   if (!community) {
@@ -325,14 +352,18 @@ export default function Books() {
             /* The genre chips scroll away with the shelf rather than joining the
                bar. They are what you are looking at, not what you are looking
                with — and a two-storey sticky header eats a third of a phone. */
-            <GenreBar selected={genres} onChange={setGenres} />
+            <GenreBar selected={genres} onChange={(next) => setFilters({ genres: next })} />
           )}
 
-          {status ? (
+          {/* One chip for the whole filter rather than one per filter: six of
+              them would wrap to three lines above the results, and the screen
+              that can actually edit them is one tap away. Removing it clears
+              all six, which is what a single chip has to mean. */}
+          {isFilterActive ? (
             <div className="flex flex-wrap gap-2 px-4 pt-1 pb-2">
               <Chip
-                label={t[STATUS_OPTIONS.find((o) => o.v === status)?.labelKey] ?? status}
-                onRemove={removeStatus}
+                label={t.filterActiveCount(activeCount)}
+                onRemove={() => setParams(new URLSearchParams(), { replace: true })}
               />
             </div>
           ) : null}
@@ -342,7 +373,18 @@ export default function Books() {
           {isInitialLoading ? (
             <SkeletonList count={7} label={t.loading} Item={BookCardSkeleton} />
           ) : books.length === 0 ? (
-            <EmptyState title={t.noBooksYetTitle} subtitle={t.noBooksYetSubtitle} />
+            // Three different nothings, and saying the wrong one is worse than
+            // saying nothing: a scan still walking the shelf has not concluded
+            // anything yet, a scan that reached the end has concluded the
+            // filters are too narrow, and an unfiltered shelf with no rows is a
+            // community that has not added a book.
+            scanning && (listQuery.hasNextPage || listQuery.isFetchingNextPage) ? (
+              <SkeletonList count={5} label={t.filterScanning} Item={BookCardSkeleton} />
+            ) : isFilterActive ? (
+              <EmptyState title={t.filterNoMatches} subtitle={t.filterNoMatchesHint} />
+            ) : (
+              <EmptyState title={t.noBooksYetTitle} subtitle={t.noBooksYetSubtitle} />
+            )
           ) : (
             <>
               {/* The rail's books are in this list too, so it needs a name of its
@@ -426,42 +468,6 @@ export default function Books() {
         </>
       )}
 
-      <Modal open={filterOpen} onClose={() => setFilterOpen(false)} title={t.filterTitle} scrollable>
-        <div className="mb-5">
-          <p className="text-[13px] text-ink-500 mb-2">{t.status}</p>
-          <div className="flex flex-wrap gap-2">
-            {STATUS_OPTIONS.map((opt) => (
-              <button
-                key={String(opt.v)}
-                onClick={() => setDraftStatus(opt.v)}
-                className={
-                  "px-4 py-2 rounded-xl text-[14px] font-medium transition " +
-                  (draftStatus === opt.v
-                    ? "bg-brand-500 text-white"
-                    : "bg-ink-100 text-ink-700")
-                }
-              >
-                {t[opt.labelKey]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex gap-3 pt-1">
-          <button
-            onClick={resetDraft}
-            className="flex-1 py-3 rounded-xl text-[14px] font-semibold bg-ink-100 text-ink-700 transition"
-          >
-            {t.filterReset}
-          </button>
-          <button
-            onClick={applyFilter}
-            className="flex-1 py-3 rounded-xl text-[14px] font-semibold bg-brand-500 text-white transition"
-          >
-            {t.filterApply}
-          </button>
-        </div>
-      </Modal>
     </MobileShell>
   );
 }

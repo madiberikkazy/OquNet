@@ -99,6 +99,7 @@ export default function NotificationDetail() {
       if (!bookForm?.name?.trim() || !bookForm?.author?.trim()) { setError(t.addBookErrName); return; }
       if ((bookForm.genres || []).length < 1) { setError(t.addBookErrGenre); return; }
       if (!bookForm.pages) { setError(t.addBookErrPages); return; }
+      if (!bookForm.language) { setError(t.addBookErrLanguage); return; }
     }
     setBusy(true);
     setError("");
