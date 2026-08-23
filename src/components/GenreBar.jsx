@@ -7,11 +7,23 @@ import { GENRES, t, getCurrentLang } from "../utils/i18n.js";
  * open here instead of behind the filter icon — everything else (status) stays
  * in the modal. Selection is multi-choice, matching the `genres` array the list
  * query already takes; "all" simply means an empty array.
+ *
+ * `single` narrows that to one at a time, for the card view: there the chips do
+ * not narrow a list, they *open* a genre — a shelf is one genre's shelf — so
+ * picking a second one has to replace the first rather than intersect with it.
+ * The shape of the value stays an array either way, so the caller reads the
+ * same prop in both views.
  */
-export default function GenreBar({ selected = [], onChange }) {
+export default function GenreBar({ selected = [], onChange, single = false }) {
   const lang = getCurrentLang();
 
   function toggle(value) {
+    if (single) {
+      // Tapping the open genre again closes it, which is the same "all" the
+      // first pill means — one gesture back out, wherever the finger already is.
+      onChange?.(selected.includes(value) ? [] : [value]);
+      return;
+    }
     onChange?.(
       selected.includes(value)
         ? selected.filter((g) => g !== value)

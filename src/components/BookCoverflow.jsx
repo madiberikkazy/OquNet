@@ -244,9 +244,16 @@ export default function BookCoverflow({
 }
 
 /**
- * One book, drawn the way the rail draws them: the cover blurred and cropped as
- * a backdrop, then whole and sharp on top, so every plate is the same shape
- * whatever aspect ratio the artwork came in.
+ * One book: the cover itself, cropped to fill the plate.
+ *
+ * No blurred copy of the artwork behind it. The rail does that because its
+ * covers sit in a row of other things and the backdrop is what gives them a
+ * common shape — but here the plate *is* the screen, one book at a time at
+ * twice the size, and a blurred crop of the same image behind a sharp one at
+ * that scale reads as a rendering fault rather than as depth. Cropping instead
+ * of fitting gets the same uniform shape from the cover alone; a cover is
+ * roughly 2:3 to begin with, so the plate's own ratio takes very little off the
+ * edges, and the title stands on its own line under the shelf regardless.
  */
 function CoverPlate({ book, saved, onSaveToggle, activeGenre }) {
   const [broken, setBroken] = useState(false);
@@ -269,19 +276,11 @@ function CoverPlate({ book, saved, onSaveToggle, activeGenre }) {
         <div className="relative w-full rounded-2xl overflow-hidden bg-ink-100 shadow-soft" style={{ height: 268 }}>
           <img
             src={cover}
-            alt=""
-            aria-hidden="true"
-            className="absolute inset-0 w-full h-full object-cover scale-125 blur-xl"
+            alt={book.name}
+            onError={() => setBroken(true)}
+            loading="lazy"
+            className="absolute inset-0 w-full h-full object-cover"
           />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <img
-              src={cover}
-              alt={book.name}
-              onError={() => setBroken(true)}
-              loading="lazy"
-              className="w-full h-full object-contain rounded-lg shadow-soft"
-            />
-          </div>
 
           <div className="absolute top-2 left-2">
             <BookStatusBadge status={book.status || "available"} daysLeft={book.daysLeft} />

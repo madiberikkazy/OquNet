@@ -64,11 +64,14 @@ export default function GenreShelves({ books, onOpen }) {
           className="text-left active:opacity-80 transition-opacity"
         >
           <GenreStack books={shelf.books} />
-          <p className="mt-2 text-[14px] font-semibold text-ink-900 truncate">
-            {genreLabel(shelf.value)}
-          </p>
-          <p className="text-[12px] text-ink-500 tabular-nums">
-            {shelf.books.length} {t.booksCountShort}
+          {/* Name and count on one line, centred under the stack: the count is
+              a property of the name, not a second fact about the tile, and two
+              stacked lines made the caption taller than the gap between rows —
+              which read as the count belonging to the tile below it. */}
+          <p className="mt-2 text-center text-[14px] text-ink-500 truncate">
+            <span className="font-semibold text-ink-900">{genreLabel(shelf.value)}</span>
+            {" · "}
+            <span className="tabular-nums">{shelf.books.length} {t.booksCountShort}</span>
           </p>
         </button>
       ))}

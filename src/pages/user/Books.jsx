@@ -15,7 +15,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { listBooks, listNewBooks, updateUser } from "../../firebase/firestore.js";
-import { genreLabel, t } from "../../utils/i18n.js";
+import { t } from "../../utils/i18n.js";
 import { useInfiniteScroll } from "../../utils/useIntersectionHooks.js";
 import { newFeedSeed, shuffleStable } from "../../utils/feedOrder.js";
 import { safeGet, safeSet } from "../../utils/safeStorage.js";
@@ -290,15 +290,29 @@ export default function Books() {
         </div>
       }
     >
+      {view === VIEW.CARD ? (
+        /* One bar over both card screens — the grid of genres and a genre
+           opened as a shelf are the same screen at two depths, and the bar is
+           what moves between them: a chip opens that genre, the "all" pill is
+           the way back to the grid. Above the grid rather than only over the
+           shelf, so drilling in changes what is *under* the bar and never
+           moves the bar itself. */
+        <GenreBar
+          single
+          selected={openGenre ? [openGenre] : []}
+          onChange={(next) => setOpenGenre(next[0] ?? null)}
+        />
+      ) : null}
+
       {inCardGrid ? (
         // Card view with no tile open is the genre grid and nothing else: the
-        // chips are what the tiles replace, and the paged list underneath is a
+        // tiles are the way into the shelf, and the paged list underneath is a
         // query this screen is not showing.
         genreQuery.isLoading ? (
-          // Nine tiles because that is what the grid holds above the fold —
-          // enough that the page has its real height before the covers land.
-          <div role="status" aria-busy="true" aria-label={t.loading} className="grid grid-cols-3 gap-3 px-4 pt-2">
-            {Array.from({ length: 9 }, (_, i) => <BookCoverSkeleton key={i} />)}
+          // Six tiles in the same two columns the grid uses — enough to fill
+          // the fold, so the page has its real height before the covers land.
+          <div role="status" aria-busy="true" aria-label={t.loading} className="grid grid-cols-2 gap-x-4 gap-y-5 px-4 pt-1">
+            {Array.from({ length: 6 }, (_, i) => <BookCoverSkeleton key={i} />)}
           </div>
         ) : (genreQuery.data?.items?.length || 0) === 0 ? (
           <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
@@ -307,9 +321,7 @@ export default function Books() {
         )
       ) : (
         <>
-          {openGenre ? (
-            <GenreHeading genre={openGenre} onBack={() => setOpenGenre(null)} />
-          ) : (
+          {view === VIEW.CARD ? null : (
             /* The genre chips scroll away with the shelf rather than joining the
                bar. They are what you are looking at, not what you are looking
                with — and a two-storey sticky header eats a third of a phone. */
@@ -459,29 +471,6 @@ export default function Books() {
  * exactly two states, so the icon can show the one you would land in and the
  * control costs a single slot next to the filter.
  */
-/**
- * The bar over an opened genre: its name, how to get back out, and nothing
- * else. It stands where the genre chips stand in list view, so the shelf below
- * does not move when you drill in.
- */
-function GenreHeading({ genre, onBack }) {
-  return (
-    <div className="flex items-center gap-2 px-4 pt-1 pb-2">
-      <button
-        type="button"
-        onClick={onBack}
-        aria-label={t.back}
-        className="icon-btn shrink-0"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-          <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      <h2 className="text-[19px] font-bold text-ink-900 truncate">{genreLabel(genre)}</h2>
-    </div>
-  );
-}
-
 function ViewToggle({ view, onToggle }) {
   const isCard = view === VIEW.CARD;
   return (
