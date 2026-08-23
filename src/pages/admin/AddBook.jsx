@@ -103,8 +103,8 @@ export default function AddBook() {
         communityId: community.id,
         excludeUserId: user?.id,
         notification: {
-          title: "Жаңа кітап қосылды",
-          body: `«${book.name}» — ${book.author}. Қазір қолжетімді.`,
+          title: t.newBookNotifTitle,
+          body: t.newBookNotifBody(book.name, book.author),
           type: "new-book",
           bookId: book.id,
         },
@@ -128,7 +128,7 @@ export default function AddBook() {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
         </button>
         <div className="flex-1">
-          <Stepper step={step} total={3} title={step === 3 ? "Добавление нового объекта" : t.addBookTitle} />
+          <Stepper step={step} total={3} title={step === 3 ? t.addBookFinalStepTitle : t.addBookTitle} />
         </div>
         <button onClick={() => navigate(-1)} className="icon-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
@@ -175,7 +175,7 @@ function Step2({ members, search, setSearch, selectedId, onSelect }) {
   return (
     <div>
       <h2 className="text-xl font-bold mb-3">{t.whoHasIt}</h2>
-      <SearchBar value={search} onChange={setSearch} placeholder="Поиск по никнейму" showFilter={false} />
+      <SearchBar value={search} onChange={setSearch} placeholder={t.searchByNickname} showFilter={false} />
       <ul className="mt-3 divide-y divide-ink-100">
         {members.map((m) => (
           <li key={m.id}>
@@ -189,7 +189,7 @@ function Step2({ members, search, setSearch, selectedId, onSelect }) {
             </button>
           </li>
         ))}
-        {members.length === 0 ? <li className="text-center py-8 text-ink-500">Нет участников</li> : null}
+        {members.length === 0 ? <li className="text-center py-8 text-ink-500">{t.noMembers}</li> : null}
       </ul>
     </div>
   );

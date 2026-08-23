@@ -1,3 +1,5 @@
+import { t } from "../utils/i18n.js";
+
 // Placeholders shaped like the thing that is coming.
 //
 // The screens used to answer a pending query with the word "Загрузка…" on an
@@ -155,7 +157,7 @@ export function PersonRowSkeleton() {
  * `label` is what assistive tech announces; pass the translated "loading"
  * string. Everything visual inside stays `aria-hidden`.
  */
-export function SkeletonList({ count = 6, label = "Loading", children, Item }) {
+export function SkeletonList({ count = 6, label = t.loading, children, Item }) {
   return (
     <div role="status" aria-busy="true" aria-label={label}>
       {Array.from({ length: count }, (_, i) => (

@@ -51,7 +51,7 @@ export default function OwnedBooks() {
     <MobileShell>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 mb-4">
-        <button onClick={() => navigate(-1)} className="icon-btn shrink-0" aria-label="Back">
+        <button onClick={() => navigate(-1)} className="icon-btn shrink-0" aria-label={t.back}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
             <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -62,7 +62,7 @@ export default function OwnedBooks() {
       {loading ? (
         <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
       ) : books.length === 0 ? (
-        <EmptyState title="Кітаптар жоқ" subtitle="Қазір сізде кітап жоқ." />
+        <EmptyState title={t.noOwnedBooksTitle} subtitle={t.noOwnedBooksSubtitle} />
       ) : (
         <ul className="px-4 space-y-0 divide-y divide-ink-100">
           {books.map((book) => {

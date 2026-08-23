@@ -79,13 +79,13 @@ export default function Notification() {
         </svg>
       </button>
       <span className="flex-1 font-medium">{selected.size} {t.selectedCount}</span>
-      <button onClick={bulkMarkRead} disabled={loading} className="icon-btn shrink-0" aria-label="Mark read">
+      <button onClick={bulkMarkRead} disabled={loading} className="icon-btn shrink-0" aria-label={t.markRead}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
           <path d="M3 7l9 7 9-7M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7"
             stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      <button onClick={bulkDelete} disabled={loading} className="icon-btn shrink-0" aria-label="Delete">
+      <button onClick={bulkDelete} disabled={loading} className="icon-btn shrink-0" aria-label={t.delete}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
           <path d="M4 7h16M9 7V4h6v3m-7 0v13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7"
             stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

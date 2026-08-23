@@ -8,14 +8,14 @@ export default function BookStatusBadge({ status, daysLeft, reserved = false }) 
     // holding it needs to know it is spoken for, and by whom.
     if (reserved) return <span className="pill bg-warnSoft text-warn">{t.reservedStatus}</span>;
     if (daysLeft != null && daysLeft <= 3) {
-      return <span className="pill bg-warnSoft text-warn">{daysLeft} күн қалды</span>;
+      return <span className="pill bg-warnSoft text-warn">{t.daysLeftCount(daysLeft)}</span>;
     }
     if (daysLeft != null) {
-      return <span className="pill bg-badSoft text-bad">{daysLeft} күн қалды</span>;
+      return <span className="pill bg-badSoft text-bad">{t.daysLeftCount(daysLeft)}</span>;
     }
     return <span className="pill bg-badSoft text-bad">{t.unavailableStatus}</span>;
   }
   if (status === "soon")
-    return <span className="pill bg-warnSoft text-warn">{daysLeft != null ? `${daysLeft} күн қалды` : t.soonStatus}</span>;
+    return <span className="pill bg-warnSoft text-warn">{daysLeft != null ? t.daysLeftCount(daysLeft) : t.soonStatus}</span>;
   return null;
 }

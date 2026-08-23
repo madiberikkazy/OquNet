@@ -17,6 +17,7 @@ import {
   toMillis,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
+import { formatDate } from "../../utils/time.js";
 import { t, genreLabel } from "../../utils/i18n.js";
 import { isPageBand, loanDaysForPages, pagesForBook, pagesRangeLabel } from "../../utils/bookPages.js";
 import { ratingSummary, reviewsFromRatings, formatRating } from "../../utils/rating.js";
@@ -337,8 +338,8 @@ export default function BookDetail() {
       if (book.ownerId && book.ownerId !== user.id) {
         await createNotification({
           recipientId: book.ownerId,
-          title: "Кітап оқылып бітті",
-          body: `${user.firstName} ${user.lastName} сіздің «${book.name}» кітабыңызды оқып бітірді. Кітап келесі оқырман алғанша сонда қалады.`,
+          title: t.bookFinishedNotifTitle,
+          body: t.bookFinishedNotifBody(`${user.firstName} ${user.lastName}`, book.name),
           read: false,
           type: "book-returned",
           bookId: id,
@@ -884,8 +885,7 @@ export default function BookDetail() {
           <div className="card px-4 py-3 flex items-center justify-between">
             <span className="text-[14px] text-ink-700">{t.returnDateNote}</span>
             <span className="font-semibold text-[14px]">
-              {new Date(toMillis(activeBorrowing.returnDate))
-                .toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })}
+              {formatDate(activeBorrowing.returnDate, { day: "2-digit", month: "2-digit", year: "numeric" })}
             </span>
           </div>
         </section>

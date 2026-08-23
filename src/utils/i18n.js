@@ -726,6 +726,152 @@ const kz = {
   publicCommunityNote: "Барлығы мүшелерді, кітаптарды және жазбаларды көре алады",
   privateCommunityNote: "Тек мүшелер ішкі контентті көреді. Бейтаныстар тек атауды көреді",
   memberNotifications: "Мүшелер үшін жүйелік хабарламалар",
+
+  // ═══ Strings lifted out of the screens ═══════════════════════════════
+  // Everything below was living as a literal inside a component, which meant
+  // it stayed in whichever language it was typed in no matter what the reader
+  // picked. Grouped by the screen it came from rather than merged into the
+  // sections above, so the next person can see at a glance what a screen owns.
+
+  // ── Shared actions / statuses ──
+  create: "Жасау",
+  statusSaving: "Сақталуда…",
+  statusUploadingPhoto: "Сурет жүктелуде…",
+  statusCreatingCommunity: "Қоғамдастық құрылуда…",
+  photoPreviewAlt: "Суретті алдын ала қарау",
+  loadError: "Жүктеу қатесі",
+
+  // ── Books screen ──
+  booksNeedCommunityTitle: "Кітаптар қолжетімсіз",
+  booksNeedCommunitySubtitle: "Кітаптарды көру үшін қоғамдастыққа кіріңіз.",
+  noBooksYetTitle: "Кітаптар әзірге жоқ",
+  noBooksYetSubtitle: "Мүшелер кітаптарымен бөлісе бастағанда, олар осында пайда болады.",
+  scrollForMore: "Тағы жүктеу үшін төмен сырғытыңыз",
+  joinCommunityPromptTitle: "Қоғамдастыққа қосылыңыз",
+  joinCommunityPromptHint: "Кітаптарды алу үшін қоғамдастық керек",
+  findCta: "Табу →",
+
+  // ── Home / search ──
+  searchPeopleCommunities: "Пайдаланушы немесе қоғамдастық іздеу",
+  communitiesTitle: "Қоғамдастықтар",
+  usersTitle: "Пайдаланушылар",
+  noPostsTitle: "Жазба жоқ",
+  noPostsHint: "Қоғамдастықтардың жазбалары осында пайда болады",
+
+  // ── Book status badge ──
+  daysLeftCount: (n) => `${n} күн қалды`,
+
+  // ── Community profile ──
+  communityNotFound: "Қоғамдастық табылмады.",
+  statMembers: "мүше",
+  statBooks: "кітап",
+  statPosts: "жазба",
+  returnBookFirst: "Алдымен алған кітабыңызды қайтарыңыз.",
+  requestSentBadge: "Өтініш жіберілді",
+  joinAction: "Қосылу",
+  privateCommunityTitle: "Бұл жабық қоғамдастық",
+  privateCommunityHint: "Мүшелерді, кітаптарды және жазбаларды көру үшін қосылу өтінішін жіберіңіз.",
+  booksTab: "Кітаптар",
+  noPostsYet: "Жазба жоқ.",
+  noBooksYet: "Кітап жоқ.",
+  requestSentTitle: "Өтініш жіберілді!",
+  requestSentHint: "Администратор жауап берген соң хабарлама аласыз.",
+  joinRequestNotifTitle: "Қоғамдастыққа кіруге өтініш",
+  joinRequestNotifBody: (nick, book) => `@${nick} өтініш берді. Кітап: «${book}»`,
+  requestSentNotifTitle: "Өтінішіңіз жіберілді",
+  joinRequestSentNotifBody: (c) => `«${c}» қоғамдастығына қосылу өтінішіңіз администраторға жіберілді. Жауап күтіңіз.`,
+
+  // ── Create community ──
+  newCommunityTitle: "Жаңа қоғамдастық",
+  createCommunityLeaveWarning: "Сіз ағымдағы қоғамдастықтан шығып, жаңасының администраторы боласыз.",
+  stepBasicsTitle: "Қадам 1 — Негізгі",
+  stepFormatTitle: "Қадам 2 — Формат",
+  stepNotificationsTitle: "Қадам 3 — Хабарламалар",
+  stepPhotoTitle: "Қадам 4 — Қауымдастық суреті",
+  chooseVisibility: "Қоғамдастықтың көріну режимін таңдаңыз",
+  enableMemberNotifications: "Мүшелер үшін жүйелік хабарламаларды қосу",
+  createFailed: "Құру сәтсіз аяқталды",
+
+  // ── Pickup flow ──
+  pickupWantYourBookTitle: "Кітабыңызды алғысы келеді",
+  pickupWantYourBookBody: (name, book) => `${name} сізде тұрған «${book}» кітабын алғысы келеді. Кітапты берсеңіз — оқырманды ауыстыру кодын айтыңыз.`,
+  pickupRequestNotifTitle: "Кітапқа өтініш",
+  pickupRequestNotifBody: (name, book) => `${name} қазір сізде тұрған «${book}» кітабын алғысы келеді. Беру кодын айтыңыз:`,
+  pickupNewCodeTitle: "Жаңа код: кітап беру",
+  pickupNewCodeBody: (name, book) => `${name} «${book}» кітабын алғысы келеді. Жаңа 4 таңбалы код:`,
+  pickupNewReaderTitle: "Кітап жаңа оқырманда",
+  pickupHandedTitle: "Кітап берілді",
+  pickupNewReaderBody: (book, name, nick) => `«${book}» кітабы енді ${name} (@${nick}) қолында.`,
+  pickupHandedBody: (name, book) => `${name} сіздің «${book}» кітабыңызды алды.`,
+  pickupDoneTitle: "Керемет!",
+  pickupDoneBody: (book, section) => `«${book}» кітабы енді «${section}» бөліміне қосылды.`,
+  goToBookCta: "Кітапқа өту →",
+
+  // ── Notification detail ──
+  notificationTitle: "Хабарлама",
+  notificationNotFound: "Хабарлама табылмады.",
+  cancelRequestAction: "Өтінішті болдырмау",
+  requestCancelledDone: "Өтінішіңіз болдырылмады.",
+  bookToAddLabel: "Қоғамдастыққа қосылатын кітап",
+  yesJoinCommunity: "Иә, қоғамдастыққа кіру",
+  noDecline: "Жоқ, бас тарту",
+  joinedCommunityConfirm: (c) => `✓ Сіз «${c}» қоғамдастығына кірдіңіз`,
+  declinedJoin: "Сіз қоғамдастыққа кіруден бас тарттыңыз.",
+
+  // ── PWA settings ──
+  pwaInstallSection: "Орнату",
+  pwaInstallCta: "Қолданбаны орнату",
+  pwaInstallHint: "Ыңғайлы болу үшін OquNet-ті негізгі экранға орнатыңыз",
+  pwaStorageSection: "Жад",
+  pwaAppCache: "Қолданба кэші",
+  pwaClearing: "Тазалануда...",
+  pwaClear: "Тазалау",
+  pwaStorageUsage: "Жадты пайдалану",
+  pwaUsedPercent: (p) => `${p}% пайдаланылды`,
+  pwaPersistentStorage: "Тұрақты жад",
+  pwaGranted: "Рұқсат етілген",
+  pwaNotGranted: "Рұқсат етілмеген",
+  pwaRequestAction: "Сұрау",
+  pwaTipLabel: "Кеңес:",
+  pwaTipBody: "Қолданбаны орнатсаңыз ыңғайлырақ болады. Хабарламалар аласыз және интернетсіз режимде пайдалана аласыз.",
+
+  // ── Add / edit book ──
+  addBookFinalStepTitle: "Жаңа нысанды қосу",
+  searchByNickname: "Никнейм бойынша іздеу",
+  newBookNotifTitle: "Жаңа кітап қосылды",
+  newBookNotifBody: (book, author) => `«${book}» — ${author}. Қазір қолжетімді.`,
+
+  // ── Leaving a community ──
+  leaveRequestSentNotifBody: (c) => `«${c}» қоғамдастығынан шығу өтінішіңіз администраторға жіберілді. Жауап күтіңіз.`,
+  leaveRequestNotifTitle: "Қоғамдастықтан шығу өтінімі",
+  leaveRequestNotifBody: (nick) => `@${nick} қоғамдастықтан шығуға өтініш берді.`,
+
+  // ── Finishing a book ──
+  bookFinishedNotifTitle: "Кітап оқылып бітті",
+  bookFinishedNotifBody: (name, book) => `${name} сіздің «${book}» кітабыңызды оқып бітірді. Кітап келесі оқырман алғанша сонда қалады.`,
+
+  // ── Empty library shelves ──
+  noCompletedBooksTitle: "Оқылған кітаптар жоқ",
+  noCompletedBooksSubtitle: "Кітапты аяқтағаннан кейін осында көрінеді.",
+  noSavedBooksTitle: "Сақталған кітаптар жоқ",
+  noSavedBooksSubtitle: "Кітапты сақтау үшін бетбелгі белгісін басыңыз.",
+  noOwnedBooksTitle: "Кітаптар жоқ",
+  noOwnedBooksSubtitle: "Қазір сізде кітап жоқ.",
+
+  // ── Community list ──
+  noCommunitiesYet: "Қоғамдастықтар әзірге жоқ. Біріншісін құрыңыз!",
+  memberCount: (n) => `${n} мүше`,
+  // Long month names, in the form a date is read out in ("3 тамыз, 2026"). Only
+  // the Kazakh row is ever reached — `formatDate` sends Russian and English to
+  // Intl, which has better calendar data than a hand table — but the rule in
+  // this file is that a key exists in all three, and a half-present key is the
+  // one that throws the day someone changes that routing.
+  monthsLong: ["қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым", "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан"],
+
+  // Screen-reader labels with no visible twin elsewhere.
+  removeFilter: "Сүзгіні алып тастау",
+  unsaveBook: "Сақтаудан алу",
+
 };
 
 const ru = {
@@ -1433,6 +1579,152 @@ const ru = {
   publicCommunityNote: "Все видят участников, книги и публикации",
   privateCommunityNote: "Внутренний контент видят только участники. Остальные видят лишь название",
   memberNotifications: "Системные уведомления для участников",
+
+  // ═══ Strings lifted out of the screens ═══════════════════════════════
+  // Everything below was living as a literal inside a component, which meant
+  // it stayed in whichever language it was typed in no matter what the reader
+  // picked. Grouped by the screen it came from rather than merged into the
+  // sections above, so the next person can see at a glance what a screen owns.
+
+  // ── Shared actions / statuses ──
+  create: "Создать",
+  statusSaving: "Сохранение…",
+  statusUploadingPhoto: "Загрузка фото…",
+  statusCreatingCommunity: "Создание сообщества…",
+  photoPreviewAlt: "Превью фото",
+  loadError: "Ошибка загрузки",
+
+  // ── Books screen ──
+  booksNeedCommunityTitle: "Книги недоступны",
+  booksNeedCommunitySubtitle: "Вступите в сообщество, чтобы видеть книги.",
+  noBooksYetTitle: "Книг пока нет",
+  noBooksYetSubtitle: "Когда участники начнут делиться книгами, они появятся здесь.",
+  scrollForMore: "Прокрутите для загрузки больше",
+  joinCommunityPromptTitle: "Вступите в сообщество",
+  joinCommunityPromptHint: "Чтобы брать книги, нужно сообщество",
+  findCta: "Найти →",
+
+  // ── Home / search ──
+  searchPeopleCommunities: "Поиск пользователя или сообщества",
+  communitiesTitle: "Сообщества",
+  usersTitle: "Пользователи",
+  noPostsTitle: "Публикаций нет",
+  noPostsHint: "Здесь появятся публикации ваших сообществ",
+
+  // ── Book status badge ──
+  daysLeftCount: (n) => `осталось ${n} дн.`,
+
+  // ── Community profile ──
+  communityNotFound: "Сообщество не найдено.",
+  statMembers: "участников",
+  statBooks: "книг",
+  statPosts: "публикаций",
+  returnBookFirst: "Сначала верните взятую книгу.",
+  requestSentBadge: "Заявка отправлена",
+  joinAction: "Вступить",
+  privateCommunityTitle: "Это закрытое сообщество",
+  privateCommunityHint: "Отправьте заявку на вступление, чтобы видеть участников, книги и публикации.",
+  booksTab: "Книги",
+  noPostsYet: "Публикаций нет.",
+  noBooksYet: "Книг нет.",
+  requestSentTitle: "Заявка отправлена!",
+  requestSentHint: "Вы получите уведомление, когда администратор ответит.",
+  joinRequestNotifTitle: "Заявка на вступление в сообщество",
+  joinRequestNotifBody: (nick, book) => `@${nick} подал заявку. Книга: «${book}»`,
+  requestSentNotifTitle: "Ваша заявка отправлена",
+  joinRequestSentNotifBody: (c) => `Ваша заявка на вступление в «${c}» отправлена администратору. Ожидайте ответа.`,
+
+  // ── Create community ──
+  newCommunityTitle: "Новое сообщество",
+  createCommunityLeaveWarning: "Вы покинете текущее сообщество и станете администратором нового.",
+  stepBasicsTitle: "Шаг 1 — Основное",
+  stepFormatTitle: "Шаг 2 — Формат",
+  stepNotificationsTitle: "Шаг 3 — Уведомления",
+  stepPhotoTitle: "Шаг 4 — Фото сообщества",
+  chooseVisibility: "Выберите режим видимости сообщества",
+  enableMemberNotifications: "Включить системные уведомления для участников",
+  createFailed: "Не удалось создать",
+
+  // ── Pickup flow ──
+  pickupWantYourBookTitle: "Хотят забрать вашу книгу",
+  pickupWantYourBookBody: (name, book) => `${name} хочет получить книгу «${book}», которую вы держите. Если он заберёт книгу — назовите ему код для смены читателя.`,
+  pickupRequestNotifTitle: "Запрос на книгу",
+  pickupRequestNotifBody: (name, book) => `${name} хочет взять книгу «${book}», которая сейчас у вас. Назовите ему код для передачи:`,
+  pickupNewCodeTitle: "Новый код: передача книги",
+  pickupNewCodeBody: (name, book) => `${name} хочет взять книгу «${book}». Новый 4-значный код:`,
+  pickupNewReaderTitle: "Книга у нового читателя",
+  pickupHandedTitle: "Книга передана",
+  pickupNewReaderBody: (book, name, nick) => `Книга «${book}» теперь у ${name} (@${nick}).`,
+  pickupHandedBody: (name, book) => `${name} забрал вашу книгу «${book}».`,
+  pickupDoneTitle: "Отлично!",
+  pickupDoneBody: (book, section) => `Книга «${book}» добавлена в раздел «${section}».`,
+  goToBookCta: "Перейти к книге →",
+
+  // ── Notification detail ──
+  notificationTitle: "Уведомление",
+  notificationNotFound: "Уведомление не найдено.",
+  cancelRequestAction: "Отменить заявку",
+  requestCancelledDone: "Ваша заявка отменена.",
+  bookToAddLabel: "Книга для добавления в сообщество",
+  yesJoinCommunity: "Да, вступить в сообщество",
+  noDecline: "Нет, отказаться",
+  joinedCommunityConfirm: (c) => `✓ Вы вступили в сообщество «${c}»`,
+  declinedJoin: "Вы отказались от вступления в сообщество.",
+
+  // ── PWA settings ──
+  pwaInstallSection: "Установка",
+  pwaInstallCta: "Установить приложение",
+  pwaInstallHint: "Установите OquNet на главный экран для удобного доступа",
+  pwaStorageSection: "Хранилище",
+  pwaAppCache: "Кеш приложения",
+  pwaClearing: "Очистка...",
+  pwaClear: "Очистить",
+  pwaStorageUsage: "Использование хранилища",
+  pwaUsedPercent: (p) => `${p}% использовано`,
+  pwaPersistentStorage: "Постоянное хранилище",
+  pwaGranted: "Разрешено",
+  pwaNotGranted: "Не разрешено",
+  pwaRequestAction: "Запросить",
+  pwaTipLabel: "Совет:",
+  pwaTipBody: "Установите приложение для лучшего опыта. Вы сможете получать уведомления и использовать приложение в режиме без интернета.",
+
+  // ── Add / edit book ──
+  addBookFinalStepTitle: "Добавление нового объекта",
+  searchByNickname: "Поиск по никнейму",
+  newBookNotifTitle: "Добавлена новая книга",
+  newBookNotifBody: (book, author) => `«${book}» — ${author}. Сейчас доступна.`,
+
+  // ── Leaving a community ──
+  leaveRequestSentNotifBody: (c) => `Ваша заявка на выход из «${c}» отправлена администратору. Ожидайте ответа.`,
+  leaveRequestNotifTitle: "Заявка на выход из сообщества",
+  leaveRequestNotifBody: (nick) => `@${nick} подал заявку на выход из сообщества.`,
+
+  // ── Finishing a book ──
+  bookFinishedNotifTitle: "Книга дочитана",
+  bookFinishedNotifBody: (name, book) => `${name} дочитал вашу книгу «${book}». Книга останется у него, пока её не возьмёт следующий читатель.`,
+
+  // ── Empty library shelves ──
+  noCompletedBooksTitle: "Прочитанных книг нет",
+  noCompletedBooksSubtitle: "Книга появится здесь, когда вы её дочитаете.",
+  noSavedBooksTitle: "Сохранённых книг нет",
+  noSavedBooksSubtitle: "Нажмите на закладку, чтобы сохранить книгу.",
+  noOwnedBooksTitle: "Книг нет",
+  noOwnedBooksSubtitle: "Сейчас у вас нет книг.",
+
+  // ── Community list ──
+  noCommunitiesYet: "Сообществ пока нет. Создайте первое!",
+  memberCount: (n) => `${n} участн.`,
+  // Long month names, in the form a date is read out in ("3 тамыз, 2026"). Only
+  // the Kazakh row is ever reached — `formatDate` sends Russian and English to
+  // Intl, which has better calendar data than a hand table — but the rule in
+  // this file is that a key exists in all three, and a half-present key is the
+  // one that throws the day someone changes that routing.
+  monthsLong: ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"],
+
+  // Screen-reader labels with no visible twin elsewhere.
+  removeFilter: "Убрать фильтр",
+  unsaveBook: "Убрать из сохранённых",
+
 };
 
 const en = {
@@ -2137,6 +2429,152 @@ const en = {
   publicCommunityNote: "Anyone can see members, books and posts",
   privateCommunityNote: "Only members see the content. Everyone else sees just the name",
   memberNotifications: "System notifications for members",
+
+  // ═══ Strings lifted out of the screens ═══════════════════════════════
+  // Everything below was living as a literal inside a component, which meant
+  // it stayed in whichever language it was typed in no matter what the reader
+  // picked. Grouped by the screen it came from rather than merged into the
+  // sections above, so the next person can see at a glance what a screen owns.
+
+  // ── Shared actions / statuses ──
+  create: "Create",
+  statusSaving: "Saving…",
+  statusUploadingPhoto: "Uploading photo…",
+  statusCreatingCommunity: "Creating the community…",
+  photoPreviewAlt: "Photo preview",
+  loadError: "Failed to load",
+
+  // ── Books screen ──
+  booksNeedCommunityTitle: "Books unavailable",
+  booksNeedCommunitySubtitle: "Join a community to see books.",
+  noBooksYetTitle: "No books yet",
+  noBooksYetSubtitle: "When members start sharing books, they will show up here.",
+  scrollForMore: "Scroll to load more",
+  joinCommunityPromptTitle: "Join a community",
+  joinCommunityPromptHint: "You need a community to borrow books",
+  findCta: "Find →",
+
+  // ── Home / search ──
+  searchPeopleCommunities: "Search people or communities",
+  communitiesTitle: "Communities",
+  usersTitle: "People",
+  noPostsTitle: "No posts",
+  noPostsHint: "Posts from your communities will appear here",
+
+  // ── Book status badge ──
+  daysLeftCount: (n) => `${n} days left`,
+
+  // ── Community profile ──
+  communityNotFound: "Community not found.",
+  statMembers: "members",
+  statBooks: "books",
+  statPosts: "posts",
+  returnBookFirst: "Return the book you borrowed first.",
+  requestSentBadge: "Request sent",
+  joinAction: "Join",
+  privateCommunityTitle: "This community is private",
+  privateCommunityHint: "Send a join request to see its members, books and posts.",
+  booksTab: "Books",
+  noPostsYet: "No posts yet.",
+  noBooksYet: "No books yet.",
+  requestSentTitle: "Request sent!",
+  requestSentHint: "You will get a notification once the admin responds.",
+  joinRequestNotifTitle: "Request to join the community",
+  joinRequestNotifBody: (nick, book) => `@${nick} asked to join. Book: “${book}”`,
+  requestSentNotifTitle: "Your request was sent",
+  joinRequestSentNotifBody: (c) => `Your request to join “${c}” was sent to the admin. Please wait for a reply.`,
+
+  // ── Create community ──
+  newCommunityTitle: "New community",
+  createCommunityLeaveWarning: "You will leave your current community and become the admin of the new one.",
+  stepBasicsTitle: "Step 1 — Basics",
+  stepFormatTitle: "Step 2 — Format",
+  stepNotificationsTitle: "Step 3 — Notifications",
+  stepPhotoTitle: "Step 4 — Community photo",
+  chooseVisibility: "Choose who can see this community",
+  enableMemberNotifications: "Enable system notifications for members",
+  createFailed: "Could not create",
+
+  // ── Pickup flow ──
+  pickupWantYourBookTitle: "Someone wants your book",
+  pickupWantYourBookBody: (name, book) => `${name} wants the book “${book}” you are holding. If you hand it over, give them the reader-change code.`,
+  pickupRequestNotifTitle: "Book request",
+  pickupRequestNotifBody: (name, book) => `${name} wants to borrow “${book}”, which is with you now. Give them the handover code:`,
+  pickupNewCodeTitle: "New code: handing the book over",
+  pickupNewCodeBody: (name, book) => `${name} wants to borrow “${book}”. The new 4-digit code:`,
+  pickupNewReaderTitle: "The book has a new reader",
+  pickupHandedTitle: "Book handed over",
+  pickupNewReaderBody: (book, name, nick) => `“${book}” is now with ${name} (@${nick}).`,
+  pickupHandedBody: (name, book) => `${name} picked up your book “${book}”.`,
+  pickupDoneTitle: "All set!",
+  pickupDoneBody: (book, section) => `“${book}” has been added to “${section}”.`,
+  goToBookCta: "Go to the book →",
+
+  // ── Notification detail ──
+  notificationTitle: "Notification",
+  notificationNotFound: "Notification not found.",
+  cancelRequestAction: "Cancel the request",
+  requestCancelledDone: "Your request was cancelled.",
+  bookToAddLabel: "Book to add to the community",
+  yesJoinCommunity: "Yes, join the community",
+  noDecline: "No, decline",
+  joinedCommunityConfirm: (c) => `✓ You joined “${c}”`,
+  declinedJoin: "You declined to join the community.",
+
+  // ── PWA settings ──
+  pwaInstallSection: "Install",
+  pwaInstallCta: "Install the app",
+  pwaInstallHint: "Add OquNet to your home screen for quick access",
+  pwaStorageSection: "Storage",
+  pwaAppCache: "App cache",
+  pwaClearing: "Clearing...",
+  pwaClear: "Clear",
+  pwaStorageUsage: "Storage usage",
+  pwaUsedPercent: (p) => `${p}% used`,
+  pwaPersistentStorage: "Persistent storage",
+  pwaGranted: "Granted",
+  pwaNotGranted: "Not granted",
+  pwaRequestAction: "Request",
+  pwaTipLabel: "Tip:",
+  pwaTipBody: "Install the app for the best experience. You will get notifications and can use it offline.",
+
+  // ── Add / edit book ──
+  addBookFinalStepTitle: "Adding a new item",
+  searchByNickname: "Search by nickname",
+  newBookNotifTitle: "A new book was added",
+  newBookNotifBody: (book, author) => `“${book}” — ${author}. Available now.`,
+
+  // ── Leaving a community ──
+  leaveRequestSentNotifBody: (c) => `Your request to leave “${c}” was sent to the admin. Please wait for a reply.`,
+  leaveRequestNotifTitle: "Request to leave the community",
+  leaveRequestNotifBody: (nick) => `@${nick} asked to leave the community.`,
+
+  // ── Finishing a book ──
+  bookFinishedNotifTitle: "The book has been finished",
+  bookFinishedNotifBody: (name, book) => `${name} finished your book “${book}”. It stays with them until the next reader takes it.`,
+
+  // ── Empty library shelves ──
+  noCompletedBooksTitle: "No finished books",
+  noCompletedBooksSubtitle: "A book shows up here once you finish it.",
+  noSavedBooksTitle: "No saved books",
+  noSavedBooksSubtitle: "Tap the bookmark on a book to save it.",
+  noOwnedBooksTitle: "No books",
+  noOwnedBooksSubtitle: "You are not holding any books right now.",
+
+  // ── Community list ──
+  noCommunitiesYet: "No communities yet. Create the first one!",
+  memberCount: (n) => `${n} members`,
+  // Long month names, in the form a date is read out in ("3 тамыз, 2026"). Only
+  // the Kazakh row is ever reached — `formatDate` sends Russian and English to
+  // Intl, which has better calendar data than a hand table — but the rule in
+  // this file is that a key exists in all three, and a half-present key is the
+  // one that throws the day someone changes that routing.
+  monthsLong: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+
+  // Screen-reader labels with no visible twin elsewhere.
+  removeFilter: "Remove filter",
+  unsaveBook: "Remove from saved",
+
 };
 
 export const translations = { kz, ru, en };

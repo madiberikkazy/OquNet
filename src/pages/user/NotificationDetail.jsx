@@ -17,6 +17,7 @@ import {
   toMillis,
 } from "../../firebase/firestore.js";
 import { requestBook } from "../../firebase/schema.js";
+import { formatDateTime } from "../../utils/time.js";
 import { uploadImage } from "../../firebase/storage.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
@@ -273,7 +274,7 @@ export default function NotificationDetail() {
       await updateNotification(id, { requestStatus: "cancelled", read: true });
       setNotification((prev) => ({ ...prev, requestStatus: "cancelled", read: true }));
     } catch (err) {
-      setError(err?.message || "Қате");
+      setError(err?.message || t.error);
     } finally {
       setBusy(false);
     }
@@ -310,7 +311,7 @@ export default function NotificationDetail() {
   if (loading) {
     return (
       <MobileShell withNav={false}>
-        <p className="px-6 py-12 text-center text-ink-500">Загрузка...</p>
+        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
       </MobileShell>
     );
   }
@@ -325,17 +326,12 @@ export default function NotificationDetail() {
             </svg>
           </button>
         </div>
-        <p className="px-6 py-12 text-center text-ink-500">Уведомление не найдено.</p>
+        <p className="px-6 py-12 text-center text-ink-500">{t.notificationNotFound}</p>
       </MobileShell>
     );
   }
 
-  const date = notification.createdAt
-    ? new Date(toMillis(notification.createdAt)).toLocaleString("ru-RU", {
-        day: "2-digit", month: "2-digit", year: "numeric",
-        hour: "2-digit", minute: "2-digit",
-      })
-    : "";
+  const date = formatDateTime(notification.createdAt);
 
   const isJoinApproved  = notification.type === "join-approved";
   const isJoinRequestSent = notification.type === "join-request-sent";
@@ -363,7 +359,7 @@ export default function NotificationDetail() {
             <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </button>
-        <h1 className="text-lg font-semibold flex-1 truncate">Уведомление</h1>
+        <h1 className="text-lg font-semibold flex-1 truncate">{t.notificationTitle}</h1>
       </div>
 
       <div className="px-5 pt-5 space-y-4">
@@ -541,14 +537,14 @@ export default function NotificationDetail() {
                 </div>
                 <div>
                   <p className="font-semibold text-[15px]">{notification.communityName}</p>
-                  <p className="text-[12px] text-ink-500">Қоғамдастық</p>
+                  <p className="text-[12px] text-ink-500">{t.community}</p>
                 </div>
               </div>
             ) : null}
 
             {requestCancelled ? (
               <div className="rounded-2xl bg-ink-100 px-4 py-3 text-[14px] text-ink-500 text-center">
-                Өтінішіңіз болдырылмады.
+                {t.requestCancelledDone}
               </div>
             ) : (
               <button
@@ -556,7 +552,7 @@ export default function NotificationDetail() {
                 disabled={busy}
                 className="w-full py-3 rounded-2xl bg-bad/10 text-bad font-semibold text-[14px] active:scale-[0.99] transition disabled:opacity-60"
               >
-                {busy ? "…" : "Өтінішті болдырмау"}
+                {busy ? "…" : t.cancelRequestAction}
               </button>
             )}
           </div>
@@ -567,7 +563,7 @@ export default function NotificationDetail() {
           <>
             {notification.bookName ? (
               <div className="card p-4">
-                <p className="text-[13px] text-ink-500 mb-1">Книга для добавления в сообщество</p>
+                <p className="text-[13px] text-ink-500 mb-1">{t.bookToAddLabel}</p>
                 <p className="font-semibold">«{notification.bookName}»</p>
                 {notification.bookAuthor ? (
                   <p className="text-[13px] text-ink-500">{notification.bookAuthor}</p>
@@ -582,23 +578,23 @@ export default function NotificationDetail() {
                   onClick={handleJoinAccept}
                   className="btn-primary"
                 >
-                  {busy ? "..." : "Да, вступить в сообщество"}
+                  {busy ? "..." : t.yesJoinCommunity}
                 </button>
                 <button
                   disabled={busy}
                   onClick={handleJoinDecline}
                   className="btn-secondary"
                 >
-                  {busy ? "..." : "Нет, отказаться"}
+                  {busy ? "..." : t.noDecline}
                 </button>
               </div>
             ) : isAccepted ? (
               <div className="rounded-2xl bg-okSoft px-4 py-3 text-[14px] text-ok font-medium">
-                ✓ Вы вступили в сообщество «{notification.communityName}»
+                {t.joinedCommunityConfirm(notification.communityName)}
               </div>
             ) : isDeclined ? (
               <div className="rounded-2xl bg-ink-100 px-4 py-3 text-[14px] text-ink-500">
-                Вы отказались от вступления в сообщество.
+                {t.declinedJoin}
               </div>
             ) : null}
           </>

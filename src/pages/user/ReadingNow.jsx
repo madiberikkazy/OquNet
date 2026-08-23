@@ -8,6 +8,7 @@ import {
   listBorrowingsForUser, updateBorrowing, releaseBookAfterReading, createNotification, submitRating,
 } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
+import { formatDate } from "../../utils/time.js";
 import { logger } from "../../utils/logger.js";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
 
@@ -66,8 +67,8 @@ export default function ReadingNow() {
       if (borrowing.ownerId && borrowing.ownerId !== user.id) {
         await createNotification({
           recipientId: borrowing.ownerId,
-          title: "Кітап оқылып бітті",
-          body: `${user.firstName} ${user.lastName} сіздің «${borrowing.bookName}» кітабыңызды оқып бітірді. Кітап келесі оқырман алғанша сонда қалады.`,
+          title: t.bookFinishedNotifTitle,
+          body: t.bookFinishedNotifBody(`${user.firstName} ${user.lastName}`, borrowing.bookName),
           read: false,
           type: "book-returned",
           bookId: borrowing.bookId,
@@ -104,7 +105,7 @@ export default function ReadingNow() {
     <MobileShell>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 mb-4">
-        <button onClick={() => navigate(-1)} className="icon-btn shrink-0" aria-label="Back">
+        <button onClick={() => navigate(-1)} className="icon-btn shrink-0" aria-label={t.back}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
             <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -161,12 +162,12 @@ export default function ReadingNow() {
             <div className="flex justify-between text-[12px] text-ink-400">
               <span>
                 {borrowing.startDate
-                  ? new Date(borrowing.startDate).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })
+                  ? formatDate(borrowing.startDate, { day: "2-digit", month: "2-digit" })
                   : "—"}
               </span>
               <span>
                 {borrowing.returnDate
-                  ? new Date(borrowing.returnDate).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })
+                  ? formatDate(borrowing.returnDate, { day: "2-digit", month: "2-digit" })
                   : "—"}
               </span>
             </div>

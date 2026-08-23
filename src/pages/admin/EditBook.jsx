@@ -64,10 +64,10 @@ export default function EditBook() {
     // the contract. `updateBook` runs the same payload through the book schema
     // and refuses anything malformed, so it has the last word.
     if (!form.name.trim() || !form.author.trim()) {
-      setError("Атауы мен авторын жазыңыз");
+      setError(t.addBookErrName);
       return;
     }
-    if (form.genres.length < 1) { setError("Кемінде 1 жанр таңдаңыз"); return; }
+    if (form.genres.length < 1) { setError(t.addBookErrGenre); return; }
     if (!isPageBand(form.pages)) { setError(t.addBookErrPages); return; }
     setSaving(true);
     setError("");
@@ -103,7 +103,7 @@ export default function EditBook() {
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
-      setError(t[err?.errorKey] || err?.message || "Сақтау қатесі");
+      setError(t[err?.errorKey] || err?.message || t.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -336,7 +336,7 @@ export default function EditBook() {
                 </li>
               ))}
               {members.length === 0 ? (
-                <li className="px-4 py-6 text-center text-ink-500 text-[13px]">Нет участников</li>
+                <li className="px-4 py-6 text-center text-ink-500 text-[13px]">{t.noMembers}</li>
               ) : null}
             </ul>
           ) : null}

@@ -1,7 +1,7 @@
 // One way to read a timestamp, for the whole app.
 
 // i18n is safe to import here and not a cycle: the dictionaries import nothing.
-import { t } from "./i18n.js";
+import { t, getCurrentLang } from "./i18n.js";
 /**
  * Milliseconds since the epoch, from whatever shape a timestamp arrived in.
  *
@@ -17,6 +17,73 @@ import { t } from "./i18n.js";
  *   `0`; code that has to tell "not set yet" apart from "the epoch" — an
  *   unresolved `serverTimestamp()`, say — passes `null` and checks for it.
  */
+/**
+ * The reader's own calendar, for a date shown in prose.
+ *
+ * `Intl` needs a BCP-47 tag and the app stores a two-letter language, and the
+ * mapping is not the identity for either of the two that matter: `kk-KZ` is a
+ * locale Chromium ships without long month names — it renders August 2026 as
+ * `2026 M08 3` — so Kazakh is spelled out here from the dictionary instead of
+ * being handed to `Intl` at all. Russian and English go through `Intl`, which
+ * knows their calendars better than a table would.
+ *
+ * This exists because every screen that printed a date passed `"ru-RU"`. On a
+ * numeric date that is invisible — `27.05.25` is the same string in Kazakh —
+ * which is exactly why it survived: the one screen that asked for a long month
+ * printed `27 августа` to a reader who had picked English, and nothing else on
+ * the page looked wrong enough to point at it.
+ *
+ * @param opts an `Intl.DateTimeFormat` options object. `month: "long"` is the
+ *   case the Kazakh branch is written for; everything else falls back to the
+ *   numeric form, which reads the same in all three.
+ */
+const INTL_LOCALES = { ru: "ru-RU", en: "en-GB" };
+
+export function formatDate(value, opts = { day: "2-digit", month: "2-digit", year: "2-digit" }) {
+  const ms = toMillis(value, null);
+  if (!ms) return "";
+  const d = new Date(ms);
+  const locale = INTL_LOCALES[getCurrentLang()];
+
+  if (!locale) {
+    // Kazakh. Long months come from the dictionary; anything else is the
+    // numeric form, which needs no locale data to be right.
+    const pad = (n) => String(n).padStart(2, "0");
+    if (opts?.month === "long") {
+      return `${d.getDate()} ${t.monthsLong[d.getMonth()]}, ${d.getFullYear()}`;
+    }
+    const year = opts?.year === "numeric" ? d.getFullYear() : pad(d.getFullYear() % 100);
+    const tail = opts?.year ? `.${year}` : "";
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}${tail}`;
+  }
+
+  try {
+    return d.toLocaleDateString(locale, opts);
+  } catch {
+    return d.toLocaleDateString();
+  }
+}
+
+/**
+ * The same, with the clock on the end — for a notification's own page, where
+ * there is one date on the screen and "when exactly" is the question.
+ */
+export function formatDateTime(value) {
+  const ms = toMillis(value, null);
+  if (!ms) return "";
+  const d = new Date(ms);
+  const locale = INTL_LOCALES[getCurrentLang()];
+  const clock = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (!locale) return `${formatDate(value, { day: "2-digit", month: "long", year: "numeric" })}, ${clock}`;
+  try {
+    return d.toLocaleString(locale, {
+      day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  } catch {
+    return `${formatDate(value)}, ${clock}`;
+  }
+}
+
 /**
  * The date on a post — `27.05.25`, and deliberately no clock.
  *

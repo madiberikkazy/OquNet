@@ -354,7 +354,7 @@ export default function Home() {
         <SearchBar
           value={search}
           onChange={setSearch}
-          placeholder="Пайдаланушы немесе қоғамдастық іздеу"
+          placeholder={t.searchPeopleCommunities}
           showFilter={false}
           rightSlot={
             <>
@@ -404,7 +404,7 @@ export default function Home() {
         <div className="px-4 mt-2 space-y-3">
           {foundComs.length > 0 && (
             <section>
-              <h3 className="section-title mb-2">Қоғамдастықтар</h3>
+              <h3 className="section-title mb-2">{t.communitiesTitle}</h3>
               <ul className="card divide-y divide-ink-100">
                 {foundComs.map((c) => (
                   <li key={c.id}>
@@ -422,7 +422,7 @@ export default function Home() {
           )}
           {foundUsers.length > 0 && (
             <section>
-              <h3 className="section-title mb-2">Пайдаланушылар</h3>
+              <h3 className="section-title mb-2">{t.usersTitle}</h3>
               <ul className="card divide-y divide-ink-100">
                 {foundUsers.map((u) => (
                   <li key={u.id}>
@@ -439,7 +439,7 @@ export default function Home() {
             </section>
           )}
           {foundUsers.length === 0 && foundComs.length === 0 && (
-            <p className="text-center text-ink-500 py-8">Ештеңе табылмады</p>
+            <p className="text-center text-ink-500 py-8">{t.noResults}</p>
           )}
         </div>
       ) : (
@@ -459,8 +459,8 @@ export default function Home() {
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
                 </svg>
               </div>
-              <p className="font-medium text-ink-600">Жазба жоқ</p>
-              <p className="text-[13px] text-ink-400 mt-1">Қоғамдастықтардың жазбалары осында пайда болады</p>
+              <p className="font-medium text-ink-600">{t.noPostsTitle}</p>
+              <p className="text-[13px] text-ink-400 mt-1">{t.noPostsHint}</p>
             </div>
           ) : (
             /* One row per post, separated by a hairline — no cards. The three

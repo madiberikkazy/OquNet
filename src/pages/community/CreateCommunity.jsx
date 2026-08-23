@@ -42,7 +42,7 @@ export default function CreateCommunity() {
     setError("");
     if (step === 1) {
       if (!form.nickname.trim() || !form.name.trim()) {
-        setError("Заполните оба поля");
+        setError(t.fillAllFields);
         return;
       }
       const [userMatch, communityMatch] = await Promise.all([
@@ -50,7 +50,7 @@ export default function CreateCommunity() {
         getCommunityByNickname(form.nickname),
       ]);
       if (userMatch || communityMatch) {
-        setError("Бұл никнейм бос емес. Басқа никнейм таңдаңыз.");
+        setError(t.communityNicknameTaken);
         return;
       }
     }
@@ -64,11 +64,11 @@ export default function CreateCommunity() {
     try {
       let photoURL = "";
       if (photoFile) {
-        setSubmitStatus("Загрузка фото…");
+        setSubmitStatus(t.statusUploadingPhoto);
         photoURL = await uploadImage(photoFile, `communities/${form.nickname}`);
       }
 
-      setSubmitStatus("Создание сообщества…");
+      setSubmitStatus(t.statusCreatingCommunity);
       const c = await createCommunity({
         ...form,
         photoURL,
@@ -76,14 +76,14 @@ export default function CreateCommunity() {
         memberIds: [user.id],
       });
 
-      setSubmitStatus("Сохранение…");
+      setSubmitStatus(t.statusSaving);
       await updateUser(user.id, normalizeUserMembership({ communityId: c.id, role: "admin" }));
 
       setCommunity(c);
       await refresh();
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err?.message || "Ошибка создания");
+      setError(err?.message || t.createFailed);
     } finally {
       setSubmitting(false);
       setSubmitStatus("");
@@ -102,21 +102,21 @@ export default function CreateCommunity() {
           </svg>
         </button>
         <div className="flex-1">
-          <Stepper step={step} total={4} title="Новое сообщество" />
+          <Stepper step={step} total={4} title={t.newCommunityTitle} />
         </div>
       </div>
 
       {/* Info banner — only shown if user is already in a community as a member */}
       {user?.communityId && user?.role !== "admin" ? (
         <div className="mx-4 mt-3 px-4 py-3 bg-warnSoft text-warn rounded-xl text-[13px]">
-          Вы покинете текущее сообщество и станете администратором нового.
+          {t.createCommunityLeaveWarning}
         </div>
       ) : null}
 
       <div className="px-5 pt-3 pb-24 space-y-3">
         {step === 1 ? (
           <>
-            <h2 className="text-xl font-bold mb-2">Шаг 1 — Основное</h2>
+            <h2 className="text-xl font-bold mb-2">{t.stepBasicsTitle}</h2>
             <input
               value={form.nickname}
               onChange={(e) =>
@@ -136,8 +136,8 @@ export default function CreateCommunity() {
 
         {step === 2 ? (
           <>
-            <h2 className="text-xl font-bold mb-2">Қадам 2 — Формат</h2>
-            <p className="text-[13px] text-ink-500 mb-3">Қоғамдастықтың көріну режимін таңдаңыз</p>
+            <h2 className="text-xl font-bold mb-2">{t.stepFormatTitle}</h2>
+            <p className="text-[13px] text-ink-500 mb-3">{t.chooseVisibility}</p>
 
             <button
               type="button"
@@ -159,8 +159,8 @@ export default function CreateCommunity() {
                 </svg>
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-[15px]">Ашық (Public)</p>
-                <p className="text-[13px] text-ink-500 mt-0.5">Барлығы мүшелерді, кітаптарды және жазбаларды көре алады</p>
+                <p className="font-semibold text-[15px]">{t.publicCommunity}</p>
+                <p className="text-[13px] text-ink-500 mt-0.5">{t.publicCommunityNote}</p>
               </div>
               {!form.isPrivate && (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-brand-500 shrink-0">
@@ -189,8 +189,8 @@ export default function CreateCommunity() {
                 </svg>
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-[15px]">Жабық (Private)</p>
-                <p className="text-[13px] text-ink-500 mt-0.5">Тек мүшелер ішкі контентті көреді. Бейтаныс адамдар тек атауды ғана көреді</p>
+                <p className="font-semibold text-[15px]">{t.privateCommunity}</p>
+                <p className="text-[13px] text-ink-500 mt-0.5">{t.privateCommunityNote}</p>
               </div>
               {form.isPrivate && (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-brand-500 shrink-0">
@@ -203,7 +203,7 @@ export default function CreateCommunity() {
 
         {step === 3 ? (
           <>
-            <h2 className="text-xl font-bold mb-2">Қадам 3 — Хабарламалар</h2>
+            <h2 className="text-xl font-bold mb-2">{t.stepNotificationsTitle}</h2>
             <label className="card p-4 flex items-center gap-3">
               <input
                 type="checkbox"
@@ -212,7 +212,7 @@ export default function CreateCommunity() {
                 className="w-5 h-5 accent-brand-500"
               />
               <span className="text-[14px]">
-                Мүшелер үшін жүйелік хабарламаларды қосу
+                {t.enableMemberNotifications}
               </span>
             </label>
           </>
@@ -220,7 +220,7 @@ export default function CreateCommunity() {
 
         {step === 4 ? (
           <>
-            <h2 className="text-xl font-bold mb-2">Қадам 4 — {t.communityPhoto}</h2>
+            <h2 className="text-xl font-bold mb-2">{t.stepPhotoTitle}</h2>
 
             {/* Hidden file input — triggered by button click via ref */}
             <input
@@ -236,7 +236,7 @@ export default function CreateCommunity() {
               <div className="relative rounded-2xl overflow-hidden h-48 bg-ink-100">
                 <img
                   src={photoPreview}
-                  alt="Превью аватара"
+                  alt={t.photoPreviewAlt}
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute bottom-3 right-3 flex gap-2">
@@ -245,14 +245,14 @@ export default function CreateCommunity() {
                     onClick={() => photoInputRef.current?.click()}
                     className="px-3 py-1.5 rounded-xl bg-surface/90 text-[13px] font-medium text-ink-700 shadow"
                   >
-                    Изменить
+                    {t.changePhoto}
                   </button>
                   <button
                     type="button"
                     onClick={removePhoto}
                     className="px-3 py-1.5 rounded-xl bg-bad/90 text-[13px] font-medium text-white shadow"
                   >
-                    Удалить
+                    {t.removePhoto}
                   </button>
                 </div>
               </div>
@@ -269,7 +269,7 @@ export default function CreateCommunity() {
                   <circle cx="12" cy="12" r="11" fill="currentColor" opacity="0.12" />
                   <path d="M12 8v8M8 12h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
-                <span className="text-[14px] font-medium">Выбрать фото</span>
+                <span className="text-[14px] font-medium">{t.pickPhoto}</span>
                 <span className="text-[12px] text-brand-400">JPG, PNG, WEBP</span>
               </button>
             )}
@@ -281,7 +281,7 @@ export default function CreateCommunity() {
 
       <div className="absolute bottom-4 left-0 right-0 px-5">
         <button onClick={next} disabled={submitting} className="btn-primary">
-          {submitting ? (submitStatus || "…") : step === 4 ? "Жасау" : t.next}
+          {submitting ? (submitStatus || "…") : step === 4 ? t.create : t.next}
         </button>
       </div>
     </MobileShell>

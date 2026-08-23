@@ -1,16 +1,15 @@
 import { Link } from "react-router-dom";
-import { toMillis } from "../utils/time.js";
+import { formatDate } from "../utils/time.js";
+import { t } from "../utils/i18n.js";
 
 export default function NotificationItem({ notification, selectable = false, selected = false, onToggle }) {
-  const date = notification.createdAt
-    ? new Date(toMillis(notification.createdAt)).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
-    : "";
+  const date = formatDate(notification.createdAt);
 
   const inner = (
     <div className="px-4 py-4 border-b border-ink-100 last:border-b-0 flex gap-3 items-start active:bg-ink-100/40 transition">
       {selectable ? (
         <button
-          aria-label="Select"
+          aria-label={t.selectNotifications}
           onClick={(e) => { e.preventDefault(); onToggle?.(notification.id); }}
           className={
             "mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition shrink-0 " +

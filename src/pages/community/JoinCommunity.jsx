@@ -7,6 +7,7 @@ import {
   listCommunities, searchCommunities,
   listUsersByCommunity,
 } from "../../firebase/firestore.js";
+import { t } from "../../utils/i18n.js";
 
 export default function JoinCommunity() {
   const navigate = useNavigate();
@@ -41,18 +42,18 @@ export default function JoinCommunity() {
             <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </button>
-        <h1 className="text-lg font-semibold">Қоғамдастықтар</h1>
+        <h1 className="text-lg font-semibold">{t.communitiesTitle}</h1>
       </div>
 
       <SearchBar value={search} onChange={setSearch} showFilter={false} />
 
       {loading ? (
-        <p className="text-center text-ink-400 text-[14px] mt-10">Жүктелуде...</p>
+        <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
       ) : (
         <ul className="mt-3 px-4 space-y-3">
           {communities.length === 0 ? (
             <li className="py-10 text-center text-ink-500">
-              {search ? "Ничего не найдено" : "Сообществ пока нет. Создайте первое!"}
+              {search ? t.noResults : t.noCommunitiesYet}
             </li>
           ) : (
             communities.map((c) => (
@@ -80,7 +81,7 @@ export default function JoinCommunity() {
                           <path d="M3 21c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                           <path d="M16 3.1a3 3 0 0 1 0 5.8M21 21c0-2.7-1.7-5-4-5.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                         </svg>
-                        {c.memberCount} мүше
+                        {t.memberCount(c.memberCount)}
                       </span>
                     </div>
                   </div>

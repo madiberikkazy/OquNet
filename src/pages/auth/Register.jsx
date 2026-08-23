@@ -78,7 +78,7 @@ export default function Register() {
       setUser(profile);
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err?.message || "Google кіру қатесі");
+      setError(err?.message || t.googleSignInError);
     } finally {
       setGoogleBusy(false);
     }
@@ -506,7 +506,7 @@ export default function Register() {
               <div className="relative rounded-2xl overflow-hidden h-56 bg-ink-100">
                 <img
                   src={photoPreview}
-                  alt="Превью"
+                  alt={t.photoPreviewAlt}
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute bottom-3 right-3 flex gap-2">

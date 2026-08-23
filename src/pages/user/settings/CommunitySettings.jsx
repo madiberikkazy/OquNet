@@ -66,8 +66,8 @@ export default function CommunitySettings() {
       // Notify the user themselves
       await createNotification({
         recipientId: user.id,
-        title: "Өтінішіңіз жіберілді",
-        body: `«${community.name}» қоғамдастығынан шығу өтінішіңіз администраторға жіберілді. Жауап күтіңіз.`,
+        title: t.requestSentNotifTitle,
+        body: t.leaveRequestSentNotifBody(community.name),
         read: false,
         type: "leave-request-sent",
         requestId: req.id,
@@ -78,8 +78,8 @@ export default function CommunitySettings() {
       // Notify the admin
       await createNotification({
         recipientId: community.ownerId,
-        title: "Қоғамдастықтан шығу өтінімі",
-        body: `@${user.nickname} қоғамдастықтан шығуға өтініш берді.`,
+        title: t.leaveRequestNotifTitle,
+        body: t.leaveRequestNotifBody(user.nickname),
         read: false,
         type: "leave-request",
         requestId: req.id,

@@ -149,7 +149,7 @@ export default function CommunityProfile() {
     if (!isAddress(address)) { setJoinError(t.addressRequiredError); return; }
 
     const active = await getActiveBorrowingForUser(user.id);
-    if (active) { setJoinError("Алдымен алған кітабыңызды қайтарыңыз."); return; }
+    if (active) { setJoinError(t.returnBookFirst); return; }
     setJoining(true);
     try {
       // Save first: the admin approving this request is agreeing to a member
@@ -177,8 +177,8 @@ export default function CommunityProfile() {
       // Notify the admin about the request
       await createNotification({
         recipientId: community.ownerId,
-        title: "Қоғамдастыққа кіруге ұсыныс",
-        body: `@${user.nickname} өтініш берді. Кітап: «${bookForm.name}»`,
+        title: t.joinRequestNotifTitle,
+        body: t.joinRequestNotifBody(user.nickname, bookForm.name),
         read: false,
         type: "join-request",
         communityId: id,
@@ -188,8 +188,8 @@ export default function CommunityProfile() {
       // Notify the USER themselves — so they can track and cancel the request
       await createNotification({
         recipientId: user.id,
-        title: "Өтінішіңіз жіберілді",
-        body: `«${community.name}» қоғамдастығына қосылу өтінішіңіз администраторға жіберілді. Жауап күтіңіз.`,
+        title: t.requestSentNotifTitle,
+        body: t.joinRequestSentNotifBody(community.name),
         read: false,
         type: "join-request-sent",
         communityId: id,
@@ -318,7 +318,7 @@ export default function CommunityProfile() {
   if (!community) {
     return (
       <MobileShell>
-        <p className="px-6 py-12 text-center text-ink-500">Қоғамдастық табылмады.</p>
+        <p className="px-6 py-12 text-center text-ink-500">{t.communityNotFound}</p>
       </MobileShell>
     );
   }
@@ -351,19 +351,19 @@ export default function CommunityProfile() {
               <p className="font-bold text-[20px] leading-none">
                 {contentLoading ? <span className="inline-block w-6 h-5 rounded bg-ink-100 animate-pulse" /> : members.length}
               </p>
-              <p className="text-[11px] text-ink-500 mt-1">мүше</p>
+              <p className="text-[11px] text-ink-500 mt-1">{t.statMembers}</p>
             </div>
             <div>
               <p className="font-bold text-[20px] leading-none">
                 {contentLoading ? <span className="inline-block w-6 h-5 rounded bg-ink-100 animate-pulse" /> : books.length}
               </p>
-              <p className="text-[11px] text-ink-500 mt-1">кітап</p>
+              <p className="text-[11px] text-ink-500 mt-1">{t.statBooks}</p>
             </div>
             <div>
               <p className="font-bold text-[20px] leading-none">
                 {contentLoading ? <span className="inline-block w-6 h-5 rounded bg-ink-100 animate-pulse" /> : posts.length}
               </p>
-              <p className="text-[11px] text-ink-500 mt-1">жазба</p>
+              <p className="text-[11px] text-ink-500 mt-1">{t.statPosts}</p>
             </div>
           </div>
         </div>
@@ -373,9 +373,9 @@ export default function CommunityProfile() {
           <div className="flex items-center gap-2">
             <p className="font-bold text-[16px]">{community.name}</p>
             {isPrivate ? (
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-ink-100 text-ink-500">Жабық</span>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-ink-100 text-ink-500">{t.privateCommunity}</span>
             ) : (
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-ok/10 text-ok">Ашық</span>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-ok/10 text-ok">{t.publicCommunity}</span>
             )}
           </div>
           <p className="text-[13px] text-ink-500">@{community.nickname}</p>
@@ -403,14 +403,14 @@ export default function CommunityProfile() {
             </button>
           ) : joinDone ? (
             <div className="w-full py-2 rounded-xl bg-ok/10 text-center text-[14px] font-semibold text-ok">
-              ✓ Өтініш жіберілді
+              ✓ {t.requestSentBadge}
             </div>
           ) : (
             <button
               onClick={() => setJoinOpen(true)}
               className="w-full py-2 rounded-xl bg-brand-500 text-white text-[14px] font-semibold active:scale-[0.99] transition"
             >
-              Қосылу
+              {t.joinAction}
             </button>
           )}
         </div>
@@ -425,27 +425,27 @@ export default function CommunityProfile() {
               <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
           </div>
-          <p className="font-semibold text-[16px]">Бұл жабық қоғамдастық</p>
+          <p className="font-semibold text-[16px]">{t.privateCommunityTitle}</p>
           <p className="text-[14px] text-ink-500 leading-relaxed">
-            Мүшелерді, кітаптарды және жазбаларды көру үшін қосылу өтінішін жіберіңіз.
+            {t.privateCommunityHint}
           </p>
         </div>
       ) : (
         <>
           {/* ── Tabs ── */}
           <div className="px-4 mt-5 flex gap-1 border-b border-ink-100">
-            {TABS.map((t) => (
+            {TABS.map((key) => (
               <button
-                key={t}
-                onClick={() => setTab(t)}
+                key={key}
+                onClick={() => setTab(key)}
                 className={
                   "flex-1 py-2.5 text-[13px] font-semibold transition border-b-2 -mb-px " +
-                  (tab === t
+                  (tab === key
                     ? "border-brand-500 text-brand-600"
                     : "border-transparent text-ink-400")
                 }
               >
-                {t === "posts" ? "Жазбалар" : t === "books" ? "Кітаптар" : "Мүшелер"}
+                {key === "posts" ? t.postsLabel : key === "books" ? t.booksTab : t.members}
               </button>
             ))}
           </div>
@@ -462,7 +462,7 @@ export default function CommunityProfile() {
             {/* Posts tab */}
             {!contentLoading && tab === "posts" && (
               posts.length === 0 ? (
-                <p className="text-center text-ink-400 text-[14px] py-10">Жазба жоқ.</p>
+                <p className="text-center text-ink-400 text-[14px] py-10">{t.noPostsYet}</p>
               ) : (
                 <div className="space-y-3">
                   {posts.map((p) => (
@@ -506,7 +506,7 @@ export default function CommunityProfile() {
             {/* Books tab */}
             {!contentLoading && tab === "books" && (
               books.length === 0 ? (
-                <p className="text-center text-ink-400 text-[14px] py-10">Кітап жоқ.</p>
+                <p className="text-center text-ink-400 text-[14px] py-10">{t.noBooksYet}</p>
               ) : (
                 <ul className="divide-y divide-ink-100">
                   {books.map((b) => (
@@ -658,7 +658,7 @@ export default function CommunityProfile() {
       </Modal>
 
       {/* ── Join modal ── */}
-      <Modal open={joinOpen} onClose={() => setJoinOpen(false)} title="Қосылу өтінішi" scrollable>
+      <Modal open={joinOpen} onClose={() => setJoinOpen(false)} title={t.joinRequestSection} scrollable>
         {joinDone ? (
           <div className="flex flex-col items-center gap-4 py-4">
             <div className="w-16 h-16 rounded-full bg-ok/10 flex items-center justify-center">
@@ -666,9 +666,9 @@ export default function CommunityProfile() {
                 <path d="M5 13l4 4L19 7" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-            <p className="font-semibold text-[16px]">Өтініш жіберілді!</p>
-            <p className="text-[14px] text-ink-500 text-center">Администратор жауап берген соң хабарлама аласыз.</p>
-            <button onClick={() => setJoinOpen(false)} className="btn-primary">Жабу</button>
+            <p className="font-semibold text-[16px]">{t.requestSentTitle}</p>
+            <p className="text-[14px] text-ink-500 text-center">{t.requestSentHint}</p>
+            <button onClick={() => setJoinOpen(false)} className="btn-primary">{t.close}</button>
           </div>
         ) : (
           <form onSubmit={handleJoin} className="space-y-4">
@@ -735,14 +735,14 @@ export default function CommunityProfile() {
                 onClick={() => setJoinOpen(false)}
                 className="flex-1 py-3 rounded-xl text-[14px] font-semibold bg-ink-100 text-ink-700"
               >
-                Болдырмау
+                {t.cancel}
               </button>
               <button
                 type="submit"
                 disabled={joining}
                 className="flex-1 py-3 rounded-xl text-[14px] font-semibold bg-brand-500 text-white disabled:opacity-60"
               >
-                {joining ? "…" : "Жіберу"}
+                {joining ? "…" : t.submit}
               </button>
             </div>
           </form>

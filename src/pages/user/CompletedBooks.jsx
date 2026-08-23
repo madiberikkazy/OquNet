@@ -6,6 +6,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { listBorrowingsForUser, toMillis } from "../../firebase/firestore.js";
 import { cacheService } from "../../utils/cacheService.js";
 import { t } from "../../utils/i18n.js";
+import { formatDate } from "../../utils/time.js";
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes (completed books change less frequently)
 
@@ -74,7 +75,7 @@ export default function CompletedBooks() {
     <MobileShell>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 mb-4">
-        <button onClick={() => navigate(-1)} className="icon-btn shrink-0" aria-label="Back">
+        <button onClick={() => navigate(-1)} className="icon-btn shrink-0" aria-label={t.back}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
             <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -88,7 +89,7 @@ export default function CompletedBooks() {
       {loading ? (
         <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
       ) : items.length === 0 ? (
-        <EmptyState title="Оқылған кітаптар жоқ" subtitle="Кітапты аяқтағаннан кейін осында көрінеді." />
+        <EmptyState title={t.noCompletedBooksTitle} subtitle={t.noCompletedBooksSubtitle} />
       ) : (
         <ul className="px-4 divide-y divide-ink-100">
           {items.map((b) => (
@@ -110,7 +111,7 @@ export default function CompletedBooks() {
                 <StarRow rating={b.rating} />
                 {b.returnDate ? (
                   <p className="text-[12px] text-ink-500 mt-0.5">
-                    {new Date(b.returnDate).toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" })}
+                    {formatDate(b.returnDate, { day: "2-digit", month: "long", year: "numeric" })}
                   </p>
                 ) : null}
               </div>

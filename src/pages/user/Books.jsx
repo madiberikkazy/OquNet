@@ -266,7 +266,7 @@ export default function Books() {
         <div className="px-4 pt-2">
           <JoinCommunityBanner />
         </div>
-        <EmptyState title="Books недоступны" subtitle="Вступите в сообщество, чтобы видеть книги." />
+        <EmptyState title={t.booksNeedCommunityTitle} subtitle={t.booksNeedCommunitySubtitle} />
       </MobileShell>
     );
   }
@@ -315,7 +315,7 @@ export default function Books() {
             {Array.from({ length: 6 }, (_, i) => <GenreTileSkeleton key={i} />)}
           </div>
         ) : (genreQuery.data?.items?.length || 0) === 0 ? (
-          <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
+          <EmptyState title={t.noBooksYetTitle} subtitle={t.noBooksYetSubtitle} />
         ) : (
           <GenreShelves books={genreQuery.data.items} onOpen={setOpenGenre} />
         )
@@ -342,7 +342,7 @@ export default function Books() {
           {isInitialLoading ? (
             <SkeletonList count={7} label={t.loading} Item={BookCardSkeleton} />
           ) : books.length === 0 ? (
-            <EmptyState title="Книг пока нет" subtitle="Когда участники начнут делиться книгами, они появятся здесь." />
+            <EmptyState title={t.noBooksYetTitle} subtitle={t.noBooksYetSubtitle} />
           ) : (
             <>
               {/* The rail's books are in this list too, so it needs a name of its
@@ -392,7 +392,7 @@ export default function Books() {
                       {listQuery.isFetchingNextPage ? (
                         <SkeletonList count={2} label={t.loading} Item={BookCardSkeleton} />
                       ) : (
-                        <p className="py-4 text-center text-ink-500 text-[13px]">Прокрутите для загрузки больше</p>
+                        <p className="py-4 text-center text-ink-500 text-[13px]">{t.scrollForMore}</p>
                       )}
                     </div>
                   )}
@@ -415,7 +415,7 @@ export default function Books() {
                       {listQuery.isFetchingNextPage ? (
                         <SkeletonList count={2} label={t.loading} Item={BookCardSkeleton} />
                       ) : (
-                        <p className="py-4 text-center text-ink-500 text-[13px]">Прокрутите для загрузки больше</p>
+                        <p className="py-4 text-center text-ink-500 text-[13px]">{t.scrollForMore}</p>
                       )}
                     </li>
                   )}
@@ -511,11 +511,11 @@ function JoinCommunityBanner() {
         </svg>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium text-ink-700">Қоғамдастыққа қосылыңыз</p>
-        <p className="text-[12px] text-ink-400">Кітаптарды алу үшін қоғамдастық керек</p>
+        <p className="text-[13px] font-medium text-ink-700">{t.joinCommunityPromptTitle}</p>
+        <p className="text-[12px] text-ink-400">{t.joinCommunityPromptHint}</p>
       </div>
       <Link to="/community/join" className="text-[12px] font-semibold text-brand-600 shrink-0">
-        Табу →
+        {t.findCta}
       </Link>
     </div>
   );
@@ -528,7 +528,7 @@ function Chip({ label, onRemove }) {
       <button
         onClick={onRemove}
         className="w-4 h-4 rounded-full bg-brand-200 flex items-center justify-center hover:bg-brand-300 transition"
-        aria-label="Remove filter"
+        aria-label={t.removeFilter}
       >
         <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
           <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />

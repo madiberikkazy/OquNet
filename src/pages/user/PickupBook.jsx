@@ -28,8 +28,9 @@ import { newPickupCode } from "../../firebase/schema.js";
 import { holderIdOf } from "../../utils/bookHolder.js";
 import { loanDaysForPages, pagesForBook, pagesRangeLabel } from "../../utils/bookPages.js";
 import { safeImageUrl } from "../../utils/validators.js";
-import { t, getCurrentLang } from "../../utils/i18n.js";
+import { t } from "../../utils/i18n.js";
 import { canSeePhone } from "../../utils/contactVisibility.js";
+import { formatDate } from "../../utils/time.js";
 import MessageButton from "../../components/MessageButton.jsx";
 import { logger } from "../../utils/logger.js";
 import { attempt, retryAfterSeconds } from "../../utils/rateLimit.js";
@@ -38,29 +39,18 @@ import { attempt, retryAfterSeconds } from "../../utils/rateLimit.js";
 // the same window the screen promises in its footer note.
 const PICKUP_EXPIRY_DAYS = 3;
 
-const DATE_LOCALES = { ru: "ru-RU", en: "en-GB" };
-// Chromium's kk-KZ data has no long month names — it renders "2026 M08 3" — so
-// Kazakh dates are spelled out here rather than handed to Intl.
-const KZ_MONTHS = [
-  "қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым",
-  "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан",
-];
-
 function addDays(date, days) {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
   return d;
 }
 function formatLongDate(ts) {
-  const d = new Date(ts);
-  const locale = DATE_LOCALES[getCurrentLang()];
-  if (!locale) return `${d.getDate()} ${KZ_MONTHS[d.getMonth()]}, ${d.getFullYear()}`;
-  try {
-    return d.toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric" });
-  } catch {
-    return d.toLocaleDateString();
-  }
+  // The locale juggling and the Kazakh month table used to live here; they are
+  // in utils/time.js now, because four other screens were printing dates with
+  // "ru-RU" wired in and needed the same fix.
+  return formatDate(ts, { day: "numeric", month: "long", year: "numeric" });
 }
+
 /** Why a reader cannot start this pickup, in words. */
 export function blockMessage(reason) {
   if (reason === "other-pickup") return t.pickupOtherPending;
@@ -323,8 +313,8 @@ export default function PickupBook() {
         if (existingBorrowing.borrowerId && existingBorrowing.borrowerId !== user.id) {
           await createNotification({
             recipientId: existingBorrowing.borrowerId,
-            title: "Хотят забрать вашу книгу",
-            body: `${base.requesterName} хочет получить книгу «${book.name}», которую вы держите. Если он заберёт книгу — назовите ему код для смены читателя.`,
+            title: t.pickupWantYourBookTitle,
+            body: t.pickupWantYourBookBody(base.requesterName, book.name),
             read: false,
             type: "pickup-request",
             bookId: id,
@@ -336,8 +326,8 @@ export default function PickupBook() {
         if (holderId && holderId !== user.id) {
           await createNotification({
             recipientId: holderId,
-            title: "Запрос на книгу",
-            body: `${base.requesterName} хочет взять книгу «${book.name}», которая сейчас у вас. Назовите ему код для передачи:`,
+            title: t.pickupRequestNotifTitle,
+            body: t.pickupRequestNotifBody(base.requesterName, book.name),
             read: false,
             type: "borrow-request",
             bookId: id,
@@ -382,8 +372,8 @@ export default function PickupBook() {
         setExistingBorrowing((prev) => ({ ...prev, pickupCode: newCode }));
         await createNotification({
           recipientId: existingBorrowing.borrowerId,
-          title: "Жаңа код: кітап беру",
-          body: `${user.firstName} ${user.lastName} «${book.name}» кітабын алғысы келеді. Жаңа 4 таңбалы код:`,
+          title: t.pickupNewCodeTitle,
+          body: t.pickupNewCodeBody(`${user.firstName} ${user.lastName}`, book.name),
           read: false,
           type: "pickup-request",
           bookId: id,
@@ -395,8 +385,8 @@ export default function PickupBook() {
         setPickupRequest((prev) => ({ ...prev, pickupCode: newCode }));
         await createNotification({
           recipientId: currentHolder?.id || book.ownerId,
-          title: "Жаңа код: кітап беру",
-          body: `${user.firstName} ${user.lastName} «${book.name}» кітабын алғысы келеді. Жаңа 4 таңбалы код:`,
+          title: t.pickupNewCodeTitle,
+          body: t.pickupNewCodeBody(`${user.firstName} ${user.lastName}`, book.name),
           read: false,
           type: "borrow-request",
           bookId: id,
@@ -502,10 +492,10 @@ export default function PickupBook() {
       if (ownerId && ownerId !== user.id) {
         await createNotification({
           recipientId: ownerId,
-          title: existingBorrowing ? "Кітап жаңа оқырманда" : "Кітап берілді",
+          title: existingBorrowing ? t.pickupNewReaderTitle : t.pickupHandedTitle,
           body: existingBorrowing
-            ? `«${book.name}» кітабы енді ${user.firstName} ${user.lastName} (@${user.nickname}) қолында.`
-            : `${user.firstName} ${user.lastName} сіздің «${book.name}» кітабыңызды алды.`,
+            ? t.pickupNewReaderBody(book.name, `${user.firstName} ${user.lastName}`, user.nickname)
+            : t.pickupHandedBody(`${user.firstName} ${user.lastName}`, book.name),
           read: false,
           type: "book-transferred",
           bookId: id,
@@ -544,18 +534,19 @@ export default function PickupBook() {
           </div>
 
           <div className="space-y-3">
-            <h1 className="text-3xl font-bold">Керемет!</h1>
+            <h1 className="text-3xl font-bold">{t.pickupDoneTitle}</h1>
             <p className="text-[16px] text-ink-700 leading-relaxed">
-              Кітап{" "}
-              <span className="font-semibold">«{book.name}»</span>{" "}
-              енді{" "}
-              <span className="font-semibold">«Қазір оқып жатқан кітап»</span>{" "}
-              бөліміне қосылды.
+              {/* One sentence from the dictionary rather than three fragments
+                  around two bold spans: the fragments only line up in the
+                  language they were written in — Russian and English put the
+                  book and the section in a different order — so bolding the
+                  words costs the other two languages their grammar. */}
+              {t.pickupDoneBody(book.name, t.readingNow)}
             </p>
           </div>
 
           <button onClick={backToBook} className="btn-primary">
-            Кітапқа өту →
+            {t.goToBookCta}
           </button>
         </div>
       </MobileShell>
