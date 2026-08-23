@@ -360,6 +360,14 @@ export const bookSchema = Object.freeze({
     rating: 0,
     ratingSum: 0,
     ratingCount: 0,
+    // How many people have finished this copy. Denormalised for the same
+    // reason the rating totals are: sorting a shelf by it otherwise means
+    // counting the borrowings of every book on the shelf, one query each.
+    // Incremented by releaseBookAfterReading, which is the single point a read
+    // ends. Books added before this field read as 0 rather than as unknown —
+    // their history is in the borrowings and is not backfilled here, so a
+    // "most read" order is only true of reads recorded since it existed.
+    readCount: 0,
   }),
   /** Frozen by the security rules once the document exists. */
   immutable: Object.freeze(["communityId", "createdAt"]),
@@ -463,7 +471,7 @@ function bookCount(field, value) {
   if (!Number.isFinite(n) || n < 0) {
     throw new SchemaError(`books: ${field} must be a non-negative number`, { collection: "books", field });
   }
-  return field === "ratingCount" ? Math.trunc(n) : n;
+  return field === "ratingCount" || field === "readCount" ? Math.trunc(n) : n;
 }
 
 function nullableId(field, value) {
@@ -497,6 +505,7 @@ const BOOK_PATCH_FIELDS = Object.freeze({
   rating: (v) => bookCount("rating", v),
   ratingSum: (v) => bookCount("ratingSum", v),
   ratingCount: (v) => bookCount("ratingCount", v),
+  readCount: (v) => bookCount("readCount", v),
 });
 
 /**

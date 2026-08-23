@@ -20,6 +20,8 @@ export const qk = {
     // and stores `{ pages, pageParams }`, which a plain useQuery would overwrite
     // with a bare page — the same clash `forExit` below exists to avoid.
     genreOverview: (communityId) => ["books", "genreOverview", communityId],
+    // The distinct authors on the shelf — the filter screen's type-ahead.
+    authors: (communityId) => ["books", "authors", communityId],
     // Books physically with a user right now — the "Сізде қазір бар кітаптар"
     // list. Sits under `books` so a handoff invalidates it along with
     // everything else that names a holder.

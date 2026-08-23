@@ -906,6 +906,45 @@ export async function listBooks({ communityId, search, status, genres, pageSize 
 }
 
 /**
+ * The distinct authors on a community's shelf, for the filter's suggestions.
+ *
+ * A sample, and it says so: Firestore cannot return distinct values, so this is
+ * a page of books with the authors folded out of it. The alternative is a
+ * second collection maintained on every book write, which is a lot of
+ * machinery for a type-ahead — and the suggestion list is a shortcut, not the
+ * filter itself. Typing an author the sample missed still filters correctly,
+ * because the filter matches on substring rather than on this list.
+ *
+ * Ordered by `createdAt` like every other book read, so the sample is the most
+ * recently added books rather than an arbitrary slice — which is the half of a
+ * shelf a member is most likely to be looking for.
+ */
+export async function listBookAuthors({ communityId, sampleSize = 200 } = {}) {
+  if (!communityId) return [];
+
+  const { rows } = await getPage("books", {
+    where: [["communityId", "==", communityId]],
+    orderByField: "createdAt",
+    descending: true,
+    pageSize: sampleSize,
+    cursor: null,
+  });
+
+  // Deduped case-insensitively but shown as first written: "auezov" and
+  // "Auezov" are one author with one spelling worth offering, and the one the
+  // admin typed is the one already on the books.
+  const seen = new Map();
+  for (const book of rows) {
+    const author = String(book?.author || "").trim();
+    if (!author) continue;
+    const key = author.toLowerCase();
+    if (!seen.has(key)) seen.set(key, author);
+  }
+
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * Every book physically with this person right now, and every book they own.
  *
  * Two equality filters and no ordering, so Firestore serves them by merging
@@ -1101,7 +1140,16 @@ export async function reassignHeldBook({ bookId, toUserId, transferOwnership = f
 export async function releaseBookAfterReading({ bookId, holderId }) {
   if (!bookId) throw new Error("releaseBookAfterReading: missing bookId");
   if (!holderId) throw new Error("releaseBookAfterReading: missing holderId");
-  const patch = { status: "available", borrowerId: null, holderId };
+
+  // The one place a read ends, so the one place the counter moves. Read back
+  // and incremented rather than written with a sentinel: `increment()` cannot
+  // be checked by a security rule, which has to see the new value to know it
+  // went up by exactly one. The read costs a document and buys a counter the
+  // rules can police.
+  const book = await getBook(bookId);
+  const readCount = Math.trunc(Number(book?.readCount) || 0) + 1;
+
+  const patch = { status: "available", borrowerId: null, holderId, readCount };
   await updateBook(bookId, patch);
   return patch;
 }

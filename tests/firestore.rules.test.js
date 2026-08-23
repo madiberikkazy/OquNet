@@ -103,7 +103,7 @@ beforeEach(async () => {
       name: "Abai Joly", author: "Mukhtar Auezov", genre: "novel",
       communityId: C1, ownerId: MEMBER_A, holderId: MEMBER_A,
       status: "available", borrowerId: null, createdAt: Date.now(),
-      rating: 0, ratingSum: 0, ratingCount: 0,
+      rating: 0, ratingSum: 0, ratingCount: 0, readCount: 0,
     });
     await setDoc(doc(db, "books", BOOK_2), {
       name: "Other", author: "Someone", genre: "novel",
@@ -122,9 +122,9 @@ beforeEach(async () => {
 function newBookPayload(communityId, ownerId) {
   return {
     name: "New Book", author: "New Author", genre: "novel", genres: ["novel"],
-    description: "", coverUrl: "", year: 2020, maxDays: 14,
+    description: "", coverUrl: "", year: 2020, maxDays: 14, language: "kk",
     communityId, ownerId, holderId: ownerId, status: "available",
-    borrowerId: null, rating: 0, ratingSum: 0, ratingCount: 0,
+    borrowerId: null, rating: 0, ratingSum: 0, ratingCount: 0, readCount: 0,
     createdAt: serverTimestamp(),
   };
 }
@@ -326,6 +326,67 @@ describe("books: holder transitions", () => {
     });
     await assertSucceeds(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
       status: "available", borrowerId: null, holderId: MEMBER_A2,
+    }));
+  });
+
+  // ── The times-read counter ────────────────────────────────────────────────
+  //
+  // `readCount` is what the shelf's "most read" order is built on, so the only
+  // thing that may move it is somebody actually finishing the book — and only
+  // by one. It rides along with the release because that write *is* the end of
+  // a read; every other transition on a book is denied it outright, which is
+  // why it has a key set of its own in the rules rather than being added to
+  // the group the other handoffs share.
+
+  /** Put the book in MEMBER_A2's hands, mid-read. */
+  async function beingRead(readCount = 0) {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
+        status: "unavailable", borrowerId: MEMBER_A2, holderId: MEMBER_A2, readCount,
+      });
+    });
+  }
+
+  it("the reader finishing the book MAY add one to the count", async () => {
+    await beingRead(3);
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A2, readCount: 4,
+    }));
+  });
+
+  it("...but not two, and not backwards", async () => {
+    await beingRead(3);
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A2, readCount: 5,
+    }));
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A2, readCount: 2,
+    }));
+    // The interesting one: leaving it alone is fine — that is the ordinary
+    // release lane — but claiming a read without moving it is not what the
+    // counter means, and inflating it while standing still is refused.
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A2, readCount: 99,
+    }));
+  });
+
+  it("a bystander may NOT bump somebody else's read count", async () => {
+    await beingRead(3);
+    await assertFails(updateDoc(doc(as(MEMBER_A), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A, readCount: 4,
+    }));
+  });
+
+  it("sending a book home does NOT count as a read", async () => {
+    // MEMBER_A owns BOOK_1; MEMBER_A2 is holding it and hands it back. That is
+    // a return, not a finished read, so the counter must not ride along.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "books", BOOK_1), {
+        status: "available", borrowerId: null, holderId: MEMBER_A2, readCount: 3,
+      });
+    });
+    await assertFails(updateDoc(doc(as(MEMBER_A2), "books", BOOK_1), {
+      status: "available", borrowerId: null, holderId: MEMBER_A, readCount: 4,
     }));
   });
 

@@ -22,8 +22,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  EMPTY_FILTERS, LANGUAGE_UNSET, PAGES_MAX, PAGES_MIN, YEAR_MAX, YEAR_MIN,
-  activeFilterCount, hasClientFilters, matchesFilters, readFilters, writeFilters,
+  DEFAULT_SORT, EMPTY_FILTERS, LANGUAGE_UNSET, PAGES_MAX, PAGES_MIN, YEAR_MAX, YEAR_MIN,
+  activeFilterCount, hasClientFilters, isSorted, matchesFilters,
+  readFilters, sortBooks, sortNeedsFullScan, writeFilters,
 } from "../src/utils/bookFilters.js";
 
 /** A book that passes every filter, so each test can spoil exactly one field. */
@@ -148,5 +149,103 @@ describe("counting what is on", () => {
     assert.equal(hasClientFilters(filters({ status: "available", genres: ["history"] })), false);
     assert.equal(hasClientFilters(filters({ languages: ["kk"] })), true);
     assert.equal(hasClientFilters(filters({ years: [1960, YEAR_MAX] })), true);
+  });
+});
+
+describe("sorting the shelf", () => {
+  const shelf = [
+    { id: "b", name: "Botagoz", ratingSum: 8,  ratingCount: 2, readCount: 3, year: 1939, pages: 300 },
+    { id: "a", name: "Abai",    ratingSum: 10, ratingCount: 2, readCount: 9, year: 1969, pages: 100 },
+    { id: "n", name: "Nobody",  ratingSum: 0,  ratingCount: 0, readCount: 0 },
+  ];
+  const order = (by, dir = undefined, locale = "en") =>
+    sortBooks(shelf, { by, dir: dir ?? DEFAULT_SORT.dir }, locale).map((x) => x.id).join("");
+
+  it("leaves the shelf order alone", () => {
+    // Not merely equal — the same array, so the caller's memo is not invalidated.
+    assert.equal(sortBooks(shelf, { by: "shelf", dir: "desc" }, "en"), shelf);
+  });
+
+  it("does not sort the caller's array in place", () => {
+    const before = shelf.map((x) => x.id).join("");
+    sortBooks(shelf, { by: "rating", dir: "desc" }, "en");
+    assert.equal(shelf.map((x) => x.id).join(""), before);
+  });
+
+  it("orders by average rating, not by the stored sum", () => {
+    // Both rated books have two ratings, so the sum happens to agree here —
+    // what matters is that an unrated book does not win by having a sum of 0
+    // read as a score.
+    assert.equal(order("rating", "desc"), "abn");
+  });
+
+  it("orders by times read and by year", () => {
+    assert.equal(order("reads", "desc"), "abn");
+    assert.equal(order("year", "desc"), "abn");
+    assert.equal(order("year", "asc"), "ban");
+  });
+
+  it("sinks books missing the field in both directions", () => {
+    // "Nobody" has no year. It is not the oldest book — it is a book whose
+    // year nobody wrote down, so it goes last either way.
+    assert.equal(order("year", "asc").endsWith("n"), true);
+    assert.equal(order("year", "desc").endsWith("n"), true);
+  });
+
+  it("orders titles by the reader's alphabet, not by codepoint", () => {
+    const kazakh = [{ id: "1", name: "Ән" }, { id: "2", name: "Азамат" }, { id: "3", name: "Бақыт" }];
+    // Ә sorts right after А in Kazakh. A codepoint comparison files it after Я.
+    // "kz" is the app's own code for Kazakh, and the module has to translate it:
+    // the language tag is "kk", and "kz" resolves silently to the default locale.
+    const ids = sortBooks(kazakh, { by: "letter", dir: "asc" }, "kz").map((x) => x.id).join("");
+    assert.equal(ids, "213");
+  });
+
+  it("survives a sort key it does not know", () => {
+    assert.equal(sortBooks(shelf, { by: "colour", dir: "desc" }, "en"), shelf);
+  });
+});
+
+describe("the sort in the URL", () => {
+  const withSort = (sort) => ({ ...EMPTY_FILTERS, sort });
+
+  it("writes nothing for the shelf's own order", () => {
+    assert.equal(writeFilters(withSort(DEFAULT_SORT)).toString(), "");
+    assert.deepEqual(readFilters(new URLSearchParams("")).sort, DEFAULT_SORT);
+  });
+
+  it("carries a sort and its direction through", () => {
+    const f = withSort({ by: "reads", dir: "asc" });
+    assert.deepEqual(readFilters(new URLSearchParams(writeFilters(f).toString())).sort, f.sort);
+  });
+
+  it("writes the direction even when it is that option's default", () => {
+    // Otherwise following a shared link lands on a different order than the
+    // one that was shared, the moment the sender flipped it back.
+    const written = writeFilters(withSort({ by: "rating", dir: "desc" }));
+    assert.equal(written.get("dir"), "desc");
+  });
+
+  it("falls back to the shelf order for an unknown sort", () => {
+    assert.deepEqual(readFilters(new URLSearchParams("sort=colour&dir=asc")).sort, DEFAULT_SORT);
+  });
+
+  it("falls back to the option's own direction for a junk one", () => {
+    assert.deepEqual(
+      readFilters(new URLSearchParams("sort=pages&dir=sideways")).sort,
+      { by: "pages", dir: "asc" }
+    );
+  });
+
+  it("knows when an order costs a full scan", () => {
+    assert.equal(isSorted(withSort(DEFAULT_SORT)), false);
+    assert.equal(sortNeedsFullScan(withSort(DEFAULT_SORT)), false);
+    assert.equal(sortNeedsFullScan(withSort({ by: "letter", dir: "asc" })), true);
+  });
+
+  it("is not counted as one of the filters", () => {
+    // The filter chip says how many filters are on, and clearing it must not
+    // silently undo an order the reader picked separately.
+    assert.equal(activeFilterCount(withSort({ by: "rating", dir: "desc" })), 0);
   });
 });

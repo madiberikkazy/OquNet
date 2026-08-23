@@ -21,8 +21,11 @@ import { safeGet, safeSet } from "../../utils/safeStorage.js";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { qk } from "../../lib/queryKeys.js";
 import {
-  activeFilterCount, hasClientFilters, matchesFilters, readFilters, writeFilters,
+  DEFAULT_SORT, EMPTY_FILTERS, SORTS,
+  activeFilterCount, hasClientFilters, isSorted, matchesFilters,
+  readFilters, sortBooks, sortNeedsFullScan, writeFilters,
 } from "../../utils/bookFilters.js";
+import Modal from "../../components/Modal.jsx";
 
 const PAGE_SIZE = 25;
 
@@ -31,6 +34,14 @@ const PAGE_SIZE = 25;
 // page of *candidates* rather than of results — asking for more of them per
 // round trip is what keeps a narrow filter from turning into twenty requests.
 const SCAN_PAGE_SIZE = 100;
+
+// The ceiling on a scan, in pages. A sort is only honest over the whole shelf,
+// but "the whole shelf" has to have a limit or one tap on a large community
+// bills a thousand reads. Ten pages is a thousand books, which is far past any
+// community this is built for — and past it the order is over the thousand
+// most recently added rather than over everything, which is the tradeoff being
+// made rather than a bug to find later.
+const MAX_SCAN_PAGES = 10;
 
 const VIEW = { LIST: "list", CARD: "card" };
 const VIEW_KEY = "oqunet.books.view";
@@ -66,7 +77,7 @@ function useDebounced(value, delay = 300) {
 export default function Books() {
   const { user, refresh } = useAuth();
   const { community } = useCommunity();
-  useLang();
+  const { lang } = useLang();
   const queryClient = useQueryClient();
 
   const navigate = useNavigate();
@@ -80,6 +91,7 @@ export default function Books() {
   const { status, genres } = filters;
 
   const [search, setSearch] = useState("");
+  const [sortOpen, setSortOpen] = useState(false);
 
   // How the shelf is drawn. Remembered across sessions: which of the two a
   // person reads a shelf in is a preference about their own eyes, not about
@@ -140,7 +152,13 @@ export default function Books() {
   // scan asks for more per round trip. It is part of the key: changing the page
   // size changes the cursors, and two different sizes under one key would
   // interleave pages that do not line up.
-  const scanning = hasClientFilters(filters);
+  // Two different reasons to read past the first page. A filter scans until it
+  // finds enough; a sort has to reach the end before it can claim an order at
+  // all, because "the highest rated" over a quarter of the shelf is an answer
+  // to a question nobody asked.
+  const filtering = hasClientFilters(filters);
+  const fullScan = sortNeedsFullScan(filters);
+  const scanning = filtering || fullScan;
   const pageSize = scanning ? SCAN_PAGE_SIZE : PAGE_SIZE;
 
   const listQuery = useInfiniteQuery({
@@ -193,10 +211,11 @@ export default function Books() {
   const books = useMemo(() => {
     const fetched = (listQuery.data?.pages || [])
       .flatMap((p, i) => shuffleStable(p.items, shelfSeed + i));
-    // The four filters the query could not carry, applied here. Last, after the
-    // shuffle, so removing a book does not change the order of the ones left.
-    return scanning ? fetched.filter((b) => matchesFilters(b, filters)) : fetched;
-  }, [listQuery.data, shelfSeed, scanning, filters]);
+    // The four filters the query could not carry, applied here. Before the
+    // sort, so an order is computed over the books that will actually be shown.
+    const kept = filtering ? fetched.filter((b) => matchesFilters(b, filters)) : fetched;
+    return sortBooks(kept, filters.sort, lang);
+  }, [listQuery.data, shelfSeed, filtering, filters, lang]);
 
   // The rail is a browsing shortcut, not a filter result: while the user is
   // searching or narrowing by anything it would only push their results off screen.
@@ -243,12 +262,23 @@ export default function Books() {
   // to hang a sentinel on, so nothing would ever ask for the next page and the
   // screen would settle on "nothing found" while most of the shelf was still
   // unread. Keep pulling until a match turns up or the shelf runs out.
+  const pagesLoaded = listQuery.data?.pages?.length || 0;
+  const scanExhausted = !listQuery.hasNextPage || pagesLoaded >= MAX_SCAN_PAGES;
+
   useEffect(() => {
     if (!scanning) return;
-    if (books.length) return;
-    if (!listQuery.hasNextPage || listQuery.isFetchingNextPage) return;
+    // A sort keeps pulling regardless of how much it has; a filter stops as
+    // soon as it has something to show and lets the reader's own scrolling ask
+    // for the rest.
+    if (!fullScan && books.length) return;
+    if (scanExhausted || listQuery.isFetchingNextPage) return;
     listQuery.fetchNextPage();
-  }, [scanning, books.length, listQuery.hasNextPage, listQuery.isFetchingNextPage, listQuery.fetchNextPage]);
+  }, [scanning, fullScan, books.length, scanExhausted, listQuery.isFetchingNextPage, listQuery.fetchNextPage]);
+
+  // A sort is only true once the whole shelf is in. Until then the screen says
+  // it is working rather than showing an order it will rearrange a moment
+  // later — a list that reshuffles under a thumb is worse than a wait.
+  const awaitingFullScan = fullScan && !scanExhausted;
 
   const { sentinelRef } = useInfiniteScroll({ onLoadMore: loadMore, threshold: 300 });
 
@@ -312,7 +342,12 @@ export default function Books() {
             placeholder={t.searchPlaceholder}
             onFilterClick={openFilter}
             filterActive={isFilterActive}
-            rightSlot={<ViewToggle view={view} onToggle={toggleView} />}
+            rightSlot={
+              <>
+                <ViewToggle view={view} onToggle={toggleView} />
+                <SortToggle active={isSorted(filters)} onClick={() => setSortOpen(true)} />
+              </>
+            }
           />
         </div>
       }
@@ -363,7 +398,10 @@ export default function Books() {
             <div className="flex flex-wrap gap-2 px-4 pt-1 pb-2">
               <Chip
                 label={t.filterActiveCount(activeCount)}
-                onRemove={() => setParams(new URLSearchParams(), { replace: true })}
+                onRemove={() => setParams(
+                  writeFilters({ ...EMPTY_FILTERS, sort: filters.sort }),
+                  { replace: true }
+                )}
               />
             </div>
           ) : null}
@@ -372,16 +410,39 @@ export default function Books() {
 
           {isInitialLoading ? (
             <SkeletonList count={7} label={t.loading} Item={BookCardSkeleton} />
+          ) : awaitingFullScan ? (
+            // Ahead of the empty check on purpose: a half-read shelf may well
+            // have rows to show, and showing them would mean rendering an order
+            // that is about to change.
+            <SkeletonList count={7} label={t.sortScanning} Item={BookCardSkeleton} />
           ) : books.length === 0 ? (
             // Three different nothings, and saying the wrong one is worse than
             // saying nothing: a scan still walking the shelf has not concluded
             // anything yet, a scan that reached the end has concluded the
             // filters are too narrow, and an unfiltered shelf with no rows is a
             // community that has not added a book.
-            scanning && (listQuery.hasNextPage || listQuery.isFetchingNextPage) ? (
+            scanning && !scanExhausted ? (
               <SkeletonList count={5} label={t.filterScanning} Item={BookCardSkeleton} />
             ) : isFilterActive ? (
-              <EmptyState title={t.filterNoMatches} subtitle={t.filterNoMatchesHint} />
+              <>
+                <EmptyState title={t.filterNoMatches} subtitle={t.filterNoMatchesHint} />
+                {/* The automatic scan stops at MAX_SCAN_PAGES so one tap cannot
+                    bill a thousand reads. When it stopped there rather than at
+                    the end of the shelf, "nothing matches" is not yet true —
+                    so the reader is offered the rest rather than told a thing
+                    the app has not checked. */}
+                {listQuery.hasNextPage ? (
+                  <div className="px-4">
+                    <button
+                      onClick={loadMore}
+                      disabled={listQuery.isFetchingNextPage}
+                      className="btn-secondary"
+                    >
+                      {listQuery.isFetchingNextPage ? t.loading : t.filterKeepSearching}
+                    </button>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <EmptyState title={t.noBooksYetTitle} subtitle={t.noBooksYetSubtitle} />
             )
@@ -468,7 +529,87 @@ export default function Books() {
         </>
       )}
 
+      <Modal open={sortOpen} onClose={() => setSortOpen(false)} title={t.sortTitle}>
+        <div className="flex flex-col gap-1">
+          {SORTS.map((option) => {
+            const chosen = (filters.sort?.by || DEFAULT_SORT.by) === option.value;
+            return (
+              <button
+                key={option.value}
+                onClick={() => {
+                  // Picking an order opens it on that order's own useful end,
+                  // and re-picking the one already chosen keeps the direction
+                  // the reader set rather than snapping it back.
+                  const dir = chosen ? filters.sort.dir : option.dir;
+                  setFilters({ sort: { by: option.value, dir } });
+                  setSortOpen(false);
+                }}
+                className={
+                  "flex items-center gap-3 px-3 py-3 rounded-xl text-left text-[15px] transition " +
+                  (chosen ? "bg-tint text-tintInk font-semibold" : "text-ink-900")
+                }
+              >
+                <span className="flex-1">{t[option.labelKey]}</span>
+                {chosen ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="m5 12.5 4.5 4.5L19 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Direction is meaningless on the shelf's own order, which is not an
+            order over any field, so it only appears once there is one. */}
+        {isSorted(filters) ? (
+          <div className="mt-4 pt-4 border-t border-ink-100">
+            <p className="text-[13px] text-ink-500 mb-2">{t.sortDirection}</p>
+            <div className="flex gap-2">
+              {[["desc", t.sortDescending], ["asc", t.sortAscending]].map(([dir, label]) => (
+                <button
+                  key={dir}
+                  onClick={() => setFilters({ sort: { ...filters.sort, dir } })}
+                  aria-pressed={filters.sort.dir === dir}
+                  className={
+                    "flex-1 py-2.5 rounded-xl text-[14px] font-medium transition " +
+                    (filters.sort.dir === dir ? "bg-brand-500 text-white" : "bg-ink-100 text-ink-700")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </MobileShell>
+  );
+}
+
+/**
+ * Sort, beside the filter. Its own control rather than a section inside the
+ * filter screen: filtering is a decision somebody makes once and sorting is one
+ * they flip between, and burying a flip two taps deep behind a screen with an
+ * Apply button turns "show me the highest rated" into a small errand.
+ */
+function SortToggle({ active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={t.sortTitle}
+      title={t.sortTitle}
+      className="icon-btn shrink-0 relative"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M7 4v16M7 20l-3-3M7 20l3-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M17 20V4M17 4l-3 3M17 4l3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      {active ? (
+        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-500 ring-2 ring-base" />
+      ) : null}
+    </button>
   );
 }
 

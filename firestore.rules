@@ -418,10 +418,28 @@ service cloud.firestore {
           // side door onto somebody else's hold.
           (touchesOnly(['status', 'borrowerId', 'holderId', 'reservedBy'].toSet())
            && takesBook())
+          // Finishing a book is the one handoff that also moves a counter, so
+          // it gets its own key set. Split out rather than added to the group
+          // below, because `readCount` must not be writable by the other four
+          // transitions: sending a copy home or cancelling a reservation is not
+          // a read, and a shared key set would let either one inflate the
+          // number a "most read" order is built on.
+          || (touchesOnly(['status', 'borrowerId', 'holderId', 'readCount'].toSet())
+              && releasesBook() && countsOneRead())
           || (touchesOnly(['status', 'borrowerId', 'holderId'].toSet())
               && (releasesBook() || sendsBookHome()
                   || reservesForReturn() || releasesReservation() || ownerReclaims()))
         );
+    }
+
+    // Exactly one, and only upwards. The client reads the book, adds one and
+    // writes the result back, so the rule can check the arithmetic — which is
+    // the whole reason releaseBookAfterReading does not use increment(): a
+    // sentinel arrives here as an opaque transform and this check becomes
+    // impossible to write.
+    function countsOneRead() {
+      return request.resource.data.readCount is int
+        && request.resource.data.readCount == resource.data.get('readCount', 0) + 1;
     }
 
     // ── Holding a book while you go and fetch it ────────────────────────────

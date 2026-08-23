@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import RangeSlider from "../../components/RangeSlider.jsx";
 import { BOOK_LANGUAGES, GENRES, genreLabel, t } from "../../utils/i18n.js";
 import { useLang } from "../../contexts/LanguageContext.jsx";
+import { useCommunity } from "../../contexts/CommunityContext.jsx";
+import { listBookAuthors } from "../../firebase/firestore.js";
+import { qk } from "../../lib/queryKeys.js";
 import {
   EMPTY_FILTERS, LANGUAGE_UNSET, PAGES_MAX, PAGES_MIN, PAGE_STEP,
   YEAR_MAX, YEAR_MIN,
@@ -28,6 +32,7 @@ export default function BooksFilter() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { lang } = useLang();
+  const { community } = useCommunity();
 
   // Seeded once from the URL: this screen owns the draft while it is open, and
   // re-reading the params on every render would fight the user's edits.
@@ -51,8 +56,35 @@ export default function BooksFilter() {
   }
 
   function clearAll() {
-    setDraft({ ...EMPTY_FILTERS });
+    // The sort survives. It is set from the shelf, not from here, and nothing
+    // on this screen names it — clearing something the reader cannot see is
+    // how a control earns a reputation for doing more than it says.
+    setDraft((prev) => ({ ...EMPTY_FILTERS, sort: prev.sort }));
   }
+
+  // One read of the shelf's authors, cached for the session. Fetched on open
+  // rather than on the first keystroke: the list is what makes the field
+  // discoverable — a reader who does not already know a name on the shelf has
+  // nothing to type — so it has to be there before the typing starts.
+  const authorsQuery = useQuery({
+    queryKey: qk.books.authors(community?.id),
+    enabled: !!community?.id,
+    queryFn: () => listBookAuthors({ communityId: community.id }),
+    staleTime: 5 * 60_000,
+  });
+
+  const authorSuggestions = useMemo(() => {
+    const all = authorsQuery.data || [];
+    const typed = draft.author.trim().toLowerCase();
+    // Before anything is typed this is a browsable list of who is on the
+    // shelf; after, it narrows. Either way it is capped — a scrolling column
+    // of two hundred names under a text field is not a suggestion.
+    const matches = typed ? all.filter((a) => a.toLowerCase().includes(typed)) : all;
+    // An exact hit is not a suggestion: offering the reader the thing they
+    // have already finished typing is a row that can only be a no-op.
+    const useful = matches.filter((a) => a.toLowerCase() !== typed);
+    return useful.slice(0, 8);
+  }, [authorsQuery.data, draft.author]);
 
   const activeCount = activeFilterCount(draft);
 
@@ -146,7 +178,31 @@ export default function BooksFilter() {
             onChange={(e) => set({ author: e.target.value })}
             placeholder={t.filterAuthorPlaceholder}
             className="input"
+            autoComplete="off"
           />
+
+          {authorSuggestions.length ? (
+            <>
+              <p className="text-[12px] text-ink-400 mt-2.5 mb-1.5">{t.authorSuggestionsHint}</p>
+              {/* Chips rather than a dropdown over the field. A floating list
+                  would cover the two sliders below it on a phone, and this
+                  field is not a search box that has to stay put — tapping a
+                  name fills the field and the list narrows to nothing, which
+                  is the same gesture a dropdown gives without the overlay. */}
+              <div className="flex flex-wrap gap-2">
+                {authorSuggestions.map((author) => (
+                  <button
+                    key={author}
+                    type="button"
+                    onClick={() => set({ author })}
+                    className="px-3 py-1.5 rounded-full text-[13px] bg-ink-100 text-ink-700 max-w-full truncate"
+                  >
+                    {author}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
         </Section>
 
         <RangeSlider

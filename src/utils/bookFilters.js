@@ -43,6 +43,30 @@ export { PAGES_MAX, PAGE_STEP };
  */
 export const LANGUAGE_UNSET = "none";
 
+/**
+ * The orders the shelf can be read in.
+ *
+ * `dir` is the direction that option opens on, and it is a per-option default
+ * rather than one global one because the useful end differs: the highest rating
+ * and the newest year are what people look for, while A comes before B and a
+ * short book is the one somebody with an evening free is after.
+ *
+ * `shelf` is the app's own order — pages in the order Firestore returns them,
+ * shuffled per page — and it is deliberately first and default. Every other
+ * option here costs a full scan (see sortNeedsFullScan), so the order that
+ * costs nothing is the one the screen opens on.
+ */
+export const SORTS = Object.freeze([
+  { value: "shelf",  dir: "desc", labelKey: "sortShelf" },
+  { value: "rating", dir: "desc", labelKey: "sortRating" },
+  { value: "reads",  dir: "desc", labelKey: "sortReads" },
+  { value: "year",   dir: "desc", labelKey: "sortYear" },
+  { value: "pages",  dir: "asc",  labelKey: "sortPages" },
+  { value: "letter", dir: "asc",  labelKey: "sortLetter" },
+]);
+
+export const DEFAULT_SORT = Object.freeze({ by: "shelf", dir: "desc" });
+
 export const EMPTY_FILTERS = Object.freeze({
   status: null,
   genres: [],
@@ -50,6 +74,7 @@ export const EMPTY_FILTERS = Object.freeze({
   author: "",
   pages: [PAGES_MIN, PAGES_MAX],
   years: [YEAR_MIN, YEAR_MAX],
+  sort: DEFAULT_SORT,
 });
 
 const STATUSES = ["available", "soon", "unavailable"];
@@ -85,7 +110,16 @@ export function readFilters(params) {
     author: (params.get("author") || "").trim(),
     pages: readRange(params, "pages", PAGES_MIN, PAGES_MAX),
     years: readRange(params, "years", YEAR_MIN, YEAR_MAX),
+    sort: readSort(params),
   };
+}
+
+function readSort(params) {
+  const by = params.get("sort");
+  const option = SORTS.find((s) => s.value === by);
+  if (!option) return DEFAULT_SORT;
+  const dir = params.get("dir");
+  return { by: option.value, dir: dir === "asc" || dir === "desc" ? dir : option.dir };
 }
 
 /**
@@ -105,7 +139,107 @@ export function writeFilters(filters) {
   if (filters.years[0] > YEAR_MIN || filters.years[1] < YEAR_MAX) {
     params.set("years", `${filters.years[0]}-${filters.years[1]}`);
   }
+  // The default order writes nothing, so an unsorted, unfiltered shelf is a
+  // bare `/books` — and a link that carries a sort carries its direction with
+  // it, even when that direction is the option's own default, so following the
+  // link cannot land on a different order than the one that was shared.
+  const sort = filters.sort || DEFAULT_SORT;
+  if (sort.by && sort.by !== DEFAULT_SORT.by) {
+    params.set("sort", sort.by);
+    params.set("dir", sort.dir);
+  }
   return params;
+}
+
+/** True when the order is anything other than the shelf's own. */
+export function isSorted(filters) {
+  return (filters.sort?.by || DEFAULT_SORT.by) !== DEFAULT_SORT.by;
+}
+
+/**
+ * Sorting needs every book, not the page that happens to be loaded.
+ *
+ * This is the honest cost of ordering on the client. "The highest rated books"
+ * computed over the first twenty-five rows is not a wrong order, it is an
+ * answer to a different question — and the reader has no way to tell, because
+ * a sorted list of the wrong books looks exactly like a sorted list of the
+ * right ones. So Books scans the shelf to the end before it shows an order.
+ */
+export function sortNeedsFullScan(filters) {
+  return isSorted(filters);
+}
+
+/** Nulls last in every order, so "unknown" never wins a "highest" question. */
+function compareBy(field, a, b) {
+  const av = a[field];
+  const bv = b[field];
+  const aMissing = av == null || av === "" || Number.isNaN(av);
+  const bMissing = bv == null || bv === "" || Number.isNaN(bv);
+  if (aMissing && bMissing) return 0;
+  if (aMissing) return 1;
+  if (bMissing) return -1;
+  return 0;
+}
+
+const NUMERIC = {
+  rating: (b) => (Number(b.ratingCount) > 0 ? Number(b.ratingSum) / Number(b.ratingCount) : null),
+  reads: (b) => Math.trunc(Number(b.readCount) || 0),
+  year: (b) => (Number(b.year) > 0 ? Number(b.year) : null),
+  pages: (b) => (Number(b.pages) > 0 ? Number(b.pages) : null),
+};
+
+/**
+ * The shelf in the requested order.
+ *
+ * Returns a new array — the caller's list is memoised from the query cache and
+ * sorting it in place would reorder the cache itself, which shows up as the
+ * rail above the list quietly changing order too.
+ *
+ * Titles are compared with `localeCompare` and the reader's own locale, because
+ * "letter" is not one alphabet: Ә sorts after А in Kazakh and nowhere at all in
+ * a codepoint comparison, which would file every Kazakh title starting with a
+ * non-ASCII letter after every Latin one.
+ *
+ * `lang` is the app's own language code, and the mapping below is why this
+ * takes it rather than a locale. The app spells Kazakh "kz"; the language tag
+ * for Kazakh is "kk". "kz" is *structurally* valid, so Intl does not complain —
+ * it quietly resolves to the default locale and sorts Kazakh titles with
+ * English rules. A silent wrong answer, which is the kind worth converting into
+ * a table.
+ */
+const COLLATION_LOCALES = { kz: "kk", ru: "ru", en: "en" };
+
+export function sortBooks(books, sort, lang) {
+  const locale = COLLATION_LOCALES[lang] || "en";
+  const by = sort?.by || DEFAULT_SORT.by;
+  if (by === DEFAULT_SORT.by) return books;
+  const sign = sort?.dir === "asc" ? 1 : -1;
+
+  const sorted = [...books];
+
+  if (by === "letter") {
+    sorted.sort((a, b) => {
+      const missing = compareBy("name", a, b);
+      if (missing) return missing;
+      return sign * String(a.name).localeCompare(String(b.name), locale, { sensitivity: "base" });
+    });
+    return sorted;
+  }
+
+  const read = NUMERIC[by];
+  if (!read) return books;
+
+  sorted.sort((a, b) => {
+    const av = read(a);
+    const bv = read(b);
+    if (av == null && bv == null) return 0;
+    // Missing values sink regardless of direction: a book with no year is not
+    // the oldest book, it is a book whose year nobody wrote down.
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return sign * (av - bv);
+  });
+  return sorted;
 }
 
 /** How many of the six are narrowing anything — the number on the filter dot. */

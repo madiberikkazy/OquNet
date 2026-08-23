@@ -896,6 +896,22 @@ const kz = {
   filterScanning: "Сөреде іздеу жүріп жатыр…",
   filterLanguageUnset: "Тілі көрсетілмеген",
 
+  // ── Sorting the shelf ──
+  sortTitle: "Сұрыптау",
+  sortShelf: "Сөредегідей",
+  sortRating: "Рейтинг",
+  sortReads: "Оқылған саны",
+  sortYear: "Шыққан жылы",
+  sortPages: "Бет саны",
+  sortLetter: "Әліпби бойынша",
+  sortAscending: "Өсу реті",
+  sortDescending: "Кему реті",
+  sortScanning: "Сөре сұрыпталуда…",
+  sortDirection: "Реті",
+  authorSuggestionsHint: "Сөредегі авторлар",
+
+  filterKeepSearching: "Сөренің қалғанынан іздеу",
+
 };
 
 const ru = {
@@ -1773,6 +1789,22 @@ const ru = {
   filterScanning: "Идёт поиск по полке…",
   filterLanguageUnset: "Язык не указан",
 
+  // ── Sorting the shelf ──
+  sortTitle: "Сортировка",
+  sortShelf: "Как на полке",
+  sortRating: "Рейтинг",
+  sortReads: "Сколько раз прочитана",
+  sortYear: "Год издания",
+  sortPages: "Страницы",
+  sortLetter: "По алфавиту",
+  sortAscending: "По возрастанию",
+  sortDescending: "По убыванию",
+  sortScanning: "Сортируем полку…",
+  sortDirection: "Порядок",
+  authorSuggestionsHint: "Авторы на полке",
+
+  filterKeepSearching: "Искать дальше по полке",
+
 };
 
 const en = {
@@ -2646,6 +2678,22 @@ const en = {
   filterNoMatchesHint: "Try removing some of the filters.",
   filterScanning: "Searching the shelf…",
   filterLanguageUnset: "Language not set",
+
+  // ── Sorting the shelf ──
+  sortTitle: "Sort",
+  sortShelf: "Shelf order",
+  sortRating: "Rating",
+  sortReads: "Times read",
+  sortYear: "Year",
+  sortPages: "Pages",
+  sortLetter: "A–Z",
+  sortAscending: "Ascending",
+  sortDescending: "Descending",
+  sortScanning: "Sorting the shelf…",
+  sortDirection: "Direction",
+  authorSuggestionsHint: "Authors on the shelf",
+
+  filterKeepSearching: "Keep searching the shelf",
 
 };
 
