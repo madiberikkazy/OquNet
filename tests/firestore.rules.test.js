@@ -2768,3 +2768,153 @@ describe("collections with no rule at all", () => {
     await assertFails(setDoc(doc(as(ADMIN_A), "secrets", "anything"), { x: 1 }));
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Community invitations.
+//
+// An invitation is an admin's approval written before the member has asked for
+// anything, so it opens the same door an approved join opens. That makes it the
+// one document in this database that a *stranger's* membership depends on, and
+// the tests below are the four ways that could go wrong: somebody who is not an
+// admin writing one, an admin writing one for themselves, somebody spending an
+// invitation addressed to another person, and an invitation being spent twice.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("community invitations", () => {
+  const INVITE = "invite-1";
+
+  /** An invitation from C1's admin to a user with no community. */
+  const inviteDoc = (userId = DRIFTER, over = {}) => ({
+    type: "invite", status: "approved",
+    userId, invitedBy: ADMIN_A, communityId: C1,
+    communityName: "One", invitedByName: "Admin A",
+    createdAt: serverTimestamp(),
+    ...over,
+  });
+
+  async function seedInvite(over = {}) {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "requests", INVITE), {
+        ...inviteDoc(DRIFTER, over), createdAt: Date.now(),
+      });
+    });
+  }
+
+  describe("writing one", () => {
+    it("the community's admin MAY invite somebody", async () => {
+      await assertSucceeds(setDoc(doc(as(ADMIN_A), "requests", INVITE), inviteDoc()));
+    });
+
+    it("a plain member of that community may NOT", async () => {
+      await assertFails(setDoc(doc(as(MEMBER_A), "requests", INVITE), inviteDoc()));
+    });
+
+    it("another community's admin may NOT invite into this one", async () => {
+      await assertFails(setDoc(doc(as(ADMIN_B), "requests", INVITE), inviteDoc()));
+    });
+
+    it("an admin may NOT invite themselves", async () => {
+      // Otherwise an admin could mint a membership write naming any community
+      // they happen to administer — the one case where the invitee and the
+      // authority are the same person.
+      await assertFails(setDoc(doc(as(ADMIN_A), "requests", INVITE),
+        inviteDoc(ADMIN_A, { invitedBy: ADMIN_A })));
+    });
+
+    it("an invitation may not be written already spent, or as some other verdict", async () => {
+      // `approved` is the only status an invitation is allowed to be born in:
+      // it is the admin's decision, and there is no other decision to record.
+      await assertFails(setDoc(doc(as(ADMIN_A), "requests", INVITE),
+        inviteDoc(DRIFTER, { status: "pending" })));
+      await assertFails(setDoc(doc(as(ADMIN_A), "requests", INVITE),
+        inviteDoc(DRIFTER, { status: "rejected" })));
+    });
+  });
+
+  describe("spending one", () => {
+    it("the invited person MAY join the community it names", async () => {
+      await seedInvite();
+      await assertSucceeds(updateDoc(doc(as(DRIFTER), "users", DRIFTER), {
+        communityId: C1, joinRequestId: INVITE,
+      }));
+    });
+
+    it("...and may then mark it spent", async () => {
+      await seedInvite();
+      await assertSucceeds(updateDoc(doc(as(DRIFTER), "requests", INVITE), {
+        status: "accepted",
+      }));
+    });
+
+    it("somebody else may NOT spend it", async () => {
+      // The invitation names DRIFTER. MEMBER_B knowing its id is not enough —
+      // which is the property that lets the id travel through a chat message.
+      await seedInvite();
+      await assertFails(updateDoc(doc(as(MEMBER_B), "users", MEMBER_B), {
+        communityId: C1, joinRequestId: INVITE,
+      }));
+    });
+
+    it("a spent invitation no longer opens the door", async () => {
+      await seedInvite({ status: "accepted" });
+      await assertFails(updateDoc(doc(as(DRIFTER), "users", DRIFTER), {
+        communityId: C1, joinRequestId: INVITE,
+      }));
+    });
+
+    it("it does not open a community other than the one it names", async () => {
+      await seedInvite();
+      await assertFails(updateDoc(doc(as(DRIFTER), "users", DRIFTER), {
+        communityId: C2, joinRequestId: INVITE,
+      }));
+    });
+
+    it("the invitee may not re-stamp it as a verdict", async () => {
+      // `decidesOwnRequest` still holds: the subject of a request never writes
+      // approved/rejected on it, invitation or not.
+      await seedInvite({ status: "declined" });
+      await assertFails(updateDoc(doc(as(DRIFTER), "requests", INVITE), {
+        status: "approved",
+      }));
+    });
+  });
+
+  describe("the message that carries it", () => {
+    // ADMIN_A and DRIFTER — the admin inviting somebody outside the community.
+    const PAIR = [ADMIN_A, DRIFTER].sort();
+    const CHAT = `${PAIR[0]}__${PAIR[1]}`;
+    const card = (sender, over = {}) => ({
+      senderId: sender, text: "Join us", createdAt: serverTimestamp(),
+      inviteId: INVITE, communityId: C1, ...over,
+    });
+
+    it("the community's admin MAY attach an invitation to a message", async () => {
+      await assertSucceeds(setDoc(doc(as(ADMIN_A), "chats", CHAT, "messages", "m1"), card(ADMIN_A)));
+    });
+
+    it("nobody else may make a message look like one", async () => {
+      // The card is the point: an ordinary member could otherwise send a
+      // stranger something indistinguishable from an admin's invitation, and
+      // the only way to find out would be to tap it.
+      await assertFails(setDoc(doc(as(DRIFTER), "chats", CHAT, "messages", "m2"), card(DRIFTER)));
+    });
+
+    it("half an invitation is not a message", async () => {
+      const path = doc(as(ADMIN_A), "chats", CHAT, "messages", "m3");
+      // An id with no community to check it against...
+      await assertFails(setDoc(path, {
+        senderId: ADMIN_A, text: "Join us", createdAt: serverTimestamp(), inviteId: INVITE,
+      }));
+      // ...and a community with no invitation in it.
+      await assertFails(setDoc(path, {
+        senderId: ADMIN_A, text: "Join us", createdAt: serverTimestamp(), communityId: C1,
+      }));
+    });
+
+    it("an ordinary message still needs neither field", async () => {
+      await assertSucceeds(setDoc(doc(as(ADMIN_A), "chats", CHAT, "messages", "m4"), {
+        senderId: ADMIN_A, text: "hello", createdAt: serverTimestamp(),
+      }));
+    });
+  });
+});

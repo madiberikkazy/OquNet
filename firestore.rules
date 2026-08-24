@@ -76,11 +76,24 @@ service cloud.firestore {
     // member's own membership, and the book they promised in the application.
     // Both are writes the applicant makes for themselves, and the request is the
     // only thing that says an admin agreed to either.
+    // Two documents open the same door, and they are the same door on purpose.
+    //
+    // A join is a member applying and an admin approving. An invitation is the
+    // admin approving first — so by the time the invitee acts there is nothing
+    // left to decide, which is why it is written `approved` at birth and why it
+    // belongs here rather than in a second membership rule. Everything that
+    // matters is identical either way: the request names *this* caller, names
+    // this community, and carries an admin's decision.
+    //
+    // The invitation's own create rule is what makes that decision real — only
+    // an admin of the community can write one — so this does not have to
+    // re-check who invited whom.
     function approvedJoinFor(requestId, cid) {
       return exists(/databases/$(database)/documents/requests/$(requestId))
         && joinRequestOf(requestId).userId == uid()
         && joinRequestOf(requestId).communityId == cid
-        && joinRequestOf(requestId).type == 'join'
+        && (joinRequestOf(requestId).type == 'join'
+            || joinRequestOf(requestId).type == 'invite')
         && joinRequestOf(requestId).status == 'approved';
     }
     function joinRequestOf(requestId) {
@@ -693,9 +706,18 @@ service cloud.firestore {
         || resource.data.requesterId == uid()
       );
 
+      // An invitation is the one request born decided, so it is checked before
+      // the `pending` gate the other four share rather than inside it.
       allow create: if signedIn()
-        && request.resource.data.status == 'pending'
         && (
+             (request.resource.data.type == 'invite'
+              && request.resource.data.status == 'approved'
+              && isAdminOf(request.resource.data.communityId)
+              // Naming somebody else is the whole point, and inviting yourself
+              // would be an admin minting their own membership write.
+              && request.resource.data.userId is string
+              && request.resource.data.userId != uid())
+          || (request.resource.data.status == 'pending' && (
              (request.resource.data.type == 'pickup'
               && request.resource.data.requesterId == uid()
               && request.resource.data.bookId is string)
@@ -737,6 +759,7 @@ service cloud.firestore {
                || request.resource.data.type == 'leave')
               && request.resource.data.userId == uid()
               && request.resource.data.communityId is string)
+        ))
         );
 
       // The subject cancels or drives their own request; the community admin
@@ -1173,12 +1196,32 @@ service cloud.firestore {
       allow get, list: if inChatId(chatId);
 
       allow create: if inChatId(chatId)
-        && request.resource.data.keys().hasOnly(['senderId', 'text', 'createdAt'])
+        && request.resource.data.keys().hasOnly(
+             ['senderId', 'text', 'createdAt', 'inviteId', 'communityId'])
         && request.resource.data.senderId == uid()
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0
         && request.resource.data.text.size() <= 2000
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && invitationIsGenuine();
+
+      // The two invitation fields are what turn a bubble into a card with a
+      // join button on it, so only the one person whose invitation it could be
+      // may attach them: the admin of the community being offered.
+      //
+      // This does not check that the invitation names the recipient, and does
+      // not need to — accepting it goes through `approvedJoinFor`, which reads
+      // the request itself and requires it to name the caller. What this stops
+      // is the *card*: without it any member could send a stranger a message
+      // that looks exactly like an invitation from an admin, and finding out
+      // otherwise would mean tapping it.
+      function invitationIsGenuine() {
+        return !('inviteId' in request.resource.data)
+          ? !('communityId' in request.resource.data)
+          : (request.resource.data.inviteId is string
+             && request.resource.data.communityId is string
+             && isAdminOf(request.resource.data.communityId));
+      }
 
       // Said is said. A message cannot be edited into something the other
       // person never received, and cannot be taken back after they have read

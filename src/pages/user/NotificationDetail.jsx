@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import BookFields from "../../components/BookFields.jsx";
 import CoverPicker from "../../components/CoverPicker.jsx";
@@ -335,6 +335,7 @@ export default function NotificationDetail() {
   const date = formatDateTime(notification.createdAt);
 
   const isJoinApproved  = notification.type === "join-approved";
+  const isInvite        = notification.type === "community-invite";
   const isJoinRequestSent = notification.type === "join-request-sent";
   const isPending  = notification.confirmed === "pending";
   const isAccepted = notification.confirmed === "accepted";
@@ -557,6 +558,18 @@ export default function NotificationDetail() {
               </button>
             )}
           </div>
+        ) : null}
+
+        {/* ── An admin's invitation ──
+            No accept button here. The decision needs the community's name, who
+            sent it, and — for somebody already in a community — what leaving
+            costs, and all three live on the invitation screen. Two places that
+            can both accept is two places that have to agree about when they
+            may. */}
+        {isInvite && notification.requestId ? (
+          <Link to={`/community/invite/${notification.requestId}`} className="btn-primary block text-center">
+            {t.inviteCardOpen}
+          </Link>
         ) : null}
 
         {/* ── Join-approved: book info + Yes/No buttons ── */}

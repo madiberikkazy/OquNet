@@ -4,9 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import Avatar from "../../components/Avatar.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useChats } from "../../contexts/ChatContext.jsx";
+import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  chatIdFor, getUserById, isOnline, lastSeenAt, markChatRead, messageStatus,
-  needsReadReceipt, PRESENCE_HEARTBEAT_MS, sendMessage, unreadFor, watchMessages,
+  chatIdFor, createCommunityInvite, createNotification, getUserById, isOnline,
+  lastSeenAt, markChatRead, messageStatus, needsReadReceipt,
+  PRESENCE_HEARTBEAT_MS, sendMessage, unreadFor, watchMessages,
 } from "../../firebase/firestore.js";
 import MessageTicks from "../../components/MessageTicks.jsx";
 import { qk } from "../../lib/queryKeys.js";
@@ -38,6 +40,7 @@ export default function Chat() {
   const { userId: peerId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { community } = useCommunity();
   const { chats } = useChats();
 
   const selfId = user?.id ?? null;
@@ -158,6 +161,71 @@ export default function Chat() {
   const blockedReason = selfChat ? t.chatSelfError : peerMissing ? t.chatPeerGone : "";
   const canSend = !!chatId && !blockedReason && draft.trim().length > 0 && !sending;
 
+  const [inviting, setInviting] = useState(false);
+
+  /**
+   * Whether this chat can carry an invitation.
+   *
+   * Three conditions, and the third is the one worth naming: the person has to
+   * not already be here. An invitation to a community somebody is standing in
+   * is a button that can only fail, and it would fail at the far end — on their
+   * screen, days later — rather than on the admin's.
+   */
+  // `ownerId`, not the profile's `role` flag. The rules authorise the write
+  // from the community document — an admin is whoever the community says owns
+  // it — so a button gated on anything else is a button that can be visible
+  // and refused.
+  const canInvite =
+    !!community?.id &&
+    community.ownerId === user?.id &&
+    !!peer &&
+    peer.communityId !== community.id;
+
+  async function sendInvite() {
+    if (!canInvite || inviting) return;
+    setInviting(true);
+    setError("");
+    try {
+      const adminName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.nickname;
+      const invite = await createCommunityInvite({
+        userId: peerId,
+        invitedBy: user.id,
+        communityId: community.id,
+        communityName: community.name,
+        invitedByName: adminName,
+      });
+
+      // The invitation travels as an ordinary message with two ids attached —
+      // so it lands in the thread, bumps the unread count and shows in the
+      // chats list exactly like anything else said here. The text matters: it
+      // is what every reader that does not know about invitations shows.
+      await sendMessage({
+        senderId: user.id,
+        recipientId: peerId,
+        text: t.inviteMessageText(community.name),
+        invite: { inviteId: invite.id, communityId: community.id },
+      });
+
+      // And a notification, because a chat is somewhere people look when they
+      // are already looking. An invitation that expires unseen because nobody
+      // opened the thread is the failure this costs one write to avoid.
+      await createNotification({
+        recipientId: peerId,
+        title: t.inviteNotifTitle,
+        body: t.inviteNotifBody(adminName, community.name),
+        read: false,
+        type: "community-invite",
+        communityId: community.id,
+        requestId: invite.id,
+      }).catch((err) => logger.warn("chat.invite.notify", err?.message));
+    } catch (err) {
+      logger.error("chat.invite", err?.message, { code: err?.code });
+      setError(t.saveFailed);
+    } finally {
+      setInviting(false);
+    }
+  }
+
   async function send(e) {
     e?.preventDefault?.();
     if (!canSend) return;
@@ -236,6 +304,22 @@ export default function Chat() {
               <PeerPresence peer={peer} />
             </span>
           </Link>
+
+          {canInvite ? (
+            <button
+              onClick={sendInvite}
+              disabled={inviting}
+              aria-label={t.inviteToCommunity}
+              title={t.inviteToCommunity}
+              className="icon-btn shrink-0 disabled:opacity-50"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <circle cx="9" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.7" />
+                <path d="M3.5 20c0-3 2.5-5.4 5.5-5.4s5.5 2.4 5.5 5.4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                <path d="M18 8.5v5M15.5 11h5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+              </svg>
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -280,6 +364,7 @@ export default function Chat() {
                           }
                         >
                           {m.text}
+                          {m.inviteId ? <InviteCard message={m} mine={mine} /> : null}
                           {/* The clock rides inside the bubble, dimmed against
                               its own background, so a column of messages stays
                               a column of messages. */}
@@ -376,6 +461,37 @@ function groupByDay(messages) {
  * Silent for a profile that has never reported — an account that predates
  * presence should say nothing rather than "last seen 1 January 1970".
  */
+/**
+ * The invitation, inside the bubble that carries it.
+ *
+ * Deliberately not a link styled to look like one: this is a button-shaped
+ * thing that opens a screen, and a chat is full of text people tap by accident.
+ * The admin sees it too — greyed into their own bubble — because a message you
+ * sent should look like the thing the other person received.
+ */
+function InviteCard({ message, mine }) {
+  return (
+    <Link
+      to={`/community/invite/${message.inviteId}`}
+      onClick={(e) => { if (mine) e.preventDefault(); }}
+      aria-disabled={mine}
+      className={
+        "mt-2 flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold transition " +
+        (mine
+          ? "bg-white/15 text-white/80 cursor-default"
+          : "bg-brand-500 text-white active:opacity-85")
+      }
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="shrink-0">
+        <path d="M4 6.5h16v11H4z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="m4 7 8 5.5L20 7" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      </svg>
+      <span className="flex-1 truncate">{t.inviteCardTitle}</span>
+      {mine ? null : <span className="shrink-0 opacity-90">{t.inviteCardOpen} ›</span>}
+    </Link>
+  );
+}
+
 function PeerPresence({ peer }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

@@ -694,6 +694,51 @@ export function normalizeJoinRequest(payload) {
   };
 }
 
+/**
+ * An invitation: the admin's half of a join, written before the member has
+ * asked for anything.
+ *
+ * Stored as a request of its own type rather than as a join, and born
+ * `approved` rather than `pending`, because those two facts *are* the
+ * invitation. A join is a member applying and an admin deciding; an invite is
+ * the admin deciding first, so there is nothing left to decide and no pending
+ * state that would mean anything. The membership rules accept it exactly where
+ * they accept an approved join (`approvedJoinFor`), which is what makes the
+ * whole feature four lines of rules rather than a second way into a community.
+ *
+ * No book. A normal join costs one — the entry fee the community runs on — but
+ * that fee exists so an admin can weigh what an unknown applicant brings, and
+ * an admin who is doing the inviting has already decided. Requiring one anyway
+ * would mean an invitation the invitee cannot accept until they have filled in
+ * a book form, which is not an invitation.
+ *
+ * `invitedBy` is recorded and never read by a rule: the rules authorise from
+ * `isAdminOf` at write time, which is the fact that matters and the only one
+ * they can check. It is here so the invitee can be told who asked them, and so
+ * an admin handover leaves a trail.
+ */
+export function normalizeCommunityInvite(payload) {
+  requirePayload("requests", payload);
+
+  const userId = requiredId("requests", "userId", payload.userId);
+  const invitedBy = requiredId("requests", "invitedBy", payload.invitedBy);
+  if (userId === invitedBy) {
+    throw new SchemaError("requests: an admin cannot invite themselves", {
+      collection: "requests", field: "userId",
+    });
+  }
+
+  return {
+    type: "invite",
+    status: "approved",
+    userId,
+    invitedBy,
+    communityId: requiredId("requests", "communityId", payload.communityId),
+    communityName: str(payload.communityName),
+    invitedByName: str(payload.invitedByName),
+  };
+}
+
 // ---------- return requests ----------
 //
 // The mirror image of a pickup: a pickup is a reader asking for somebody else's
@@ -1038,11 +1083,27 @@ export function normalizeNewChat({ senderId, recipientId } = {}) {
  * is a mis-tap, and the composer refuses to send one for the same reason the
  * rules do.
  */
-export function normalizeNewMessage({ senderId, text } = {}) {
-  return assertRequired("messages", {
+export function normalizeNewMessage({ senderId, text, invite } = {}) {
+  const message = {
     senderId: requiredId("messages", "senderId", senderId),
     text: requiredText("messages", "text", text, LIMITS.MESSAGE_MAX, "chatEmptyMessage"),
-  }, messageSchema.required);
+  };
+
+  // An invitation rides on a message rather than replacing it, so a chat is
+  // still a list of messages and every existing reader of one — the preview on
+  // the chats list, the unread counter, the receipts — keeps working without
+  // knowing this exists. The text is what those readers show; the two ids are
+  // what turns the bubble into a card for the one screen that looks.
+  //
+  // Absent entirely on an ordinary message rather than present and null: the
+  // security rules check the keys, and a field that is always there would have
+  // to be allowed on every message anybody sends.
+  if (invite) {
+    message.inviteId = requiredId("messages", "inviteId", invite.inviteId);
+    message.communityId = requiredId("messages", "communityId", invite.communityId);
+  }
+
+  return assertRequired("messages", message, messageSchema.required);
 }
 
 // ---------- receipts ----------

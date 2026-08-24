@@ -17,6 +17,7 @@ import {
   chatIdFor, chatMemberIds, chatPreviewOf, chatWatermark,
   normalizeNewBook, normalizeBookPatch, normalizeBookOwner, normalizeNewBorrowing,
   normalizeNewChat, normalizeNewMessage, normalizeNewFollow, followIdFor,
+  normalizeCommunityInvite,
   normalizeNewCommunity, normalizeCommunityPatch, normalizeNewPost, normalizePostPatch,
   normalizeNewComment,
   normalizeJoinRequest, normalizeReturnRequest, newPickupCode,
@@ -1790,12 +1791,12 @@ export async function listMessages(chatId, pageSize = MESSAGE_PAGE_MAX) {
  *
  * @returns the stored message, with the id of the chat it landed in.
  */
-export async function sendMessage({ senderId, recipientId, text } = {}) {
+export async function sendMessage({ senderId, recipientId, text, invite } = {}) {
   // Throws for a missing id, a self-chat, or an empty message — all of them
   // before anything is written, and all of them the same refusals the rules make.
   const chatId = chatIdFor(senderId, recipientId);
   const memberIds = chatMemberIds(senderId, recipientId);
-  const message = normalizeNewMessage({ senderId, text });
+  const message = normalizeNewMessage({ senderId, text, invite });
   const preview = chatPreviewOf({ senderId, text: message.text });
 
   return runFs("sendMessage", async () => {
@@ -2040,6 +2041,44 @@ export async function listJoinRequests(communityId) {
 }
 export async function updateJoinRequest(id, patch) { return updateOne("requests", id, patch); }
 export async function cancelJoinRequest(id) { return updateOne("requests", id, { status: "cancelled" }); }
+
+// ---------- Community invitations ----------
+//
+// An admin's invitation is an approved join written ahead of time — see
+// normalizeCommunityInvite. There are three moments and each is one write:
+// the admin makes it, the invitee spends it, and spending it marks it used.
+
+export async function createCommunityInvite(payload) {
+  return createOne("requests", normalizeCommunityInvite(payload));
+}
+
+/**
+ * Accept one. Membership first, then the invitation is stamped used.
+ *
+ * The order is not a preference. The membership write is authorised *by* the
+ * invitation still reading `approved` (see `approvedJoinFor` in the rules), so
+ * stamping it first would revoke the permission the next line needs. It also
+ * means the failure mode is the harmless one: if the second write is lost the
+ * invitee is in the community and the invitation is still live, which at worst
+ * lets them rejoin the community they are already in.
+ */
+export async function acceptCommunityInvite({ userId, requestId, communityId } = {}) {
+  if (!userId) throw new Error("acceptCommunityInvite: missing userId");
+  if (!requestId) throw new Error("acceptCommunityInvite: missing requestId");
+  if (!communityId) throw new Error("acceptCommunityInvite: missing communityId");
+
+  await updateUser(userId, { communityId, joinRequestId: requestId });
+  // `accepted`, not `approved` — the subject may not write a verdict on their
+  // own request, and this is not one: the verdict was the admin's and is
+  // already on the document. This says the invitation has been spent, which is
+  // what stops a second tap from being a second join.
+  await updateOne("requests", requestId, { status: "accepted" });
+}
+
+export async function declineCommunityInvite(requestId) {
+  if (!requestId) throw new Error("declineCommunityInvite: missing requestId");
+  return updateOne("requests", requestId, { status: "declined" });
+}
 
 // ---------- Leave requests ----------
 export async function createLeaveRequest(payload) {

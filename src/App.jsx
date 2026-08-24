@@ -66,6 +66,7 @@ const EditBook           = lazyRoute(() => import("./pages/admin/EditBook.jsx"))
 
 const CreateCommunity    = lazyRoute(() => import("./pages/community/CreateCommunity.jsx"));
 const JoinCommunity      = lazyRoute(() => import("./pages/community/JoinCommunity.jsx"));
+const CommunityInvite    = lazyRoute(() => import("./pages/community/CommunityInvite.jsx"));
 const CommunityProfile   = lazyRoute(() => import("./pages/community/CommunityProfile.jsx"));
 const EditCommunity      = lazyRoute(() => import("./pages/community/EditCommunity.jsx"));
 const LeaveCommunity     = lazyRoute(() => import("./pages/community/LeaveCommunity.jsx"));
@@ -196,6 +197,8 @@ export default function App() {
 
             <Route path="/community/create" element={<CreateCommunity />} />
             <Route path="/community/join" element={<JoinCommunity />} />
+            {/* Before "/community/:id" so "invite" is not read as a community id. */}
+            <Route path="/community/invite/:requestId" element={<CommunityInvite />} />
             <Route path="/community/:id" element={<CommunityProfile />} />
             {/* Owner-only in practice — the screen bounces anyone else. */}
             <Route path="/community/:id/edit" element={<EditCommunity />} />

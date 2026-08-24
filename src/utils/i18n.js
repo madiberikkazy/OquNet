@@ -912,6 +912,28 @@ const kz = {
 
   filterKeepSearching: "Сөренің қалғанынан іздеу",
 
+  // ── An admin's invitation, sent through a chat ──
+  inviteToCommunity: "Қоғамдастыққа шақыру",
+  inviteSendAction: "Шақыру жіберу",
+  inviteMessageText: (c) => `Сізді «${c}» қоғамдастығына шақырамын.`,
+  inviteCardTitle: "Қоғамдастыққа шақыру",
+  inviteCardOpen: "Ашу",
+  inviteScreenTitle: "Шақыру",
+  inviteFrom: (name) => `${name} сізді шақырады`,
+  inviteAcceptAction: "Қоғамдастыққа кіру",
+  inviteDeclineAction: "Бас тарту",
+  inviteAccepted: "Сіз қоғамдастыққа кірдіңіз.",
+  inviteDeclined: "Шақырудан бас тарттыңыз.",
+  inviteSpent: "Бұл шақыру бұрын пайдаланылған.",
+  inviteNotForYou: "Бұл шақыру сізге арналмаған.",
+  inviteNotFound: "Шақыру табылмады.",
+  inviteAlreadyMember: "Сіз бұл қоғамдастықтың мүшесісіз.",
+  inviteLeaveWarning: (c) => `Қабылдасаңыз, «${c}» қоғамдастығынан шығасыз.`,
+  inviteSent: "Шақыру жіберілді",
+  inviteAlreadyInThis: "Бұл адам қазірдің өзінде сіздің қоғамдастықта.",
+  inviteNotifTitle: "Қоғамдастыққа шақыру",
+  inviteNotifBody: (name, c) => `${name} сізді «${c}» қоғамдастығына шақырады.`,
+
 };
 
 const ru = {
@@ -1805,6 +1827,28 @@ const ru = {
 
   filterKeepSearching: "Искать дальше по полке",
 
+  // ── An admin's invitation, sent through a chat ──
+  inviteToCommunity: "Пригласить в сообщество",
+  inviteSendAction: "Отправить приглашение",
+  inviteMessageText: (c) => `Приглашаю вас в сообщество «${c}».`,
+  inviteCardTitle: "Приглашение в сообщество",
+  inviteCardOpen: "Открыть",
+  inviteScreenTitle: "Приглашение",
+  inviteFrom: (name) => `${name} приглашает вас`,
+  inviteAcceptAction: "Вступить в сообщество",
+  inviteDeclineAction: "Отклонить",
+  inviteAccepted: "Вы вступили в сообщество.",
+  inviteDeclined: "Вы отклонили приглашение.",
+  inviteSpent: "Это приглашение уже использовано.",
+  inviteNotForYou: "Это приглашение не для вас.",
+  inviteNotFound: "Приглашение не найдено.",
+  inviteAlreadyMember: "Вы уже участник этого сообщества.",
+  inviteLeaveWarning: (c) => `Приняв приглашение, вы покинете «${c}».`,
+  inviteSent: "Приглашение отправлено",
+  inviteAlreadyInThis: "Этот человек уже в вашем сообществе.",
+  inviteNotifTitle: "Приглашение в сообщество",
+  inviteNotifBody: (name, c) => `${name} приглашает вас в сообщество «${c}».`,
+
 };
 
 const en = {
@@ -2694,6 +2738,28 @@ const en = {
   authorSuggestionsHint: "Authors on the shelf",
 
   filterKeepSearching: "Keep searching the shelf",
+
+  // ── An admin's invitation, sent through a chat ──
+  inviteToCommunity: "Invite to the community",
+  inviteSendAction: "Send the invitation",
+  inviteMessageText: (c) => `I am inviting you to join “${c}”.`,
+  inviteCardTitle: "Community invitation",
+  inviteCardOpen: "Open",
+  inviteScreenTitle: "Invitation",
+  inviteFrom: (name) => `${name} is inviting you`,
+  inviteAcceptAction: "Join the community",
+  inviteDeclineAction: "Decline",
+  inviteAccepted: "You have joined the community.",
+  inviteDeclined: "You declined the invitation.",
+  inviteSpent: "This invitation has already been used.",
+  inviteNotForYou: "This invitation is not addressed to you.",
+  inviteNotFound: "Invitation not found.",
+  inviteAlreadyMember: "You are already a member of this community.",
+  inviteLeaveWarning: (c) => `Accepting will take you out of “${c}”.`,
+  inviteSent: "Invitation sent",
+  inviteAlreadyInThis: "This person is already in your community.",
+  inviteNotifTitle: "Community invitation",
+  inviteNotifBody: (name, c) => `${name} is inviting you to join “${c}”.`,
 
 };
 
