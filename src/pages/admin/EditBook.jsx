@@ -6,8 +6,9 @@ import CoverPicker from "../../components/CoverPicker.jsx";
 import { getBook, updateBook, reassignBookOwner, listUsersByCommunity } from "../../firebase/firestore.js";
 import { uploadImage } from "../../firebase/storage.js";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { t, GENRES } from "../../utils/i18n.js";
+import { t, GENRES, BOOK_LANGUAGES } from "../../utils/i18n.js";
 import { PAGE_BANDS, isPageBand, loanDaysForPages, pagesForBook } from "../../utils/bookPages.js";
+import { isBookLanguage } from "../../utils/validators.js";
 
 export default function EditBook() {
   const { id }        = useParams();
@@ -27,7 +28,7 @@ export default function EditBook() {
   const [originalOwnerId, setOriginalOwnerId] = useState("");
 
   const [form, setForm] = useState({
-    name: "", author: "", year: "", pages: "",
+    name: "", author: "", year: "", pages: "", language: "",
     description: "", ownerId: "", coverUrl: "", status: "available", genres: [],
   });
 
@@ -73,6 +74,10 @@ export default function EditBook() {
     }
     if (form.genres.length < 1) { setError(t.addBookErrGenre); return; }
     if (!isPageBand(form.pages)) { setError(t.addBookErrPages); return; }
+    // Books added before this field existed open with it blank, and the schema
+    // refuses a blank — so the edit screen is where that gap gets closed, and
+    // it says so next to the field rather than after a failed round trip.
+    if (!isBookLanguage(form.language)) { setError(t.addBookErrLanguage); return; }
     setSaving(true);
     setError("");
     setSuccess(false);
@@ -189,6 +194,25 @@ export default function EditBook() {
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* The language the book is written in. It sits with the year and the
+              page band because it is the same kind of fact, and it is here at
+              all because the shelf filters on it: a book left blank is one no
+              language filter can reach, including its own. */}
+          <div>
+            <label className="text-[13px] text-ink-500 mb-1 block">{t.bookLanguage}</label>
+            <select
+              value={form.language}
+              onChange={(e) => upd("language", e.target.value)}
+              className="input"
+            >
+              <option value="">—</option>
+              {BOOK_LANGUAGES.map((l) => {
+                const lang = typeof window !== "undefined" ? localStorage.getItem("lang") || "kz" : "kz";
+                return <option key={l.value} value={l.value}>{l[lang] ?? l.kz}</option>;
+              })}
+            </select>
           </div>
 
           {form.pages ? (

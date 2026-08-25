@@ -2918,3 +2918,102 @@ describe("community invitations", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The invitation as the client actually writes it.
+//
+// The suite above checks each document on its own. This one runs the sequence
+// `Chat.sendInvite` performs — the request, then the batch `sendMessage` sends,
+// which is the message *and* the chat document together. Batches are all or
+// nothing, so a rule that refuses either half fails the whole send, and the
+// screen has no way to say which half it was.
+//
+// It exists because the first version of the invite button was gated on the
+// community's `ownerId` while `isAdminOf` reads the caller's own profile —
+// `role` and `communityId`. Those two agree right up until they do not, and
+// when they disagree the button is visible and the write is denied.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("sending an invitation, end to end", () => {
+  const PAIR = [ADMIN_A, DRIFTER].sort();
+  const CHAT = `${PAIR[0]}__${PAIR[1]}`;
+  const INVITE = "invite-flow";
+
+  /** Exactly what firestore.sendMessage commits. */
+  function sendMessageBatch(db, senderId, recipientId) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, "chats", CHAT, "messages", "m-invite"), {
+      senderId, text: "Join us", createdAt: serverTimestamp(),
+      inviteId: INVITE, communityId: C1,
+    });
+    batch.set(doc(db, "chats", CHAT), {
+      memberIds: PAIR,
+      lastMessage: { senderId, text: "Join us", at: serverTimestamp() },
+      updatedAt: serverTimestamp(),
+      unread: { [recipientId]: 1, [senderId]: 0 },
+    }, { merge: true });
+    return batch.commit();
+  }
+
+  it("goes through for an admin, request and message together", async () => {
+    const db = as(ADMIN_A);
+    await assertSucceeds(setDoc(doc(db, "requests", INVITE), {
+      type: "invite", status: "approved",
+      userId: DRIFTER, invitedBy: ADMIN_A, communityId: C1,
+      communityName: "One", invitedByName: "Admin A",
+      createdAt: serverTimestamp(),
+    }));
+    await assertSucceeds(sendMessageBatch(db, ADMIN_A, DRIFTER));
+  });
+
+  it("goes through into a thread that already exists", async () => {
+    // The other half of `sendMessage`: when the chat document is already there
+    // the batch *updates* it, which is a different rule from the create the
+    // test above exercises. An admin who had messaged the person before takes
+    // this path, and it is the likelier one in practice.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "chats", CHAT), {
+        memberIds: PAIR,
+        lastMessage: { senderId: DRIFTER, text: "hi", at: Date.now() },
+        updatedAt: Date.now(),
+        unread: { [ADMIN_A]: 1, [DRIFTER]: 0 },
+      });
+    });
+
+    const db = as(ADMIN_A);
+    await assertSucceeds(setDoc(doc(db, "requests", INVITE), {
+      type: "invite", status: "approved",
+      userId: DRIFTER, invitedBy: ADMIN_A, communityId: C1,
+      createdAt: serverTimestamp(),
+    }));
+    // The counters move the way an update must: the sender's own to zero, the
+    // recipient's one higher than it was.
+    const batch = writeBatch(db);
+    batch.set(doc(db, "chats", CHAT, "messages", "m-invite2"), {
+      senderId: ADMIN_A, text: "Join us", createdAt: serverTimestamp(),
+      inviteId: INVITE, communityId: C1,
+    });
+    batch.set(doc(db, "chats", CHAT), {
+      lastMessage: { senderId: ADMIN_A, text: "Join us", at: serverTimestamp() },
+      updatedAt: serverTimestamp(),
+      unread: { [DRIFTER]: 1, [ADMIN_A]: 0 },
+    }, { merge: true });
+    await assertSucceeds(batch.commit());
+  });
+
+  it("is refused for somebody who owns the community but is not marked admin", async () => {
+    // The exact mismatch the button used to allow: `communities/C1.ownerId` is
+    // one fact and `users/<uid>.role` is another, and only the second is what
+    // `isAdminOf` reads.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), "users", ADMIN_A), { role: "user" });
+    });
+
+    await assertFails(setDoc(doc(as(ADMIN_A), "requests", INVITE), {
+      type: "invite", status: "approved",
+      userId: DRIFTER, invitedBy: ADMIN_A, communityId: C1,
+      createdAt: serverTimestamp(),
+    }));
+    await assertFails(sendMessageBatch(as(ADMIN_A), ADMIN_A, DRIFTER));
+  });
+});

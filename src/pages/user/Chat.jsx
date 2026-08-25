@@ -18,6 +18,7 @@ import { attempt, release, retryAfterSeconds } from "../../utils/rateLimit.js";
 import { track } from "../../utils/analytics.js";
 import { dayStamp, formatClock, formatDayLabel, formatLastSeen, toMillis } from "../../utils/time.js";
 import { t } from "../../utils/i18n.js";
+import { writeError } from "../../utils/writeError.js";
 import { LIMITS } from "../../utils/validators.js";
 
 /**
@@ -171,13 +172,20 @@ export default function Chat() {
    * is a button that can only fail, and it would fail at the far end — on their
    * screen, days later — rather than on the admin's.
    */
-  // `ownerId`, not the profile's `role` flag. The rules authorise the write
-  // from the community document — an admin is whoever the community says owns
-  // it — so a button gated on anything else is a button that can be visible
-  // and refused.
+  // Gated on exactly what `isAdminOf` reads in firestore.rules — the caller's
+  // own profile, `role` and `communityId` — and not on the community's
+  // `ownerId`.
+  //
+  // Those two are the same person almost always, which is what made the first
+  // version of this look right: founding a community sets both. But they are
+  // two documents, and when they disagree — a profile whose role never got
+  // written, an owner recorded on a community nobody promoted — an ownerId gate
+  // shows a button the rules then refuse, and the only thing the sender learns
+  // is that saving failed.
   const canInvite =
     !!community?.id &&
-    community.ownerId === user?.id &&
+    user?.role === "admin" &&
+    user?.communityId === community.id &&
     !!peer &&
     peer.communityId !== community.id;
 
@@ -220,7 +228,11 @@ export default function Chat() {
       }).catch((err) => logger.warn("chat.invite.notify", err?.message));
     } catch (err) {
       logger.error("chat.invite", err?.message, { code: err?.code });
-      setError(t.saveFailed);
+      // `writeError`, not a flat "could not save": this write can fail for a
+      // reason the sender can act on — the rules refusing it says the account
+      // is not the admin of this community, which is a different problem from
+      // the network being down and needs a different response.
+      setError(writeError(err));
     } finally {
       setInviting(false);
     }
