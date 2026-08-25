@@ -27,6 +27,18 @@ import { t } from "../utils/i18n.js";
  *
  * A post written before authors were recorded has no name to promote; the
  * community keeps the top line on those rather than leaving it blank.
+ *
+ * `asCommunity` turns that around for the one screen where it should be: a
+ * community's own page. There the noticeboard is the admin's, every notice on
+ * it comes from the same person, and the reader is already looking at that
+ * community's name and picture at the top of the screen — so repeating the
+ * admin's name on every card says nothing, and the community takes the line
+ * back.
+ *
+ * `menu` is the top-right slot, for the controls that manage a post rather than
+ * respond to it. It displaces the timestamp rather than crowding it: only one
+ * thing can own that corner, the menu is the one you reach for, and the date
+ * reads perfectly well from the end of the action row instead.
  */
 export default function PostCard({
   post,
@@ -37,13 +49,30 @@ export default function PostCard({
   likeDisabled = false,
   /** Full text and no link to itself — the thread screen showing its own post. */
   standalone = false,
+  /** Draw the community as the writer and drop the author line — see above. */
+  asCommunity = false,
+  /** Management controls for the top-right corner, e.g. a KebabMenu. */
+  menu = null,
 }) {
   const stamp = formatPostStamp(post.createdAt);
   const handle = community?.nickname || community?.name || "";
+  const communityHref = `/community/${post.communityId}`;
+
+  // Who the post is *from*, as drawn. The author when there is one and the
+  // screen wants people; the community when the screen is the community's own.
+  const showAuthor = !asCommunity && Boolean(post.authorName);
+  const lead    = showAuthor ? post.authorName : (community?.name || handle);
+  const leadHref = showAuthor ? `/users/${post.authorId}` : communityHref;
+  // The quiet second line. Under an author it says where this was posted; under
+  // the community's own name it would only repeat it, so it is the handle or
+  // nothing at all.
+  const sub = showAuthor
+    ? handle
+    : (community?.nickname && community.nickname !== lead ? community.nickname : "");
 
   return (
     <article className="flex gap-3 px-4 py-4 border-b border-ink-100">
-      <Link to={`/community/${post.communityId}`} className="shrink-0 active:opacity-70 transition">
+      <Link to={communityHref} className="shrink-0 active:opacity-70 transition">
         <Avatar src={community?.photoURL} name={community?.name ?? "?"} size={44} />
       </Link>
 
@@ -52,30 +81,25 @@ export default function PostCard({
             a space after the name: right-aligned it makes a column down the
             feed, and a name of any length stops moving it about. */}
         <div className="flex items-baseline gap-2">
-          {post.authorName ? (
-            <Link
-              to={`/users/${post.authorId}`}
-              className="font-bold text-[15px] text-brand-700 truncate active:opacity-70 transition"
-            >
-              {post.authorName}
-            </Link>
-          ) : (
-            <Link
-              to={`/community/${post.communityId}`}
-              className="font-bold text-[15px] text-brand-700 truncate active:opacity-70 transition"
-            >
-              {handle}
-            </Link>
-          )}
-          {stamp ? <span className="ml-auto text-[12px] text-ink-300 shrink-0">{stamp}</span> : null}
+          <Link
+            to={leadHref}
+            className="font-bold text-[15px] text-brand-700 truncate active:opacity-70 transition"
+          >
+            {lead}
+          </Link>
+          {menu ? (
+            <span className="ml-auto">{menu}</span>
+          ) : stamp ? (
+            <span className="ml-auto text-[12px] text-ink-300 shrink-0">{stamp}</span>
+          ) : null}
         </div>
 
-        {post.authorName && handle ? (
+        {sub ? (
           <Link
-            to={`/community/${post.communityId}`}
+            to={communityHref}
             className="block text-[13px] text-ink-500 leading-snug truncate active:opacity-70 transition"
           >
-            {handle}
+            {sub}
           </Link>
         ) : null}
 
@@ -105,6 +129,12 @@ export default function PostCard({
           />
           <CommentAction post={post} standalone={standalone} />
           <ShareAction post={post} />
+          {/* Only when the menu has taken the corner above. `ml-auto` keeps it
+              on the same right edge the stamp would have had, so the column it
+              makes down the feed is the same column either way. */}
+          {menu && stamp ? (
+            <span className="ml-auto text-[12px] text-ink-300 shrink-0">{stamp}</span>
+          ) : null}
         </div>
       </div>
     </article>

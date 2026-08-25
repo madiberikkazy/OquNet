@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
@@ -8,12 +8,14 @@ import Fab from "../../components/Fab.jsx";
 import BookFields from "../../components/BookFields.jsx";
 import Leaderboard from "../../components/Leaderboard.jsx";
 import CoverPicker from "../../components/CoverPicker.jsx";
+import PostCard from "../../components/PostCard.jsx";
+import KebabMenu from "../../components/KebabMenu.jsx";
 import { uploadImage } from "../../firebase/storage.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import {
   getCommunity, listUsersByCommunity, listPostsByCommunity, listBooks,
   createJoinRequest, createNotification, getActiveBorrowingForUser,
-  createPost, updatePost, deletePost, deleteBook,
+  createPost, updatePost, deletePost, deleteBook, togglePostLike,
 } from "../../firebase/firestore.js";
 import { hasVerifiedPhone } from "../../firebase/phoneVerify.js";
 import { logger } from "../../utils/logger.js";
@@ -26,7 +28,7 @@ const TABS = ["posts", "books", "members"];
 export default function CommunityProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, isAdmin, updateProfile } = useAuth();
+  const { user, setUser, isAdmin, updateProfile } = useAuth();
 
   const [community, setCommunity]   = useState(null);
   const [members, setMembers]       = useState([]);
@@ -127,6 +129,66 @@ export default function CommunityProfile() {
    * refuse is worse than no button.
    */
   const canManage = isAdmin && isOwner && isMember;
+
+  /**
+   * The noticeboard, as this page shows it: the admin's notices and nobody
+   * else's.
+   *
+   * The compose button here has always been `canManage`-only — this board was
+   * never meant to be a group chat. What it could not stop was a member writing
+   * a post from the Home feed, which lands in the same collection with the same
+   * `communityId` and turned up here beside the announcements, indistinguishable
+   * from them. Filtering on the owner is the same rule the "+" already applies,
+   * finally applied to what is drawn as well as to what can be written.
+   *
+   * `authorId` is required by the post schema, so there is no era of unattributed
+   * posts to make an exception for. Members' posts are not lost — they are still
+   * on the feed, where they were written.
+   */
+  const adminPosts = useMemo(
+    () => (community?.ownerId ? posts.filter((p) => p.authorId === community.ownerId) : []),
+    [posts, community?.ownerId],
+  );
+
+  // ── Likes ───────────────────────────────────────────────────────────────────
+  // The same contract PostDetail uses: `user.likedPostIds` is the truth, the
+  // write hands back the array it stored, and what is held locally is only that
+  // fact drawn a frame early. One write per post at a time, so a double tap
+  // cannot ask the server to like and unlike the same post at once.
+  const [likedIds, setLikedIds] = useState(() => new Set(user?.likedPostIds || []));
+  useEffect(() => { setLikedIds(new Set(user?.likedPostIds || [])); }, [user?.likedPostIds]);
+  const likeWriting = useRef(new Set());
+
+  async function onLike(post) {
+    if (!user?.id || !post?.id || likeWriting.current.has(post.id)) return;
+    const current  = user.likedPostIds || [];
+    const wasLiked = current.includes(post.id);
+
+    likeWriting.current.add(post.id);
+    setLikedIds((prev) => {
+      const next = new Set(prev);
+      if (wasLiked) next.delete(post.id); else next.add(post.id);
+      return next;
+    });
+    setPosts((list) => list.map((p) => (p.id === post.id
+      ? { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (wasLiked ? -1 : 1)) }
+      : p)));
+
+    try {
+      const { likedPostIds } = await togglePostLike({
+        postId: post.id, userId: user.id, likedPostIds: current, liked: !wasLiked,
+      });
+      setUser((prev) => (prev && prev.id === user.id ? { ...prev, likedPostIds } : prev));
+    } catch (err) {
+      logger.error("community.like", err?.message, { postId: post.id, code: err?.code });
+      setLikedIds(new Set(current));
+      setPosts((list) => list.map((p) => (p.id === post.id
+        ? { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (wasLiked ? 1 : -1)) }
+        : p)));
+    } finally {
+      likeWriting.current.delete(post.id);
+    }
+  }
 
   async function handleJoin(e) {
     e.preventDefault();
@@ -361,7 +423,7 @@ export default function CommunityProfile() {
             </div>
             <div>
               <p className="font-bold text-[20px] leading-none">
-                {contentLoading ? <span className="inline-block w-6 h-5 rounded bg-ink-100 animate-pulse" /> : posts.length}
+                {contentLoading ? <span className="inline-block w-6 h-5 rounded bg-ink-100 animate-pulse" /> : adminPosts.length}
               </p>
               <p className="text-[11px] text-ink-500 mt-1">{t.statPosts}</p>
             </div>
@@ -459,47 +521,55 @@ export default function CommunityProfile() {
               </div>
             )}
 
-            {/* Posts tab */}
+            {/* Posts tab — the same card the Home feed draws, because it is the
+                same post. It used to be a stripped-down box with a body, a name
+                and two loud buttons, so a notice a reader had already seen on
+                the feed arrived here looking like a different object, with no
+                heart, no reply count and no way through to its thread.
+
+                `asCommunity` is what makes it right for *this* screen rather
+                than merely consistent with the other one: the board is the
+                admin's, so every card would otherwise carry the same personal
+                name under a header that already says whose community this is. */}
             {!contentLoading && tab === "posts" && (
-              posts.length === 0 ? (
+              adminPosts.length === 0 ? (
                 <p className="text-center text-ink-400 text-[14px] py-10">{t.noPostsYet}</p>
               ) : (
-                <div className="space-y-3">
-                  {posts.map((p) => (
-                    <div key={p.id} className="card p-4 flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        {/* `title` only exists on posts written before the field
-                            was dropped — nothing creates one now. */}
-                        {p.title ? <h4 className="font-semibold text-[15px]">{p.title}</h4> : null}
-                        <p className="text-[14px] text-ink-700 mt-1 whitespace-pre-wrap">{p.body}</p>
-                        {/* Worth saying now that the board is not one person's:
-                            any member can post here, so a notice without a name
-                            on it is a notice from nobody in particular. */}
-                        {p.authorName ? (
-                          <p className="text-[12px] text-ink-500 mt-2">{p.authorName}</p>
+                <ul className="-mx-4">
+                  {adminPosts.map((p) => (
+                    <li key={p.id}>
+                      <PostCard
+                        post={p}
+                        community={community}
+                        asCommunity
+                        liked={likedIds.has(p.id)}
+                        likeCount={p.likeCount || 0}
+                        onLike={() => onLike(p)}
+                        likeDisabled={!user?.id}
+                        // Only the admin sees it, and only the admin can be
+                        // here: every post drawn on this tab is theirs, so the
+                        // old split between "your post" and "somebody else's,
+                        // which you may only delete" has nothing left to
+                        // separate. Both actions, one corner.
+                        menu={canManage ? (
+                          <KebabMenu
+                            items={[
+                              {
+                                label: t.edit,
+                                onClick: () => {
+                                  setEditingPost(p);
+                                  setEditBody(p.body || "");
+                                  setManageError("");
+                                },
+                              },
+                              { label: t.delete, danger: true, onClick: () => askRemove("post", p) },
+                            ]}
+                          />
                         ) : null}
-                      </div>
-                      {/* Two different permissions, drawn as two different rows
-                          of buttons, and both are exactly what the rules allow:
-                          the author may fix or remove what they wrote, and the
-                          community's admin may remove — not rewrite — anybody's.
-                          This is where a member manages their own post, which is
-                          why it is drawn for members and not only for admins. */}
-                      {p.authorId === user?.id ? (
-                        <RowActions
-                          onEdit={() => {
-                            setEditingPost(p);
-                            setEditBody(p.body || "");
-                            setManageError("");
-                          }}
-                          onDelete={() => askRemove("post", p)}
-                        />
-                      ) : canManage ? (
-                        <RowActions onDelete={() => askRemove("post", p)} />
-                      ) : null}
-                    </div>
+                      />
+                    </li>
                   ))}
-                </div>
+                </ul>
               )
             )}
 
