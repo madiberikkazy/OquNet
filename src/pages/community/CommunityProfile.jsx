@@ -386,7 +386,35 @@ export default function CommunityProfile() {
   }
 
   return (
-    <MobileShell>
+    <MobileShell
+      /* ── Adding — what the "+" adds depends on the tab under it ──
+
+         In the shell's slot and `fixed`, which is what a screen you scroll
+         needs. It used to be an `absolute` child of the page, and nothing in
+         MobileShell is positioned, so it anchored to the document's first
+         screenful instead of the window: on a short members list it happened to
+         land in the corner, and on a shelf of fifteen books it sat in the middle
+         of the list with a row underneath it. The `fixed` variant pins to the
+         centred content column and is click-through except for the button
+         itself, so the list keeps every tap that is not on the "+". */
+      fab={canManage && canSeeContent ? (
+        <Fab
+          fixed
+          onClick={() => {
+            if (tab === "books")   { navigate("/books/add"); return; }
+            // The members tab invites rather than adds: nobody can put a person
+            // into a community, only ask them.
+            if (tab === "members") { navigate(`/community/${id}/invite`); return; }
+            setManageError("");
+            setPostBody("");
+            setPostOpen(true);
+          }}
+          ariaLabel={
+            tab === "books" ? t.addBookTitle : tab === "members" ? t.inviteMemberTitle : t.newPost
+          }
+        />
+      ) : null}
+    >
       {/* Back */}
       <div className="flex items-center gap-2 px-4 mb-2">
         <button onClick={() => navigate(-1)} className="icon-btn">
@@ -639,19 +667,6 @@ export default function CommunityProfile() {
           </div>
         </>
       )}
-
-      {/* ── Adding — what the "+" adds depends on the tab under it ── */}
-      {canManage && canSeeContent && tab !== "members" ? (
-        <Fab
-          onClick={() => {
-            if (tab === "books") { navigate("/books/add"); return; }
-            setManageError("");
-            setPostBody("");
-            setPostOpen(true);
-          }}
-          ariaLabel={tab === "books" ? t.addBookTitle : t.newPost}
-        />
-      ) : null}
 
       {/* ── Compose a notice ── */}
       <Modal open={postOpen} onClose={() => !postBusy && setPostOpen(false)} title={t.newPost}>

@@ -934,6 +934,10 @@ const kz = {
   inviteAlreadyInThis: "Бұл адам қазірдің өзінде сіздің қоғамдастықта.",
   inviteNotifTitle: "Қоғамдастыққа шақыру",
   inviteNotifBody: (name, c) => `${name} сізді «${c}» қоғамдастығына шақырады.`,
+  inviteMemberTitle: "Қатысушыны шақыру",
+  inviteMemberSearch: "Есім немесе никнейм іздеу",
+  inviteMemberHint: "Шақыру сілтемесі адамның чатына жіберіледі.",
+  inviteMemberStart: "Шақырғыңыз келетін адамды іздеңіз.",
 
 };
 
@@ -1850,6 +1854,10 @@ const ru = {
   inviteAlreadyInThis: "Этот человек уже в вашем сообществе.",
   inviteNotifTitle: "Приглашение в сообщество",
   inviteNotifBody: (name, c) => `${name} приглашает вас в сообщество «${c}».`,
+  inviteMemberTitle: "Пригласить участника",
+  inviteMemberSearch: "Поиск по имени или нику",
+  inviteMemberHint: "Ссылка-приглашение придёт человеку в чат.",
+  inviteMemberStart: "Найдите человека, которого хотите пригласить.",
 
 };
 
@@ -2763,6 +2771,10 @@ const en = {
   inviteAlreadyInThis: "This person is already in your community.",
   inviteNotifTitle: "Community invitation",
   inviteNotifBody: (name, c) => `${name} is inviting you to join “${c}”.`,
+  inviteMemberTitle: "Invite a member",
+  inviteMemberSearch: "Search by name or nickname",
+  inviteMemberHint: "The invitation link arrives in their chat.",
+  inviteMemberStart: "Search for the person you want to invite.",
 
 };
 

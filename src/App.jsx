@@ -75,6 +75,7 @@ const ReturnBook         = lazyRoute(() => import("./pages/community/ReturnBook.
 const UserProfile        = lazyRoute(() => import("./pages/community/UserProfile.jsx"));
 // Ejecting a member, and settling the books they are holding on the way out.
 const RemoveMember       = lazyRoute(() => import("./pages/community/RemoveMember.jsx"));
+const InviteMember       = lazyRoute(() => import("./pages/community/InviteMember.jsx"));
 // One of another member's shelves — what a counter on their profile opens.
 const MemberBooks        = lazyRoute(() => import("./pages/community/MemberBooks.jsx"));
 // The two lists behind the follow counters — one screen, both directions.
@@ -202,6 +203,9 @@ export default function App() {
             <Route path="/community/:id" element={<CommunityProfile />} />
             {/* Owner-only in practice — the screen bounces anyone else. */}
             <Route path="/community/:id/edit" element={<EditCommunity />} />
+            {/* Admin-only in practice — the screen refuses anyone the rules
+                would refuse anyway. The "+" on the members tab points here. */}
+            <Route path="/community/:id/invite" element={<InviteMember />} />
             <Route path="/community/:id/leave" element={<LeaveCommunity />} />
             <Route path="/community/:id/leave/return/:bookId" element={<ReturnBook />} />
             {/* A screen rather than a dialog: a member on their way out may be
