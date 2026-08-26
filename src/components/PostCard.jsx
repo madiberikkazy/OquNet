@@ -39,6 +39,15 @@ import { t } from "../utils/i18n.js";
  * respond to it. It displaces the timestamp rather than crowding it: only one
  * thing can own that corner, the menu is the one you reach for, and the date
  * reads perfectly well from the end of the action row instead.
+ *
+ * `author` is the writer's profile, when the screen has it. The picture follows
+ * whoever the card says wrote the post, which sounds obvious and was not what
+ * this did: the name went to the author and the picture stayed the community's,
+ * so a feed of posts from one community was a column of identical logos beside
+ * a column of different names — the one place a reader looks to tell posts
+ * apart, saying nothing. A post whose author has not been fetched yet falls
+ * back to their initials rather than to the community's picture, because wrong
+ * is worse than plain.
  */
 export default function PostCard({
   post,
@@ -51,6 +60,8 @@ export default function PostCard({
   standalone = false,
   /** Draw the community as the writer and drop the author line — see above. */
   asCommunity = false,
+  /** The writer's profile, for their picture. See above. */
+  author = null,
   /** Management controls for the top-right corner, e.g. a KebabMenu. */
   menu = null,
 }) {
@@ -70,10 +81,14 @@ export default function PostCard({
     ? handle
     : (community?.nickname && community.nickname !== lead ? community.nickname : "");
 
+  // The picture belongs to whoever the top line names, and so does the tap.
+  const avatarSrc  = showAuthor ? author?.photoURL : community?.photoURL;
+  const avatarName = showAuthor ? (post.authorName || "") : (community?.name ?? "?");
+
   return (
     <article className="flex gap-3 px-4 py-4 border-b border-ink-100">
-      <Link to={communityHref} className="shrink-0 active:opacity-70 transition">
-        <Avatar src={community?.photoURL} name={community?.name ?? "?"} size={44} />
+      <Link to={leadHref} className="shrink-0 active:opacity-70 transition">
+        <Avatar src={avatarSrc} name={avatarName} size={44} />
       </Link>
 
       <div className="flex-1 min-w-0">

@@ -11,7 +11,7 @@ import { SkeletonList, PostCardSkeleton } from "../../components/Skeleton.jsx";
 import AppIcon from "../../components/AppIcon.jsx";
 import Fab from "../../components/Fab.jsx";
 import {
-  watchPostsByCommunity, watchPublicPosts, getCommunity,
+  watchPostsByCommunity, watchPublicPosts, getCommunity, getUserById,
   listFollowing, searchCommunities, searchUsers, togglePostLike,
 } from "../../firebase/firestore.js";
 import { useQuery } from "@tanstack/react-query";
@@ -151,10 +151,48 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [metaKey, community]);
 
+  // The same arrangement again, for the people rather than the places: one
+  // fetch per distinct author in the feed, cached across snapshots. It is a
+  // separate cache rather than a second branch of the one above because the two
+  // are different collections with different lifetimes — a community is fetched
+  // once and rarely changes, while the set of authors turns over as the feed
+  // does — and merging them would mean a cache keyed by id alone, where a
+  // community and a user sharing an id would be the same entry.
+  const authorCache = useRef(new Map());
+  const [authorById, setAuthorById] = useState(() => new Map());
+  const authorKey = useMemo(
+    () => [...new Set(ordered.map((p) => p.authorId).filter(Boolean))].sort().join(","),
+    [ordered]
+  );
+
+  useEffect(() => {
+    // The reader's own profile is already in hand — free, and it covers every
+    // post they wrote themselves.
+    if (user?.id) authorCache.current.set(user.id, user);
+    const ids = authorKey ? authorKey.split(",") : [];
+    const missing = ids.filter((id) => !authorCache.current.has(id));
+    if (missing.length === 0) { setAuthorById(new Map(authorCache.current)); return; }
+
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        missing.map(async (id) => [id, await getUserById(id).catch(() => null)])
+      );
+      if (cancelled) return;
+      entries.forEach(([id, profile]) => authorCache.current.set(id, profile));
+      setAuthorById(new Map(authorCache.current));
+    })();
+    return () => { cancelled = true; };
+  }, [authorKey, user]);
+
   const feed = useMemo(
     () => orderFeed(ordered, { followedIds, seed: feedSeed })
-      .map((p) => ({ ...p, communityMeta: metaById.get(p.communityId) ?? null })),
-    [ordered, metaById, followedIds, feedSeed]
+      .map((p) => ({
+        ...p,
+        communityMeta: metaById.get(p.communityId) ?? null,
+        authorMeta: authorById.get(p.authorId) ?? null,
+      })),
+    [ordered, metaById, authorById, followedIds, feedSeed]
   );
 
   // ── Lazy rendering ──────────────────────────────────────────────────────────
@@ -473,6 +511,7 @@ export default function Home() {
                   <PostCard
                     post={p}
                     community={p.communityMeta}
+                    author={p.authorMeta}
                     liked={likedIds.has(p.id)}
                     likeCount={(p.likeCount || 0) + (pending.get(p.id)?.delta ?? 0)}
                     onLike={() => onLike(p)}

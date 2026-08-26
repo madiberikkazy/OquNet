@@ -173,7 +173,15 @@ export default function UserProfile() {
           <ul>
             {lists.posts.map((p) => (
               <li key={p.id}>
-                <PostCard post={p} community={community} likeCount={p.likeCount || 0} likeDisabled />
+                {/* Every post in this list is theirs, so the profile already
+                    holds the writer this card needs — no fetch. */}
+                <PostCard
+                  post={p}
+                  community={community}
+                  author={member}
+                  likeCount={p.likeCount || 0}
+                  likeDisabled
+                />
               </li>
             ))}
           </ul>

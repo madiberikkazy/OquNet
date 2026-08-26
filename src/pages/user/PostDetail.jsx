@@ -9,7 +9,8 @@ import { qk } from "../../lib/queryKeys.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  createComment, deleteComment, getCommunity, getPost, togglePostLike, watchComments,
+  createComment, deleteComment, getCommunity, getPost, getUserById, togglePostLike,
+  watchComments,
 } from "../../firebase/firestore.js";
 import { logger } from "../../utils/logger.js";
 import { attempt, release, retryAfterSeconds } from "../../utils/rateLimit.js";
@@ -40,6 +41,7 @@ export default function PostDetail() {
 
   const [post, setPost] = useState(null);
   const [community, setCommunity] = useState(null);
+  const [author, setAuthor] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [comments, setComments] = useState([]);
@@ -78,10 +80,16 @@ export default function PostDetail() {
         // The community is what the card is addressed to — its name and photo
         // are the identity on the row, so a thread opened from a shared link
         // has to fetch it rather than inherit it from the feed.
-        if (p?.communityId) {
-          const c = await getCommunity(p.communityId).catch(() => null);
-          if (!cancelled) setCommunity(c);
-        }
+        // The writer is fetched for the same reason and in the same breath:
+        // their picture is the identity on the card, and a thread opened from a
+        // shared link has no feed to inherit it from either.
+        const [c, a] = await Promise.all([
+          p?.communityId ? getCommunity(p.communityId).catch(() => null) : null,
+          p?.authorId ? getUserById(p.authorId).catch(() => null) : null,
+        ]);
+        if (cancelled) return;
+        setCommunity(c);
+        setAuthor(a);
       })
       .catch((err) => logger.error("postDetail.load", err?.message, { postId: id, code: err?.code }))
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -233,6 +241,7 @@ export default function PostDetail() {
       <PostCard
         post={post}
         community={community}
+        author={author}
         liked={liked}
         likeCount={post.likeCount || 0}
         onLike={onLike}
