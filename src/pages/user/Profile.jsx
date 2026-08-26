@@ -3,7 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import CurrentBookCard from "../../components/CurrentBookCard.jsx";
-import ProfileHeader, { CommunityRankChip } from "../../components/ProfileHeader.jsx";
+import ProfileHeader, {
+  CommunityRankChip, ProfileCommunityAction, ShareProfileAction,
+} from "../../components/ProfileHeader.jsx";
 import ProfileStatsRow, { PROFILE_STATS } from "../../components/ProfileStatsRow.jsx";
 import ReadingWeek from "../../components/ReadingWeek.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
@@ -134,6 +136,19 @@ export default function Profile() {
         showSettings
         postsCount={statsQuery.data?.postsCount ?? null}
         badge={isAdmin ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span> : null}
+        // Sharing is a full button in the row below now, so the icon by the
+        // name would be the second one on the same screen.
+        showShareIcon={false}
+        // The same row somebody else's profile draws, with the two halves that
+        // only make sense about a stranger swapped for the two that make sense
+        // about yourself: you cannot follow or message yourself, but where you
+        // read and handing somebody your profile are both real answers.
+        action={
+          <div className="flex items-stretch gap-2">
+            <ProfileCommunityAction community={community} className="flex-1" />
+            <ShareProfileAction user={user} className={community ? "flex-1" : "w-full"} />
+          </div>
+        }
       />
 
       <div className="px-5 mt-4">

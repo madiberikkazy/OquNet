@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Avatar from "./Avatar.jsx";
 import AppIcon from "./AppIcon.jsx";
@@ -22,8 +22,22 @@ import { t } from "../utils/i18n.js";
  * `action` is the slot under the name for whatever this viewer can *do* with
  * this profile — the follow button on somebody else's, nothing on your own.
  */
+/**
+ * Centre of the band to the inner edge of each pile of books, in px. Read off
+ * the phone layout, where the two piles already sat right beside the avatar —
+ * see where it is used.
+ */
+const PILE_INSET = 92;
+
 export default function ProfileHeader({
   user, showSettings = false, onBack, badge, action = null, postsCount = null,
+  /**
+   * The small share icon beside the name. Off on the reader's own profile,
+   * where the action row below already carries sharing as a full button — one
+   * screen offering the same act twice, once as a 32px icon and once as a
+   * labelled button, is clutter rather than convenience.
+   */
+  showShareIcon = true,
 }) {
   const fullName = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim();
   const [viewing, setViewing] = useState(false);
@@ -72,6 +86,30 @@ export default function ProfileHeader({
             dimensions to one number, which is right for an icon and wrong for
             artwork.
 
+            Anchored to the *centre*, not to the two edges, and that is the
+            whole arrangement: the piles flank the avatar, so what has to stay
+            constant is their distance from it rather than their distance from
+            the sides of a band whose width changes. Pinned at `left-1` /
+            `right-1` they only looked composed at phone width, where the band
+            is narrow enough that the edges happen to be beside the avatar. Give
+            the same header a tablet — the column caps at `max-w-2xl`, so the
+            band goes from 375px to 672px — and the piles walk out to the
+            corners, leaving 182px of empty blue between each one and the face
+            in the middle.
+
+            `PILE_INSET` is that distance, measured off the phone layout, which
+            is the one that was already right: 92px from the centre to the inner
+            edge of each pile. So this changes nothing at 375px and closes the
+            gap everywhere above it. `-100%` in the left pile's translate is the
+            image's own width, which is what lets an auto-width image be placed
+            by its right edge without anybody hard-coding how wide the artwork
+            is at each breakpoint.
+
+            Below about 360px the outer edge of each pile crops, which is the
+            same thing this artwork already does to its top: the band is
+            `overflow-hidden` and these are sized to it rather than scaled down
+            to fit.
+
             Decoration: hidden from assistive tech and deaf to taps, so the back
             and settings buttons in the corners above them stay reachable rather
             than losing their edges to an image nobody can see. */}
@@ -80,14 +118,16 @@ export default function ProfileHeader({
           alt=""
           aria-hidden="true"
           draggable={false}
-          className="absolute bottom-0 left-1 h-[104px] sm:h-[118px] w-auto select-none pointer-events-none"
+          style={{ transform: `translateX(calc(-100% - ${PILE_INSET}px))` }}
+          className="absolute bottom-0 left-1/2 h-[104px] sm:h-[118px] w-auto select-none pointer-events-none"
         />
         <img
           src={rightBookIcon}
           alt=""
           aria-hidden="true"
           draggable={false}
-          className="absolute bottom-0 right-1 h-[104px] sm:h-[118px] w-auto select-none pointer-events-none"
+          style={{ transform: `translateX(${PILE_INSET}px)` }}
+          className="absolute bottom-0 left-1/2 h-[104px] sm:h-[118px] w-auto select-none pointer-events-none"
         />
       </div>
 
@@ -124,7 +164,7 @@ export default function ProfileHeader({
 
         <div className="flex items-center gap-2 mt-3">
           <h2 className="font-bold text-[22px] text-center">{fullName || `@${user?.nickname ?? ""}`}</h2>
-          <ShareProfileButton user={user} />
+          {showShareIcon ? <ShareProfileButton user={user} /> : null}
         </div>
 
         {user?.nickname ? <p className="text-ink-500 text-[14px]">@{user.nickname}</p> : null}
@@ -235,21 +275,26 @@ export function CommunityRankChip({ community, rank }) {
 }
 
 /**
- * Share the profile.
+ * Share the profile — the action, without the button around it.
  *
  * `navigator.share` where it exists — on a phone that is the whole point, since
  * it opens the OS sheet the reader already knows. Everywhere else the link goes
- * to the clipboard and the button says so for a moment, because a share button
+ * to the clipboard and the caller says so for a moment, because a share button
  * that appears to do nothing is worse than no share button.
+ *
+ * A hook rather than one component because the same act is now drawn two ways:
+ * an icon beside the name on somebody else's profile, and a full-width button
+ * on your own, where it stands in the place a message button would. Two buttons
+ * are a styling question; sharing is one behaviour, and copying it into both
+ * would be two places for the clipboard fallback to drift apart.
  */
-function ShareProfileButton({ user }) {
+function useProfileShare(user) {
   const [copied, setCopied] = useState(false);
-  if (!user?.id) return null;
 
-  const url = `${window.location.origin}/users/${user.id}`;
-  const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || `@${user.nickname ?? ""}`;
-
-  async function share() {
+  const share = useCallback(async () => {
+    if (!user?.id) return;
+    const url = `${window.location.origin}/users/${user.id}`;
+    const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || `@${user.nickname ?? ""}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: name, text: t.shareProfileText(name), url });
@@ -263,7 +308,15 @@ function ShareProfileButton({ user }) {
       // by far the more common of the two — so this is logged, never surfaced.
       logger.warn("profile.share", err?.message);
     }
-  }
+  }, [user]);
+
+  return { share, copied };
+}
+
+/** The icon beside the name. */
+function ShareProfileButton({ user }) {
+  const { share, copied } = useProfileShare(user);
+  if (!user?.id) return null;
 
   return (
     <button onClick={share} className="profile-action relative" aria-label={t.shareProfile}>
@@ -279,6 +332,73 @@ function ShareProfileButton({ user }) {
         </span>
       ) : null}
     </button>
+  );
+}
+
+/**
+ * The same act as a full-width button, for the action row.
+ *
+ * Grey, and on the right, because it is standing exactly where the message
+ * button stands on somebody else's profile — the row keeps its shape as the
+ * reader moves between the two screens, and only the two things it offers
+ * change. Deliberately the quieter of the pair for the same reason the message
+ * button is: two filled buttons of equal weight ask the reader to choose
+ * between them.
+ */
+export function ShareProfileAction({ user, className = "" }) {
+  const { share, copied } = useProfileShare(user);
+  if (!user?.id) return null;
+
+  return (
+    <button
+      onClick={share}
+      // `t.forward` on the face and `t.shareProfile` for assistive tech, which
+      // is not a shortcut: the button sits opposite a one-word "Сообщение" on
+      // the other profile, and the long form wraps to two lines at phone width
+      // — a row half a line taller than the same row on the next screen. The
+      // label a reader needs is the short one, because the button is already
+      // sitting on their own profile and cannot mean anything else; the full
+      // sentence goes where there is no layout to break.
+      aria-label={t.shareProfile}
+      className={
+        "btn-secondary flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold " +
+        "min-w-0 px-3 whitespace-nowrap " + className
+      }
+    >
+      <AppIcon name="shareProfile" size={18} />
+      <span className="truncate">{copied ? t.linkCopied : t.forward}</span>
+    </button>
+  );
+}
+
+/**
+ * Where this reader reads — the community, in the place a follow button takes
+ * on somebody else's profile.
+ *
+ * Following yourself is not a thing, so that half of the row was empty on your
+ * own profile and the row was not drawn at all. The community is the honest
+ * answer to the same question the follow button asks — what connects you to
+ * this person — and on your own profile the answer is the one place you belong.
+ * It keeps the brand colour and the left, reading position that the follow
+ * button has, so the two screens read as the same header with one slot swapped.
+ *
+ * Nothing when there is no community: this screen already offers "find a
+ * community" as a primary button of its own further down, and two competing
+ * calls to join would be one too many.
+ */
+export function ProfileCommunityAction({ community, className = "" }) {
+  if (!community?.id) return null;
+
+  return (
+    <Link
+      to={`/community/${community.id}`}
+      className={
+        "bg-brand-500 text-white font-semibold py-3 rounded-2xl text-[15px] " +
+        "flex items-center justify-center gap-2 px-3 min-w-0 transition active:scale-[0.98] " + className
+      }
+    >
+      <span className="truncate">{community.name}</span>
+    </Link>
   );
 }
 
