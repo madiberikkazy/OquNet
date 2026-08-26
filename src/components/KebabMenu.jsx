@@ -19,7 +19,16 @@ import { t } from "../utils/i18n.js";
  * that, which on touch is the difference between dismissing a menu and
  * accidentally opening whatever was underneath it.
  */
-export default function KebabMenu({ items = [], ariaLabel = t.moreActions }) {
+export default function KebabMenu({
+  items = [], ariaLabel = t.moreActions,
+  /**
+   * The trigger's look. Defaults to the quiet grey that suits a card; the
+   * profile banner passes the white-on-translucent one its own corner buttons
+   * wear, so the "⋮" there is the same object as the back arrow opposite it
+   * rather than a grey smudge on a blue field.
+   */
+  triggerClassName = "w-8 h-8 -mr-1.5 -my-1 rounded-lg text-ink-400",
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -49,7 +58,7 @@ export default function KebabMenu({ items = [], ariaLabel = t.moreActions }) {
         aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="w-8 h-8 -mr-1.5 -my-1 rounded-lg text-ink-400 flex items-center justify-center active:scale-90 transition"
+        className={triggerClassName + " flex items-center justify-center active:scale-90 transition"}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <circle cx="12" cy="5"  r="1.8" />

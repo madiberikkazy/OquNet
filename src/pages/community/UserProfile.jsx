@@ -6,11 +6,12 @@ import EmptyState from "../../components/EmptyState.jsx";
 import FollowButton from "../../components/FollowButton.jsx";
 import MessageButton from "../../components/MessageButton.jsx";
 import PostCard from "../../components/PostCard.jsx";
-import ProfileHeader, { CommunityRankChip } from "../../components/ProfileHeader.jsx";
+import ProfileHeader from "../../components/ProfileHeader.jsx";
+import KebabMenu from "../../components/KebabMenu.jsx";
 import ProfileStatsRow, { MEMBER_STATS } from "../../components/ProfileStatsRow.jsx";
 import ReadingWeek from "../../components/ReadingWeek.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { getBook, getCommunityReadingRank } from "../../firebase/firestore.js";
+import { getBook } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { useMemberProfile, EMPTY_LISTS } from "../../utils/useMemberProfile.js";
 import { t } from "../../utils/i18n.js";
@@ -47,13 +48,6 @@ export default function UserProfile() {
   const community = memberQuery.data?.community ?? null;
   const sameCommunity = memberQuery.data?.sameCommunity ?? false;
   const lists = memberQuery.data?.lists ?? EMPTY_LISTS;
-
-  const rankQuery = useQuery({
-    queryKey: qk.reading.rank(member?.communityId, member?.id),
-    enabled: !!member?.id && !!member?.communityId,
-    staleTime: 60_000,
-    queryFn: () => getCommunityReadingRank({ communityId: member.communityId, userId: member.id }),
-  });
 
   // The book this member has open. One active loan at a time is the rule the
   // whole app is built on, so the first is the one — same as the reader's own
@@ -111,6 +105,21 @@ export default function UserProfile() {
         user={member}
         onBack={() => navigate(-1)}
         postsCount={lists.posts.length}
+        // Where they read. It used to be a chip beside "Время чтения", which
+        // put a community's name in the middle of a section about hours — and
+        // on the reader's own profile the same chip said what the button under
+        // their own name now says. So it moves to the corner: the one thing
+        // about this person that is a *place* you can go to, in the slot that
+        // holds "what else can I do here" on every other screen.
+        menu={community ? (
+          <KebabMenu
+            triggerClassName="w-10 h-10 rounded-xl bg-white/15 text-white"
+            items={[{
+              label: community.name,
+              onClick: () => navigate(`/community/${community.id}`),
+            }]}
+          />
+        ) : null}
         badge={
           member.role === "admin"
             ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span>
@@ -153,9 +162,8 @@ export default function UserProfile() {
         </>
       ) : null}
 
-      <div className="px-4 mt-6 flex items-center justify-between gap-3">
+      <div className="px-4 mt-6">
         <h3 className="text-[17px] font-bold truncate">{t.readingSectionTitle}</h3>
-        <CommunityRankChip community={community} rank={rankQuery.data} />
       </div>
 
       <div className="px-4 mt-2.5">

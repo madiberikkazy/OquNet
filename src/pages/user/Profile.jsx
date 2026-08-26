@@ -4,15 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import CurrentBookCard from "../../components/CurrentBookCard.jsx";
 import ProfileHeader, {
-  CommunityRankChip, ProfileCommunityAction, ShareProfileAction,
+  ProfileCommunityAction, ShareProfileAction,
 } from "../../components/ProfileHeader.jsx";
 import ProfileStatsRow, { PROFILE_STATS } from "../../components/ProfileStatsRow.jsx";
 import ReadingWeek from "../../components/ReadingWeek.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  getBook, getCommunityReadingRank, listBooksHeldBy, listBorrowingsForUser,
-  listPostsByAuthor,
+  getBook, listBooksHeldBy, listBorrowingsForUser, listPostsByAuthor,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import {
@@ -112,16 +111,6 @@ export default function Profile() {
     queryFn: () => getBook(activeBorrowing.bookId),
   });
 
-  // Standing in the community. Its own query rather than a fourth branch of the
-  // one above: it depends on other people's reading as much as this reader's,
-  // and is the one number on the screen that is fine to show a minute stale.
-  const rankQuery = useQuery({
-    queryKey: qk.reading.rank(community?.id, user?.id),
-    enabled: !!user?.id && !!community?.id,
-    staleTime: 60_000,
-    queryFn: () => getCommunityReadingRank({ communityId: community.id, userId: user.id }),
-  });
-
   const stats = statsQuery.data?.stats ?? DEFAULT_STATS;
   const readingDays = user?.readingDays || {};
 
@@ -164,13 +153,20 @@ export default function Profile() {
         </div>
       )}
 
-      <div className="px-4 mt-5">
-        <CurrentBookCard borrowing={activeBorrowing} book={bookQuery.data} />
-      </div>
+      {/* Only when there is a book to name. The empty state this used to draw
+          told the reader to go and borrow one, which is a whole card of the best
+          part of the profile spent on an instruction — and the library is two
+          taps away in the tab bar whether or not a card says so. Somebody else's
+          profile has always been drawn this way; this is the same rule, applied
+          to the screen that was the exception. */}
+      {activeBorrowing ? (
+        <div className="px-4 mt-5">
+          <CurrentBookCard borrowing={activeBorrowing} book={bookQuery.data} />
+        </div>
+      ) : null}
 
-      <div className="px-4 mt-6 flex items-center justify-between gap-3">
+      <div className="px-4 mt-6">
         <h3 className="text-[17px] font-bold truncate">{t.readingSectionTitle}</h3>
-        <CommunityRankChip community={community} rank={rankQuery.data} />
       </div>
 
       <div className="px-4 mt-2.5">

@@ -4,7 +4,6 @@ import Avatar from "./Avatar.jsx";
 import AppIcon from "./AppIcon.jsx";
 import { leftBookIcon, rightBookIcon } from "../utils/icons.js";
 import { safeImageUrl } from "../utils/validators.js";
-import { splitDuration } from "../utils/readingProgress.js";
 import { logger } from "../utils/logger.js";
 import { t } from "../utils/i18n.js";
 
@@ -38,6 +37,12 @@ export default function ProfileHeader({
    * labelled button, is clutter rather than convenience.
    */
   showShareIcon = true,
+  /**
+   * The banner's top-right corner on a profile that is not the reader's own.
+   * Settings lives there on their own profile; on somebody else's, the corner
+   * is where the things you can *find out* about that person go.
+   */
+  menu = null,
 }) {
   const fullName = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim();
   const [viewing, setViewing] = useState(false);
@@ -78,6 +83,14 @@ export default function ProfileHeader({
           >
             <AppIcon name="settings" size={22} className="brightness-0 invert" />
           </Link>
+        ) : null}
+
+        {/* The same corner, on somebody else's profile. `z-20` because the two
+            piles of books below are drawn after it and would otherwise take the
+            menu's lower half — the settings link above has never needed it,
+            being a plain link with nothing to open downward. */}
+        {menu && !showSettings ? (
+          <div className="absolute right-3 top-3 z-20">{menu}</div>
         ) : null}
 
         {/* The two piles of books, standing on the sheet's edge either side of
@@ -231,45 +244,6 @@ function ProfileCount({ to, value, label }) {
   return (
     <Link to={to} className={className + " transition active:scale-[0.97]"}>
       {inner}
-    </Link>
-  );
-}
-
-/**
- * The community chip, with the member's standing in it.
- *
- * The standing half is only drawn once there is a rank to draw: a community
- * where nobody has read this week would otherwise give every member an
- * identical "1st place" badge, which says nothing and flatters everyone.
- */
-export function CommunityRankChip({ community, rank }) {
-  if (!community) return null;
-  const { hours, minutes } = splitDuration(rank?.seconds);
-  const timeLabel = hours ? `${hours} ${t.hoursShort} ${minutes} ${t.minutesShort}` : `${minutes} ${t.minutesShort}`;
-
-  return (
-    <Link
-      to={`/community/${community.id}`}
-      className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 pl-3 pr-1.5 py-1 active:scale-[0.98] transition max-w-full shrink-0"
-    >
-      {/* Ink rather than brand: this text sits on the page background, and the
-          brand ramp has no dark-mode variant — `text-brand-700` there is navy
-          on near-black. The brand stays on the border and the chip, both of
-          which bring their own light background with them. */}
-      <span className="text-[13px] text-ink-900 truncate">
-        {community.nickname ? community.nickname : community.name}
-      </span>
-      {rank ? (
-        <span
-          className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-1.5 py-0.5 shrink-0"
-          title={`${t.readingTotalLabel} ${timeLabel}`}
-        >
-          <AppIcon name="cup" size={13} />
-          <span className="text-[12px] font-semibold text-brand-700">
-            {rank.place} {t.placeShort}
-          </span>
-        </span>
-      ) : null}
     </Link>
   );
 }
