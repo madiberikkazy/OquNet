@@ -33,7 +33,11 @@ export default function Fab({ to, onClick, ariaLabel = "Add", fixed = false }) {
   return (
     // Clear of the tab bar, which is `fixed` at the bottom and z-50 — this sits
     // under it in the stack and above it on the screen, so the two never meet.
-    <div className="fixed inset-x-0 bottom-24 z-40 pointer-events-none">
+    //
+    // `bottom-28`, not `bottom-24`, since the tab bar became a floating pill:
+    // the pill is 89px tall where the old flush bar was 74, and at the old
+    // offset the "+" cleared it by 8px — not touching, but visibly crowding it.
+    <div className="fixed inset-x-0 bottom-28 z-40 pointer-events-none">
       <div className="w-full mx-auto sm:max-w-xl lg:max-w-2xl flex justify-end pr-4">
         <span className="pointer-events-auto">{button}</span>
       </div>

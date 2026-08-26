@@ -48,14 +48,22 @@ export default function MobileShell({
   children, header = null, withNav = true, fab = null, bottomBar = null,
   bottomBarSurface = false, overlay = null,
 }) {
-  // Room at the end of the page for whatever is pinned over it. `pb-24` is the
-  // tab bar alone, as before; the taller values add the action bar — generous
-  // on purpose, since a bar can hold a note above its button, and blank space
-  // after the last section costs nothing while content hidden under a bar is a
-  // bug you only find on the one screen that has a long one.
+  // Room at the end of the page for whatever is pinned over it. `pb-28` is the
+  // tab bar alone; the taller values add the action bar — generous on purpose,
+  // since a bar can hold a note above its button, and blank space after the
+  // last section costs nothing while content hidden under a bar is a bug you
+  // only find on the one screen that has a long one.
+  //
+  // Both of the `withNav` numbers went up a step when the tab bar stopped being
+  // a strip welded to the bottom edge and became a pill floating clear of it:
+  // the pill is 89px tall against the old bar's 74, and it needs the page to
+  // end further above it rather than exactly at it, because the page is now
+  // visible *around* the bar and a last line tucked under its rim reads as cut
+  // off rather than as scrolled-past. Measured with `pb-24` still in place the
+  // clearance was 8px, before any home-indicator inset had been counted.
   const bottomPad = bottomBar
-    ? (withNav ? "pb-44" : "pb-28")
-    : (withNav ? "pb-24" : "pb-4");
+    ? (withNav ? "pb-48" : "pb-28")
+    : (withNav ? "pb-28" : "pb-4");
 
   return (
     <div className="min-h-screen bg-base flex flex-col">
@@ -88,7 +96,7 @@ export default function MobileShell({
           bar. One fixed container holding both, rather than two fixed elements
           and a number to keep them apart — stacked in normal flow they meet
           exactly, and neither has to know how tall the other is. (It was worth
-          measuring: the tab bar is 74.5px on a phone with no home indicator,
+          measuring: the tab bar is 89px on a phone with no home indicator,
           which is not a number anybody would have guessed right.)
 
           The action bar carries no background of its own — no panel, no
