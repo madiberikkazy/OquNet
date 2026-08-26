@@ -15,6 +15,7 @@ import { safeImageUrl } from "../../utils/validators.js";
 import { formatPostDate, toMillis } from "../../utils/time.js";
 import { useGoBack } from "../../utils/useGoBack.js";
 import { t } from "../../utils/i18n.js";
+import Loading from "../../components/Loading.jsx";
 
 const DAY_MS = 86_400_000;
 
@@ -79,7 +80,7 @@ export default function BookJourney() {
   if (loading) {
     return (
       <MobileShell withNav={false}>
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       </MobileShell>
     );
   }

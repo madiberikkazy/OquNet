@@ -13,6 +13,7 @@ import { uploadImage } from "../../firebase/storage.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 import { clampText, LIMITS } from "../../utils/validators.js";
+import Loading from "../../components/Loading.jsx";
 
 // Community nicknames are their own namespace and allow a dot — "aiu.oqyrman"
 // is the shape the create flow suggests — so they are not held to the user
@@ -155,7 +156,7 @@ export default function EditCommunity() {
   if (loading) {
     return (
       <SettingsPage title={t.editCommunity} backTo={`/community/${id}`}>
-        <p className="px-5 pt-6 text-[14px] text-ink-500">{t.loading}</p>
+        <Loading className="pt-6" />
       </SettingsPage>
     );
   }

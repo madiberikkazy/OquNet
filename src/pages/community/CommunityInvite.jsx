@@ -14,6 +14,7 @@ import {
 import { evaluateExit, exitBlockMessage, loadExitBooks } from "../../utils/communityExit.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
+import Loading from "../../components/Loading.jsx";
 
 /**
  * Where an invitation link lands.
@@ -141,7 +142,7 @@ export default function CommunityInvite() {
   if (inviteQuery.isLoading) {
     return (
       <MobileShell withNav={false} header={header}>
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       </MobileShell>
     );
   }

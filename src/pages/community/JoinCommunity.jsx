@@ -8,6 +8,7 @@ import {
   listUsersByCommunity,
 } from "../../firebase/firestore.js";
 import { t } from "../../utils/i18n.js";
+import Loading from "../../components/Loading.jsx";
 
 export default function JoinCommunity() {
   const navigate = useNavigate();
@@ -48,7 +49,7 @@ export default function JoinCommunity() {
       <SearchBar value={search} onChange={setSearch} showFilter={false} />
 
       {loading ? (
-        <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
+        <Loading className="mt-10" />
       ) : (
         <ul className="mt-3 px-4 space-y-3">
           {communities.length === 0 ? (

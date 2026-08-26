@@ -28,6 +28,7 @@ import { canSeePhone } from "../../utils/contactVisibility.js";
 import MessageButton from "../../components/MessageButton.jsx";
 import { writeError } from "../../utils/writeError.js";
 import { logger } from "../../utils/logger.js";
+import Loading from "../../components/Loading.jsx";
 
 /**
  * Step two of collecting a book on the way out of a community: the code.
@@ -325,7 +326,7 @@ export default function ReturnBook({ mode = "leave" }) {
   if (loading) {
     return (
       <MobileShell withNav={false}>
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       </MobileShell>
     );
   }

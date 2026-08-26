@@ -7,6 +7,7 @@ import { listBorrowingsForUser, toMillis } from "../../firebase/firestore.js";
 import { cacheService } from "../../utils/cacheService.js";
 import { t } from "../../utils/i18n.js";
 import { formatDate } from "../../utils/time.js";
+import Loading from "../../components/Loading.jsx";
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes (completed books change less frequently)
 
@@ -87,7 +88,7 @@ export default function CompletedBooks() {
       </div>
 
       {loading ? (
-        <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
+        <Loading className="mt-10" />
       ) : items.length === 0 ? (
         <EmptyState title={t.noCompletedBooksTitle} subtitle={t.noCompletedBooksSubtitle} />
       ) : (

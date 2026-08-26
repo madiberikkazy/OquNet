@@ -15,6 +15,7 @@ import { canSeePhone } from "../../utils/contactVisibility.js";
 import MessageButton from "../../components/MessageButton.jsx";
 import { writeError } from "../../utils/writeError.js";
 import { logger } from "../../utils/logger.js";
+import Loading from "../../components/Loading.jsx";
 
 /**
  * Handing a book back to its owner — the holder's half of the handshake.
@@ -173,7 +174,7 @@ export default function ReturnToOwner() {
   if (loading) {
     return (
       <MobileShell withNav={false}>
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       </MobileShell>
     );
   }

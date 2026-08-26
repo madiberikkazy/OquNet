@@ -25,6 +25,7 @@ import { checkCommunityExit, exitBlockMessage } from "../../utils/communityExit.
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 import { writeError } from "../../utils/writeError.js";
+import Loading from "../../components/Loading.jsx";
 
 // The two notifications that ask their reader for a decision rather than
 // telling them something. Both name the request they are about.
@@ -312,7 +313,7 @@ export default function NotificationDetail() {
   if (loading) {
     return (
       <MobileShell withNav={false}>
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       </MobileShell>
     );
   }

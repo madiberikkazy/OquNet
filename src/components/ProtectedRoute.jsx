@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import { t } from "../utils/i18n.js";
+import Loading from "./Loading.jsx";
 
 /**
  * Gates a subtree of routes behind authentication.
@@ -16,8 +17,8 @@ export default function ProtectedRoute({ adminOnly = false }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-ink-500">
-        {t.loading}
+      <div className="min-h-screen flex items-center justify-center">
+        <Loading />
       </div>
     );
   }

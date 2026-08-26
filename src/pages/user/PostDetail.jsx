@@ -18,6 +18,7 @@ import { track } from "../../utils/analytics.js";
 import { writeError } from "../../utils/writeError.js";
 import { formatPostStamp } from "../../utils/time.js";
 import { t } from "../../utils/i18n.js";
+import Loading from "../../components/Loading.jsx";
 
 /**
  * One post and its replies.
@@ -191,7 +192,7 @@ export default function PostDetail() {
     return (
       <MobileShell withNav={false}>
         <Header onBack={() => navigate(-1)} />
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       </MobileShell>
     );
   }

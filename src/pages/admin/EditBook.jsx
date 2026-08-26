@@ -9,6 +9,7 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { t, GENRES, BOOK_LANGUAGES } from "../../utils/i18n.js";
 import { PAGE_BANDS, isPageBand, loanDaysForPages, pagesForBook } from "../../utils/bookPages.js";
 import { isBookLanguage } from "../../utils/validators.js";
+import Loading from "../../components/Loading.jsx";
 
 export default function EditBook() {
   const { id }        = useParams();
@@ -123,7 +124,7 @@ export default function EditBook() {
   if (loading) {
     return (
       <MobileShell withNav={false}>
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       </MobileShell>
     );
   }

@@ -20,6 +20,7 @@ import { dayStamp, formatClock, formatDayLabel, formatLastSeen, toMillis } from 
 import { t } from "../../utils/i18n.js";
 import { writeError } from "../../utils/writeError.js";
 import { LIMITS } from "../../utils/validators.js";
+import Loading from "../../components/Loading.jsx";
 
 /**
  * One conversation.
@@ -343,7 +344,7 @@ export default function Chat() {
       >
         <div className="w-full mx-auto sm:max-w-xl lg:max-w-2xl px-4 py-4">
           {!loaded ? (
-            <p className="py-12 text-center text-ink-500 text-[14px]">{t.loading}</p>
+            <Loading />
           ) : messages.length === 0 ? (
             <div className="py-16 text-center">
               <p className="font-medium text-ink-600">

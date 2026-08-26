@@ -11,6 +11,7 @@ import { t } from "../../utils/i18n.js";
 import { formatDate } from "../../utils/time.js";
 import { logger } from "../../utils/logger.js";
 import { invalidateHolderCaches } from "../../lib/bookCaches.js";
+import Loading from "../../components/Loading.jsx";
 
 export default function ReadingNow() {
   const { user } = useAuth();
@@ -114,7 +115,7 @@ export default function ReadingNow() {
       </div>
 
       {loading ? (
-        <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
+        <Loading className="mt-10" />
       ) : !borrowing ? (
         <EmptyState title={t.noReadingBook} subtitle={t.openLibraryHint} />
       ) : (

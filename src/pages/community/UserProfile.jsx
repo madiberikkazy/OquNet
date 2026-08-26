@@ -15,6 +15,7 @@ import { getBook } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { useMemberProfile, EMPTY_LISTS } from "../../utils/useMemberProfile.js";
 import { t } from "../../utils/i18n.js";
+import Loading from "../../components/Loading.jsx";
 
 /**
  * Another member's profile — the same screen as the reader's own, seen from
@@ -81,7 +82,7 @@ export default function UserProfile() {
   }
 
   if (memberQuery.isLoading) {
-    return <MobileShell><p className="px-6 py-12 text-center text-ink-500">{t.loading}</p></MobileShell>;
+    return <MobileShell><Loading /></MobileShell>;
   }
   if (!member) {
     return (

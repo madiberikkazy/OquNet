@@ -14,6 +14,7 @@ import { trackScreen } from "./utils/analytics.js";
 import Register from "./pages/auth/Register.jsx";
 import Login from "./pages/auth/Login.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import Loading from "./components/Loading.jsx";
 
 // Lazy: everything behind the gate. Each becomes its own chunk, fetched the
 // first time its route renders. The two book-editing screens matter most here —
@@ -85,8 +86,8 @@ const FollowList         = lazyRoute(() => import("./pages/user/FollowList.jsx")
 // swap between two different spinners while it resolves.
 function RouteFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center text-ink-500">
-      {t.loading}
+    <div className="min-h-screen flex items-center justify-center">
+      <Loading />
     </div>
   );
 }

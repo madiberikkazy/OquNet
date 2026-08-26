@@ -6,6 +6,7 @@ import { useAuth } from "../../../contexts/AuthContext.jsx";
 import { auth, isFirebaseConfigured } from "../../../firebase/config.js";
 import { checkCommunityExit, exitBlockMessage } from "../../../utils/communityExit.js";
 import { t } from "../../../utils/i18n.js";
+import Loading from "../../../components/Loading.jsx";
 
 /**
  * Удалить аккаунт.
@@ -75,7 +76,7 @@ export default function DeleteAccount() {
         </div>
 
         {checking ? (
-          <p className="text-[13px] text-ink-500">{t.loading}</p>
+          <Loading size={64} className="py-4" />
         ) : blocked ? (
           <>
             <p className="text-[14px] text-ink-700 leading-relaxed">{blocked}</p>

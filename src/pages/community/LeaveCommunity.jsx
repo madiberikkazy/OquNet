@@ -33,6 +33,7 @@ import {
   EXIT_BLOCK, booksHeldFromOthers, evaluateExit, exitBlockMessage, loadExitBooks,
 } from "../../utils/communityExit.js";
 import { useLeaveCommunity } from "../../utils/useLeaveCommunity.js";
+import Loading from "../../components/Loading.jsx";
 
 // A stable identity, so `allBooks` does not change on every render while the
 // query is still loading and retrigger the memos below it.
@@ -581,7 +582,7 @@ export default function LeaveCommunity() {
       )}
 
       {booksQuery.isLoading ? (
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       ) : rows.length === 0 && heldRows.length === 0 ? (
         <p className="px-6 py-10 text-center text-ink-500">{t.leaveNoBooks}</p>
       ) : (

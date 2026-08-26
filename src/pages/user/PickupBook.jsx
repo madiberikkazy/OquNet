@@ -34,6 +34,7 @@ import { formatDate } from "../../utils/time.js";
 import MessageButton from "../../components/MessageButton.jsx";
 import { logger } from "../../utils/logger.js";
 import { attempt, retryAfterSeconds } from "../../utils/rateLimit.js";
+import Loading from "../../components/Loading.jsx";
 
 // A pickup that nobody acts on stops blocking the book after three days —
 // the same window the screen promises in its footer note.
@@ -516,7 +517,7 @@ export default function PickupBook() {
   if (loading || !book) {
     return (
       <MobileShell withNav={false}>
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       </MobileShell>
     );
   }

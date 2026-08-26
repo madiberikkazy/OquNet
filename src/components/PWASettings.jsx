@@ -7,6 +7,7 @@ import {
   requestPersistentStorage,
 } from '../utils/pwaUtils.js';
 import { t } from '../utils/i18n.js';
+import Loading from "./Loading.jsx";
 
 export default function PWASettings() {
   const [pwaInfo, setPwaInfo] = useState(null);
@@ -78,7 +79,7 @@ export default function PWASettings() {
   }
 
   if (loading) {
-    return <div className="px-4 py-8 text-center text-ink-500">{t.loading}</div>;
+    return <Loading className="py-8" />;
   }
 
   if (!pwaInfo) {

@@ -7,6 +7,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { getBooksByIds, updateUser } from "../../firebase/firestore.js";
 import { cacheService } from "../../utils/cacheService.js";
 import { t } from "../../utils/i18n.js";
+import Loading from "../../components/Loading.jsx";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -80,7 +81,7 @@ export default function SavedBooks() {
       </div>
 
       {loading ? (
-        <p className="text-center text-ink-400 text-[14px] mt-10">{t.loading}</p>
+        <Loading className="mt-10" />
       ) : books.length === 0 ? (
         <EmptyState title={t.noSavedBooksTitle} subtitle={t.noSavedBooksSubtitle} />
       ) : (

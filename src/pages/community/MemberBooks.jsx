@@ -6,6 +6,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useMemberProfile, EMPTY_LISTS } from "../../utils/useMemberProfile.js";
 import { peerName } from "../../utils/chatPeer.js";
 import { t } from "../../utils/i18n.js";
+import Loading from "../../components/Loading.jsx";
 
 /** The three counters on a member's profile, and what each one opens. */
 const KINDS = Object.freeze({
@@ -56,7 +57,7 @@ export default function MemberBooks() {
       </div>
 
       {memberQuery.isLoading ? (
-        <p className="px-6 py-12 text-center text-ink-500">{t.loading}</p>
+        <Loading />
       ) : !member || !spec ? (
         <EmptyState title={t.userNotFound} subtitle={t.userNotFoundHint} />
       ) : !sameCommunity ? (

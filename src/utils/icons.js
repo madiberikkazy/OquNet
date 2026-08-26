@@ -37,6 +37,13 @@ export const leftBookIcon      = "/drawable/left_book.svg";
 export const rightBookIcon     = "/drawable/right_book.svg";
 /** The app mark itself — a full-bleed tile, so it carries its own background. */
 export const logoIcon          = "/drawable/logo.svg";
+/**
+ * The animation a screen shows while it is waiting — see components/Loading.jsx.
+ *
+ * Transparent, and animated by size rather than by fading, so the one file
+ * works on both themes. Overwrite it to change every loading state in the app.
+ */
+export const loadingIcon       = "/drawable/book_loading.gif";
 
 // ─── Bottom navigation ────────────────────────────────────────────────────────
 //
