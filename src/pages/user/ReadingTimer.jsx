@@ -12,6 +12,7 @@ import {
   dayKey, formatDuration,
 } from "../../utils/readingProgress.js";
 import { playTimerSound, primeTimerSound, stopTimerSound } from "../../utils/notificationService.js";
+import { clearRun, mergeRun, readActiveRun, writeRun } from "../../utils/readingRun.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 
@@ -31,32 +32,42 @@ export default function ReadingTimer() {
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
 
-  const durationMinutes = clampRequestedMinutes(params.get("minutes"));
+  // The run already in progress, if there is one. Read once, on mount: this
+  // screen is a *view* of that run, and re-reading the store underneath itself
+  // would be the screen arguing with the state it is driving.
+  const [restored] = useState(() => readActiveRun(user?.id));
+
+  // A live run owns its own length and its own book. The URL is how a *new* run
+  // is asked for, and it is only consulted when there is nothing to resume —
+  // otherwise arriving back at this screen without the query string (which is
+  // exactly how a resume arrives) would silently reshape a sitting already
+  // under way, or move its minutes to a different book.
+  const durationMinutes = clampRequestedMinutes(restored?.minutes ?? params.get("minutes"));
   const durationMs = durationMinutes * 60_000;
   // Which book the reader is sitting down with, handed over by the profile so
   // this screen does not spend a read re-deriving what the caller already knew.
   // Recorded on the session row and nothing else — it names a book, it does not
   // grant anything, so an edited URL only mislabels the reader's own log.
-  const activeBookId = params.get("book") || null;
+  const activeBookId = restored ? (restored.bookId ?? null) : (params.get("book") || null);
 
   // `startedAt` is when the current running stretch began; `bankedMs` is
   // everything from the stretches before it. Pausing moves one into the other,
   // which is what makes pause-and-resume exact rather than approximate.
-  const [startedAt, setStartedAt] = useState(null);
-  const [bankedMs, setBankedMs] = useState(0);
+  const [startedAt, setStartedAt] = useState(restored?.startedAt ?? null);
+  const [bankedMs, setBankedMs] = useState(restored?.bankedMs ?? 0);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [finished, setFinished] = useState(false);
+  const [finished, setFinished] = useState(Boolean(restored?.finished));
   const [error, setError] = useState("");
 
   // When the whole run began — the session's `startedAt`, which is not the same
   // as the current stretch's and survives every pause.
-  const runStartRef = useRef(null);
+  const runStartRef = useRef(restored?.runStartedAt ?? null);
   // How much of this run has already been written down, and where the next
   // unwritten stretch starts. A run is no longer logged once at the end: it is
   // banked as it goes, and these two are what keep repeated commits from
   // double-counting or losing the gap between them.
-  const committedMsRef = useRef(0);
-  const segmentStartRef = useRef(null);
+  const committedMsRef = useRef(restored?.committedMs ?? 0);
+  const segmentStartRef = useRef(restored?.segmentStartedAt ?? null);
 
   const running = startedAt != null;
   const elapsedMs = Math.min(durationMs, bankedMs + (running ? Math.max(0, nowMs - startedAt) : 0));
@@ -115,6 +126,9 @@ export default function ReadingTimer() {
         readingDays: user.readingDays || {},
       });
       segmentStartRef.current = endedAt;
+      // The stored run has to learn this too, or a resume would re-offer
+      // seconds that are already in the log and count them twice.
+      mergeRun({ committedMs: committedMsRef.current, segmentStartedAt: endedAt });
       // The profile's weekly chart reads straight off auth state, so it has to
       // learn the new total here — a refetch would repaint it a second later, and
       // the screen the reader lands on after Stop is exactly that chart.
@@ -128,6 +142,7 @@ export default function ReadingTimer() {
       // Hand the seconds back so the next commit tries them again rather than
       // swallowing the sitting.
       committedMsRef.current -= seconds * 1000;
+      mergeRun({ committedMs: committedMsRef.current });
       logger.error("reading.commit", err?.message, { code: err?.code });
       setError(t.readingSaveFailed);
       return null;
@@ -140,8 +155,15 @@ export default function ReadingTimer() {
     setBankedMs(durationMs);
     setStartedAt(null);
     setFinished(true);
+    mergeRun({ bankedMs: durationMs, startedAt: null, finished: true });
     playTimerSound();
-    commit(durationMs);
+    // Banked, and then taken out of the store, because a run that reached its
+    // length is over. It is marked finished first and cleared second so that a
+    // run which ran out while the reader was elsewhere still commits its last
+    // stretch when they come back to it — without the clear, that spent run
+    // would be restored over the top of the next fresh one the reader asked
+    // for, and Play would open on somebody else's finished clock.
+    commit(durationMs).finally(() => clearRun());
   }, [running, remainingMs, durationMs, commit]);
 
   // Whatever is still playing stops when the reader leaves.
@@ -149,6 +171,11 @@ export default function ReadingTimer() {
 
   // Leaving mid-run records what was read rather than discarding it. Reading for
   // twenty minutes and then hitting Back is not a reason to lose twenty minutes.
+  //
+  // It banks; it does not stop. The run stays in the store and its clock keeps
+  // running off the wall clock, so coming back picks the sitting up where it
+  // actually is rather than where it was abandoned. Only Stop and Reset end a
+  // run, which is the only place ending one was ever asked for.
   //
   // Both the elapsed time and the commit function are held in refs so the
   // unmount effect can stay `[]`-dependent: given the real dependencies it would
@@ -188,6 +215,7 @@ export default function ReadingTimer() {
     if (running) {
       setBankedMs(elapsedMs);
       setStartedAt(null);
+      mergeRun({ bankedMs: elapsedMs, startedAt: null });
       return;
     }
     if (finished) return;
@@ -195,10 +223,30 @@ export default function ReadingTimer() {
     // and there is no gesture left when the run ends by itself.
     primeTimerSound();
     const now = Date.now();
-    if (runStartRef.current == null) runStartRef.current = now;
+    const isNewRun = runStartRef.current == null;
+    if (isNewRun) runStartRef.current = now;
     if (segmentStartRef.current == null) segmentStartRef.current = now;
     setNowMs(now);
     setStartedAt(now);
+
+    // The first Play is what brings a run into existence — opening this screen
+    // and looking at it does not, or backing out of a timer never started would
+    // leave one behind for the profile to offer.
+    if (isNewRun) {
+      writeRun({
+        userId: user?.id ?? null,
+        minutes: durationMinutes,
+        bookId: activeBookId,
+        runStartedAt: now,
+        segmentStartedAt: segmentStartRef.current,
+        committedMs: committedMsRef.current,
+        bankedMs,
+        startedAt: now,
+        finished: false,
+      });
+    } else {
+      mergeRun({ startedAt: now, segmentStartedAt: segmentStartRef.current });
+    }
   }
 
   function reset() {
@@ -210,13 +258,22 @@ export default function ReadingTimer() {
     runStartRef.current = null;
     segmentStartRef.current = null;
     committedMsRef.current = 0;
+    // Nothing to come back to. What was already written down stays written —
+    // Reset clears the clock, not the log.
+    clearRun();
   }
 
   async function stop() {
     stopTimerSound();
     setStartedAt(null);
     setBankedMs(elapsedMs);
+    mergeRun({ bankedMs: elapsedMs, startedAt: null });
+    // Banked first so the commit below writes against a stored run that is
+    // already up to date, then cleared: Stop is the reader saying the sitting
+    // is over, and a run left behind after it would be offered back to them on
+    // the profile as though they had only wandered off.
     await commit(elapsedMs);
+    clearRun();
     navigate("/profile");
   }
 
