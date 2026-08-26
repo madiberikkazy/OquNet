@@ -14,6 +14,7 @@ import { useAuth } from "../../contexts/AuthContext.jsx";
 import { getBook } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { useMemberProfile, EMPTY_LISTS } from "../../utils/useMemberProfile.js";
+import { useProfileShare } from "../../utils/useProfileShare.js";
 import { t } from "../../utils/i18n.js";
 import Loading from "../../components/Loading.jsx";
 
@@ -44,6 +45,9 @@ export default function UserProfile() {
   const queryClient = useQueryClient();
 
   const memberQuery = useMemberProfile(id, viewer);
+  // Sharing moved off the name row and into the corner menu, so this screen
+  // owns the action rather than the header — see the menu below.
+  const { share, copied } = useProfileShare(memberQuery.data?.user ?? null);
 
   const member = memberQuery.data?.user ?? null;
   const community = memberQuery.data?.community ?? null;
@@ -106,21 +110,27 @@ export default function UserProfile() {
         user={member}
         onBack={() => navigate(-1)}
         postsCount={lists.posts.length}
-        // Where they read. It used to be a chip beside "Время чтения", which
-        // put a community's name in the middle of a section about hours — and
-        // on the reader's own profile the same chip said what the button under
-        // their own name now says. So it moves to the corner: the one thing
-        // about this person that is a *place* you can go to, in the slot that
-        // holds "what else can I do here" on every other screen.
-        menu={community ? (
+        // Everything about this person that is neither "follow" nor "write to
+        // them", in the corner that holds settings on the reader's own profile.
+        //
+        // Where they read: it used to be a chip beside "Время чтения", which put
+        // a community's name in the middle of a section about hours. Sharing:
+        // it used to be a 32px icon wedged against the end of their name, where
+        // it competed with the name for the one place the eye lands first and
+        // won often enough to be a nuisance. Neither is a *primary* action on
+        // somebody else's profile, and this is where the secondary ones live.
+        menu={
           <KebabMenu
             triggerClassName="w-10 h-10 rounded-xl bg-white/15 text-white"
-            items={[{
-              label: community.name,
-              onClick: () => navigate(`/community/${community.id}`),
-            }]}
+            items={[
+              ...(community ? [{
+                label: community.name,
+                onClick: () => navigate(`/community/${community.id}`),
+              }] : []),
+              { label: t.shareProfile, onClick: share },
+            ]}
           />
-        ) : null}
+        }
         badge={
           member.role === "admin"
             ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span>
@@ -142,6 +152,21 @@ export default function UserProfile() {
           </div>
         }
       />
+
+      {/* Picking the share row closes the menu, so the confirmation cannot live
+          on the row that caused it. On a phone this never appears — the OS
+          share sheet is the feedback — but on a desktop the whole of "share" is
+          a silent clipboard write, and a control that appears to do nothing is
+          the thing this is here to prevent. */}
+      {copied ? (
+        <div
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 rounded-full bg-ink-900 px-4 py-2 text-[13px] font-medium shadow-soft"
+          style={{ color: "var(--bg-base)" }}
+          role="status"
+        >
+          {t.linkCopied}
+        </div>
+      ) : null}
 
       {/* The counters and the book in their hands are their community's business,
           so both sit behind the same gate the shelves do. */}

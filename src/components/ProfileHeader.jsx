@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Avatar from "./Avatar.jsx";
 import AppIcon from "./AppIcon.jsx";
 import { leftBookIcon, rightBookIcon } from "../utils/icons.js";
 import { safeImageUrl } from "../utils/validators.js";
+import { useProfileShare } from "../utils/useProfileShare.js";
 import { logger } from "../utils/logger.js";
 import { t } from "../utils/i18n.js";
 
@@ -30,13 +31,6 @@ const PILE_INSET = 92;
 
 export default function ProfileHeader({
   user, showSettings = false, onBack, badge, action = null, postsCount = null,
-  /**
-   * The small share icon beside the name. Off on the reader's own profile,
-   * where the action row below already carries sharing as a full button — one
-   * screen offering the same act twice, once as a 32px icon and once as a
-   * labelled button, is clutter rather than convenience.
-   */
-  showShareIcon = true,
   /**
    * The banner's top-right corner on a profile that is not the reader's own.
    * Settings lives there on their own profile; on somebody else's, the corner
@@ -176,8 +170,12 @@ export default function ProfileHeader({
         ) : null}
 
         <div className="flex items-center gap-2 mt-3">
+          {/* The name, and nothing beside it. There used to be a share icon
+              here on both profiles; sharing is a full button in the action row
+              on the reader's own and a row in the corner menu on somebody
+              else's, and a 32px icon wedged against the end of a name competed
+              with the name for the first place the eye lands. */}
           <h2 className="font-bold text-[22px] text-center">{fullName || `@${user?.nickname ?? ""}`}</h2>
-          {showShareIcon ? <ShareProfileButton user={user} /> : null}
         </div>
 
         {user?.nickname ? <p className="text-ink-500 text-[14px]">@{user.nickname}</p> : null}
@@ -245,67 +243,6 @@ function ProfileCount({ to, value, label }) {
     <Link to={to} className={className + " transition active:scale-[0.97]"}>
       {inner}
     </Link>
-  );
-}
-
-/**
- * Share the profile — the action, without the button around it.
- *
- * `navigator.share` where it exists — on a phone that is the whole point, since
- * it opens the OS sheet the reader already knows. Everywhere else the link goes
- * to the clipboard and the caller says so for a moment, because a share button
- * that appears to do nothing is worse than no share button.
- *
- * A hook rather than one component because the same act is now drawn two ways:
- * an icon beside the name on somebody else's profile, and a full-width button
- * on your own, where it stands in the place a message button would. Two buttons
- * are a styling question; sharing is one behaviour, and copying it into both
- * would be two places for the clipboard fallback to drift apart.
- */
-function useProfileShare(user) {
-  const [copied, setCopied] = useState(false);
-
-  const share = useCallback(async () => {
-    if (!user?.id) return;
-    const url = `${window.location.origin}/users/${user.id}`;
-    const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || `@${user.nickname ?? ""}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: name, text: t.shareProfileText(name), url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch (err) {
-      // A cancelled share sheet rejects exactly like a failure does, and it is
-      // by far the more common of the two — so this is logged, never surfaced.
-      logger.warn("profile.share", err?.message);
-    }
-  }, [user]);
-
-  return { share, copied };
-}
-
-/** The icon beside the name. */
-function ShareProfileButton({ user }) {
-  const { share, copied } = useProfileShare(user);
-  if (!user?.id) return null;
-
-  return (
-    <button onClick={share} className="profile-action relative" aria-label={t.shareProfile}>
-      <AppIcon name="shareProfile" size={18} />
-      {/* Colour set inline: Tailwind's own `text-base` is a font size, so the
-          `base` surface token cannot be reached through a text utility. */}
-      {copied ? (
-        <span
-          className="absolute top-full mt-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink-900 px-2 py-1 text-[11px] font-medium"
-          style={{ color: "var(--bg-base)" }}
-        >
-          {t.linkCopied}
-        </span>
-      ) : null}
-    </button>
   );
 }
 

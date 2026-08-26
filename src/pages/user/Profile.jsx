@@ -125,9 +125,6 @@ export default function Profile() {
         showSettings
         postsCount={statsQuery.data?.postsCount ?? null}
         badge={isAdmin ? <span className="mt-2 pill bg-brand-50 text-brand-700">{t.communityAdmin}</span> : null}
-        // Sharing is a full button in the row below now, so the icon by the
-        // name would be the second one on the same screen.
-        showShareIcon={false}
         // The same row somebody else's profile draws, with the two halves that
         // only make sense about a stranger swapped for the two that make sense
         // about yourself: you cannot follow or message yourself, but where you
