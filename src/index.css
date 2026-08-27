@@ -63,12 +63,9 @@
      look through. 0.72 is where iOS sits: solid enough to read a title
      against, sheer enough that you can see the content move underneath. */
   --bg-glass: rgba(255, 255, 255, 0.72);
-  /* The floating tab bar and the bead of glass that rides on it. */
-  --nav-glass:       rgba(255, 255, 255, 0.62);
-  --nav-glass-solid: #F4F6FA;
-  --nav-glass-rim:   rgba(255, 255, 255, 0.9);
-  --lens-fill:       rgba(255, 255, 255, 0.28);
-  --lens-fill-solid: rgba(40, 83, 175, 0.12);
+  /* The floating tab bar the lens rides on. */
+  --nav-surface: #F1F4F9;
+  --nav-rim:     rgba(255, 255, 255, 0.9);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -103,11 +100,8 @@
 
   /* Same material in the dark. */
   --bg-glass: rgba(13, 20, 32, 0.72);
-  --nav-glass:       rgba(28, 34, 46, 0.60);
-  --nav-glass-solid: #1B2230;
-  --nav-glass-rim:   rgba(255, 255, 255, 0.14);
-  --lens-fill:       rgba(255, 255, 255, 0.10);
-  --lens-fill-solid: rgba(255, 255, 255, 0.12);
+  --nav-surface: #1B2230;
+  --nav-rim:     rgba(255, 255, 255, 0.14);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -151,97 +145,28 @@
     .app-glass { background: var(--bg-base); }
   }
 
-  /* ── The tab bar, as a floating pane of glass ──────────────────────────────
-     A pill that hovers over the page rather than a strip welded to the bottom
-     of it, which is the whole difference: the list scrolls *past* it on both
-     sides, and the page's own colour is what the glass is tinted by.
+  /* ── The tab bar ───────────────────────────────────────────────────────────
+     The surface the lens refracts, and the reason it is opaque.
 
-     Heavier blur than `.app-glass` and a brighter tint, because this one has to
-     be legible while a photograph slides under it — a book cover passing behind
-     four labels at 11px is the case that decides the numbers here. */
-  .nav-glass {
-    background: var(--nav-glass);
-    -webkit-backdrop-filter: saturate(170%) blur(22px);
-    backdrop-filter: saturate(170%) blur(22px);
+     `liquid-glass-web-react` bends the pixels of its own children with an SVG
+     displacement map. Where those children are transparent there is nothing to
+     bend, and the map — a flat neutral-grey bitmap — composites through instead:
+     a grey disc sitting on the bar, obvious on a light theme and merely muddy
+     on a dark one. A translucent frosted bar cannot be the thing a lens like
+     this refracts.
+
+     So the bar is painted rather than frosted. That is also what the iOS bar
+     being copied here looks like: a solid pill floating over the page, not a
+     window onto it. Nothing is lost that was load-bearing — the page still
+     scrolls past on both sides and under both ends.
+
+     The rim is an inset hairline rather than a border, so it stays inside the
+     radius and does not get bent by the lens passing over it. */
+  .nav-surface {
+    background: var(--nav-surface);
     box-shadow:
       0 8px 30px rgba(0, 0, 0, 0.18),
-      inset 0 1px 0 var(--nav-glass-rim);
-  }
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .nav-glass { background: var(--nav-glass-solid); }
-  }
-
-  /* ── The lens ──────────────────────────────────────────────────────────────
-     The bead of glass that sits over the selected tab and slides between them.
-
-     It is drawn *over* the tabs, not behind: the point of it is that the icon
-     and the label are seen through the glass, brightened and pulled about at
-     the edges, which is only true if there is glass in front of them. Behind
-     them it would just be a highlight, which is what every other tab bar has.
-
-     Three layers, and each is doing one job that the others cannot:
-
-       · the element itself refracts — `backdrop-filter` brightens and saturates
-         what is underneath, which is what makes it read as a lens rather than a
-         tinted patch;
-       · `::before` is the rim, a hairline of conic rainbow masked to the border
-         box. Real glass splits white light at a curved edge, and that fringe is
-         the single detail that separates "glass" from "frosted plastic" — it is
-         also why the ring is a *gradient* of hues rather than one colour;
-       · `::after` is the specular: bright where a light above and to the left
-         would catch the curve, faint where it wraps round the bottom.
-
-     `pointer-events: none` throughout — it is a reflection, and taps belong to
-     the tab underneath it. */
-  .nav-lens {
-    position: absolute;
-    top: 50%;
-    left: 0;
-    pointer-events: none;
-    border-radius: 46% / 50%;
-    background: var(--lens-fill);
-    -webkit-backdrop-filter: brightness(1.14) saturate(1.55) contrast(1.04);
-    backdrop-filter: brightness(1.14) saturate(1.55) contrast(1.04);
-  }
-  .nav-lens::before,
-  .nav-lens::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-  }
-  .nav-lens::before {
-    padding: 1.5px;
-    background: conic-gradient(
-      from 200deg,
-      #ff5f6d, #ffc371, #4ade80, #38bdf8, #a78bfa, #ff5f6d
-    );
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    opacity: 0.75;
-  }
-  .nav-lens::after {
-    background:
-      linear-gradient(155deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 42%),
-      linear-gradient(335deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 38%);
-  }
-
-  /* Nothing to see through means nothing to refract, so the lens stops
-     pretending and becomes the plain selected-tab pill it is standing in for. */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .nav-lens { background: var(--lens-fill-solid); }
-    .nav-lens::before { opacity: 0.35; }
-  }
-
-  /* Reduced motion is handled in BottomNav.jsx, where the travel actually
-     lives: it is a keyframed animation rather than a transition, so there is no
-     transition here for a media query to shorten. What is left to calm is the
-     drag, which follows a finger and should not lag behind one. */
-  @media (prefers-reduced-motion: reduce) {
-    .nav-lens { transition-duration: 0ms !important; }
+      inset 0 1px 0 var(--nav-rim);
   }
 
   /* The acrylic pane across the front of a genre tile — the sheet a shop's

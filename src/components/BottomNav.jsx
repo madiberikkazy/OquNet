@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { LiquidGlass } from "liquid-glass-web-react";
 import { useLang } from "../contexts/LanguageContext.jsx";
 import { useChats } from "../contexts/ChatContext.jsx";
 import { useNotifications } from "../contexts/NotificationContext.jsx";
@@ -7,57 +8,76 @@ import { navIconSrc } from "../utils/icons.js";
 import { t } from "../utils/i18n.js";
 
 /**
- * The four tabs, under a bead of glass.
+ * The four tabs, under a lens of liquid glass.
  *
  * The icons are files under public/drawable, two per tab — one for the selected
  * state and one for the rest — rather than inline SVG tinted by `currentColor`.
  * Artwork stops being code: replacing an icon everywhere is overwriting one
  * file, and a selected tab is free to be a different drawing rather than the
- * same drawing in a different colour. The label keeps its colour from the
- * theme, so the two halves of a tab still agree without the icon knowing
- * anything about the palette.
+ * same drawing in a different colour.
  *
  * ── The lens ────────────────────────────────────────────────────────────────
- * What marks the selected tab is a lens that slides, and the two words are both
- * load-bearing.
+ * `liquid-glass-web-react` does the optics, and the reason to take a dependency
+ * for this rather than write it is that the effect is not a *look*, it is a
+ * simulation. What Apple's glass actually does is refract: a displacement map
+ * bends the pixels underneath, harder near the rim than at the centre, with the
+ * red, green and blue channels bent by slightly different amounts so the edge
+ * splits into colour the way a real lens does. CSS cannot express any of that.
+ * `backdrop-filter` can blur, brighten and saturate a backdrop, and the result
+ * looks like frosted plastic laid on top — which is what the first attempt at
+ * this was, and it is why it read as wrong however the numbers were tuned.
  *
- * *Lens*, because it is drawn over the tabs rather than behind them. A pill
- * behind the icon is a highlight; glass in front of it refracts what it covers,
- * and that is the effect being copied here — the icon brightens and the label
- * goes soft under the rim. See `.nav-lens` in index.css for how the three
- * layers build that up.
+ * The library builds an SVG `feDisplacementMap` chain over the live DOM — three
+ * displacement passes, one per channel, plus a baked specular highlight — and
+ * applies it with `filter` on the content rather than `backdrop-filter` behind
+ * it, which is also what makes it work in Safari, where `backdrop-filter:
+ * url()` does not exist at all.
  *
- * *Slides*, because the movement carries the meaning. Selection is a thing that
- * travelled from one tab to another, and a highlight that blinks out here and
- * on again there makes the reader find it twice. It overshoots very slightly
- * and stretches along the way — a blob of liquid does both, and the stretch is
- * what stops a fast tap across three tabs looking like a teleport.
+ * So the tabs are its children: the lens refracts them, and they stay live —
+ * still links, still tappable, still readable by a screen reader.
  *
- * ── Dragging ────────────────────────────────────────────────────────────────
- * The lens can also be dragged. It is a small thing to implement and it is what
- * makes the bar feel like an object rather than four buttons: the glass follows
- * the finger, and lets go onto whichever tab it is nearest.
+ * ── Movement ────────────────────────────────────────────────────────────────
+ * Position is driven imperatively through the engine handle rather than by
+ * re-rendering with a new `x`. That is the library's own advice and it is the
+ * difference between one composited filter update and a React render per frame.
  *
- * Deliberately scoped to the bar itself and not to the page. A horizontal swipe
- * anywhere on a screen would fight the shelf rails and the coverflow, which
- * scroll sideways on purpose; here there is nothing to fight.
+ * The lens can also be dragged along the bar, which is what makes it feel like
+ * an object rather than four buttons. Deliberately scoped to the bar and not to
+ * the page: a horizontal swipe anywhere on a screen would fight the shelf rails
+ * and the coverflow, which scroll sideways on purpose.
  */
+
 /**
  * Where the lens was last left, in tab units.
  *
  * Module level, and it has to be: every screen renders its own MobileShell, so
  * every navigation tears this component down and builds a new one. A position
  * held in state would be born equal to the tab that was just opened, the lens
- * would be painted at its destination on the very first frame, and there would
- * be nothing left to animate — which is exactly what it did before this
- * existed. Kept out here, a fresh tab bar knows where the old one's lens was
- * and can travel from it.
+ * would be drawn at its destination on the very first frame, and there would be
+ * nothing left to animate. Kept out here, a fresh tab bar knows where the old
+ * one's lens was and can travel from it.
  */
 let lastLensIndex = 0;
+/**
+ * False until the first tab bar of the session has mounted.
+ *
+ * The very first one must not travel. `lastLensIndex` starts at zero, so
+ * opening the app straight onto Books — a deep link, a refresh, a shortcut —
+ * would otherwise slide the lens over from Home on load, animating a move that
+ * never happened.
+ */
+let lensPlaced = false;
 
 /** How long the lens takes to cross, and how far a finger must move to count. */
 const TRAVEL_MS = 420;
 const DRAG_SLOP = 6;
+
+/** Ease-out with a small overshoot — the settle a blob of liquid has. */
+function easeOutBack(x) {
+  const c1 = 1.15;
+  const c3 = c1 + 1;
+  return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
+}
 
 export default function BottomNav() {
   useLang(); // subscribe to language changes so labels re-render
@@ -79,6 +99,7 @@ export default function BottomNav() {
     { to: "/chats", icon: "chats", label: t.navChats, count: unreadTotal },
     { to: "/profile", icon: "profile", label: t.navProfile },
   ];
+  const tabs = items.length;
 
   // Which tab the lens belongs over. Read from the path rather than from a
   // click, so it is right after a back gesture, a redirect, or a link followed
@@ -92,52 +113,63 @@ export default function BottomNav() {
   const lensRef = useRef(null);
   // Set for the instant between a drag ending and the click it synthesises.
   const suppressClick = useRef(false);
-  // While a finger is down this is where the lens actually is, in tab units —
-  // 1.5 means "half way between Books and Chats". Null the rest of the time,
-  // when the lens simply belongs over `activeIndex`.
-  const [dragAt, setDragAt] = useState(null);
+  // Where the lens starts life, so the travel below has somewhere to come from.
+  // On the session's first bar that is wherever we already are, so it is simply
+  // drawn in place.
+  const [startIndex] = useState(() => {
+    if (!lensPlaced) { lensPlaced = true; lastLensIndex = activeIndex; }
+    return lastLensIndex;
+  });
 
-  /**
-   * The travel, as one explicit animation rather than a CSS transition.
-   *
-   * A transition needs two painted values to interpolate between, and this
-   * component never has them: it is built fresh on every navigation, so its
-   * first frame is already the destination. The obvious repair — render the old
-   * position, wait a frame, then set the new one — turns out to rest on
-   * `requestAnimationFrame`, which does not run at all while the page is
-   * hidden. That leaves the lens stranded at the old tab until the reader comes
-   * back to the app, at which point it slides for no reason.
-   *
-   * Keyframes have no such dependency. Both ends are stated outright, the
-   * element's own style stays at the destination the whole time, and the
-   * compositor runs it. `fill` is not needed and not used: when the animation
-   * finishes the style underneath is already correct.
-   */
+  /** A tab index as the fraction of the bar's width the engine wants. */
+  const fractionFor = (index) => (index + 0.5) / tabs;
+
+  // The lens is sized in pixels, so the bar has to be measured. A
+  // ResizeObserver rather than a one-off read: the bar is as wide as the
+  // content column, which changes at the two breakpoints and on rotation.
+  const [size, setSize] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
-    const lens = lensRef.current;
+    const rail = railRef.current;
+    if (!rail) return undefined;
+    const measure = () => {
+      const box = rail.getBoundingClientRect();
+      setSize({ w: box.width, h: box.height });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, []);
+
+  // ── The travel ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handle = lensRef.current;
     const from = lastLensIndex;
     lastLensIndex = activeIndex;
-    if (!lens || from === activeIndex || typeof lens.animate !== "function") return;
+    if (!handle || from === activeIndex) return undefined;
+
     // Honour the OS switch. The lens still ends up on the right tab — it is the
-    // travel that is decoration, not the destination — it simply gets there
-    // without the overshoot and the stretch.
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    // travel that is decoration, not the destination.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      handle.setPosition(fractionFor(activeIndex), 0.5);
+      return undefined;
+    }
 
-    lens.animate(
-      [
-        // Stretched along the direction of travel and thinned across it, which
-        // is what a drop of liquid does when it is pulled — round again by the
-        // time it lands.
-        { transform: `translate3d(${from * 100}%, -50%, 0) scale(1, 1)` },
-        { transform: `translate3d(${(from + activeIndex) / 2 * 100}%, -50%, 0) scale(1.18, 0.92)`, offset: 0.45 },
-        { transform: `translate3d(${activeIndex * 100}%, -50%, 0) scale(1, 1)` },
-      ],
-      { duration: TRAVEL_MS, easing: "cubic-bezier(0.34, 1.42, 0.5, 1)" },
-    );
-  }, [activeIndex]);
+    let frame = 0;
+    let startedAt = null;
+    const step = (now) => {
+      if (startedAt === null) startedAt = now;
+      const progress = Math.min(1, (now - startedAt) / TRAVEL_MS);
+      const at = from + (activeIndex - from) * easeOutBack(progress);
+      handle.setPosition(fractionFor(at), 0.5);
+      if (progress < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, tabs]);
 
-  // Pointer capture, so a finger that slides off the bar mid-drag keeps being
-  // this element's finger rather than being handed to whatever is underneath.
+  // ── Dragging ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return undefined;
@@ -146,11 +178,11 @@ export default function BottomNav() {
     let moved = false;
     let downX = 0;
 
+    /** Where along the bar a clientX is, in tab units, clamped to the ends. */
     const positionOf = (clientX) => {
       const box = rail.getBoundingClientRect();
-      const unit = box.width / items.length;
-      const raw = (clientX - box.left) / unit - 0.5;
-      return Math.min(items.length - 1, Math.max(0, raw));
+      const raw = (clientX - box.left) / (box.width / tabs) - 0.5;
+      return Math.min(tabs - 1, Math.max(0, raw));
     };
 
     function onDown(e) {
@@ -167,33 +199,32 @@ export default function BottomNav() {
       // thumb before the tap it belongs to has even been decided.
       if (!moved && Math.abs(e.clientX - downX) < DRAG_SLOP) return;
       moved = true;
-      setDragAt(positionOf(e.clientX));
+      lensRef.current?.setPosition(fractionFor(positionOf(e.clientX)), 0.5);
     }
     function onUp(e) {
       if (!dragging) return;
       dragging = false;
-      const landed = Math.round(positionOf(e.clientX));
-      setDragAt(null);
       // A tap is left to the link underneath it. That is not laziness — it is
       // the only way Enter on a focused tab, a long-press "open in new tab" and
       // a screen reader's activation keep working, all three of which go
       // through the anchor and never through a pointer at all.
       if (!moved) return;
 
+      const landed = Math.round(positionOf(e.clientX));
+      lensRef.current?.setPosition(fractionFor(landed), 0.5);
       // A drag has already carried the lens to where it is going, so the tab
-      // bar that replaces this one should start there rather than flying back
-      // to where the gesture began and travelling again.
-      if (items[landed]) lastLensIndex = landed;
+      // bar that replaces this one starts there rather than flying back to
+      // where the gesture began and travelling again.
+      lastLensIndex = landed;
       // …and the click the browser is about to synthesise on whatever the
-      // finger came up over has to be swallowed, or a drag would navigate twice
-      // — once here, once to whichever tab happened to be under the release.
+      // finger came up over has to be swallowed, or a drag would navigate twice.
       suppressClick.current = true;
       if (items[landed] && landed !== activeIndex) navigate(items[landed].to);
     }
     function onCancel() {
       dragging = false;
       moved = false;
-      setDragAt(null);
+      lensRef.current?.setPosition(fractionFor(activeIndex), 0.5);
     }
 
     rail.addEventListener("pointerdown", onDown);
@@ -206,14 +237,14 @@ export default function BottomNav() {
       rail.removeEventListener("pointerup", onUp);
       rail.removeEventListener("pointercancel", onCancel);
     };
-  }, [activeIndex, items.length, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, tabs, navigate]);
 
-  const shownAt = dragAt ?? activeIndex;
-  const dragging = dragAt !== null;
-  // Pulled out of round only while a finger has hold of it. The travel between
-  // tabs does its own stretching, in the keyframes above.
-  const stretch = dragging ? 1.16 : 1;
-  const squash = dragging ? 0.94 : 1;
+  // The bead is one tab wide and most of the bar tall — the proportions of the
+  // one in iOS, where it reads as a single button's worth of glass rather than
+  // a moving panel.
+  const lensWidth = size.w ? size.w / tabs : 88;
+  const lensHeight = size.h ? size.h * 0.86 : 56;
 
   return (
     // Not `fixed` itself: MobileShell pins the whole bottom stack, and this is
@@ -230,86 +261,80 @@ export default function BottomNav() {
     >
       <div
         ref={railRef}
-        className="nav-glass relative rounded-[30px] touch-none select-none"
+        className="relative rounded-[30px] touch-none select-none"
       >
-        <ul className="grid grid-cols-4 py-2.5">
-          {items.map((it, i) => (
-            <li key={it.to}>
-              <NavLink
-                to={it.to}
-                end={it.to === "/"}
-                // Taps navigate through the link, exactly as they always did.
-                // Only the click a *drag* leaves behind is swallowed — see the
-                // pointer handlers above.
-                onClick={(e) => {
-                  if (!suppressClick.current) return;
-                  suppressClick.current = false;
-                  e.preventDefault();
-                }}
-                draggable={false}
-                // "Home (3)" rather than the "Home 3" that the badge's bare
-                // number would otherwise be read as — the same shape LikeButton
-                // uses for a count beside a label. The truncated "9+" is
-                // deliberately not what is announced: the real number is useful
-                // to somebody who cannot see how big the dot is.
-                aria-label={it.count > 0 ? `${it.label} (${it.count})` : undefined}
-                className={({ isActive }) =>
-                  "flex flex-col items-center gap-1 py-1 text-[11px] font-medium " +
-                  "transition-colors duration-200 " +
-                  (isActive ? "text-brand-500" : "text-ink-500")
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <span
-                      className="relative block transition-transform duration-300"
-                      // Magnified under the glass. The lens cannot scale the
-                      // backdrop it refracts — no filter does that — so the tab
-                      // beneath does the growing, and the two together read as
-                      // one piece of glass with something enlarged inside it.
-                      style={{ transform: `scale(${i === activeIndex ? 1.14 : 1})` }}
-                    >
-                      <img
-                        src={navIconSrc(it.icon, isActive)}
-                        alt=""
-                        aria-hidden="true"
-                        width={22}
-                        height={22}
-                        style={{ width: 22, height: 22 }}
-                        className="shrink-0 select-none"
-                        draggable={false}
-                      />
-                      {it.count > 0 ? (
-                        <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                          {it.count > 9 ? "9+" : it.count}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span>{it.label}</span>
-                  </>
-                )}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-
-        {/* Last in the box so it paints over the tabs — see the note above on
-            why a lens has to be in front of what it refracts. */}
-        <div
+        <LiquidGlass
           ref={lensRef}
-          className="nav-lens"
-          aria-hidden="true"
-          style={{
-            width: `${100 / items.length}%`,
-            height: "84%",
-            transform:
-              `translate3d(${shownAt * 100}%, -50%, 0) scale(${stretch}, ${squash})`,
-            // Only the drag transitions; the tab-to-tab travel is the keyframed
-            // animation above, and a transition on the same property would
-            // fight it for the last few pixels.
-            transition: dragging ? "transform 90ms linear" : "none",
-          }}
-        />
+          x={fractionFor(startIndex)}
+          y={0.5}
+          width={lensWidth}
+          height={lensHeight}
+          radius="auto"
+          // Close to the library's defaults, which are already tuned for this
+          // effect; only the rim is thinned, because the bead here is one tab
+          // wide and a 10px edge on it leaves almost no flat centre. The
+          // chromatic aberration is the default 0.2 and is left alone — the
+          // colour split at the rim is the detail that reads as glass.
+          depth={8}
+          glow={0.35}
+          edgeHighlight={0.5}
+          shadow="0 2px 8px rgba(0, 0, 0, 0.14)"
+        >
+          <div className="nav-surface rounded-[30px]">
+          <ul className="grid grid-cols-4 py-2.5">
+            {items.map((it) => (
+              <li key={it.to}>
+                <NavLink
+                  to={it.to}
+                  end={it.to === "/"}
+                  // Taps navigate through the link, exactly as they always did.
+                  // Only the click a *drag* leaves behind is swallowed.
+                  onClick={(e) => {
+                    if (!suppressClick.current) return;
+                    suppressClick.current = false;
+                    e.preventDefault();
+                  }}
+                  draggable={false}
+                  // "Home (3)" rather than the "Home 3" that the badge's bare
+                  // number would otherwise be read as — the same shape
+                  // LikeButton uses for a count beside a label. The truncated
+                  // "9+" is deliberately not what is announced: the real number
+                  // is useful to somebody who cannot see how big the dot is.
+                  aria-label={it.count > 0 ? `${it.label} (${it.count})` : undefined}
+                  className={({ isActive }) =>
+                    "flex flex-col items-center gap-1 py-1 text-[11px] font-medium " +
+                    "transition-colors duration-200 " +
+                    (isActive ? "text-brand-500" : "text-ink-500")
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <span className="relative block">
+                        <img
+                          src={navIconSrc(it.icon, isActive)}
+                          alt=""
+                          aria-hidden="true"
+                          width={22}
+                          height={22}
+                          style={{ width: 22, height: 22 }}
+                          className="shrink-0 select-none"
+                          draggable={false}
+                        />
+                        {it.count > 0 ? (
+                          <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                            {it.count > 9 ? "9+" : it.count}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span>{it.label}</span>
+                    </>
+                  )}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+          </div>
+        </LiquidGlass>
       </div>
     </nav>
   );
