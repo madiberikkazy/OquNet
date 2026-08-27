@@ -54,7 +54,7 @@ export default function MessageButton({ userId, compact = false, className = "" 
     <Link
       to={`/chats/${userId}`}
       className={
-        "w-full btn-secondary flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold " + className
+        "w-full btn-secondary flex items-center justify-center gap-2 py-2.5 rounded-2xl font-semibold " + className
       }
     >
       {icon}

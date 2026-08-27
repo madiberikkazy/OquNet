@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { leaveCoReading, touchCoReading, watchCoReaders } from "../../firebase/firestore.js";
 import { COREAD_STALE_MS } from "../../firebase/schema.js";
 import { coReadAvatarSrc } from "../../utils/icons.js";
-import { READING_MINUTES_DEFAULT } from "../../utils/readingProgress.js";
+import {
+  READING_MINUTES_DEFAULT, READING_MINUTES_MAX, READING_MINUTES_MIN,
+} from "../../utils/readingProgress.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 
@@ -15,6 +17,9 @@ const BEAT_MS = Math.round(COREAD_STALE_MS / 3);
 
 /** How often the ring turns once, in ms. Slow enough to be ambient. */
 const ORBIT_MS = 60_000;
+
+/** Room under each face for the name that hangs there, in px. */
+const LABEL_H = 16;
 
 /**
  * The room: everybody reading, around you, while the clock runs.
@@ -41,6 +46,7 @@ export default function ReadTogetherRoom() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { community } = useCommunity();
+  const [params] = useSearchParams();
 
   const [readers, setReaders] = useState([]);
   const [startedAt] = useState(() => Date.now());
@@ -49,7 +55,11 @@ export default function ReadTogetherRoom() {
   const pausedMsRef = useRef(0);
   const pausedAtRef = useRef(null);
 
-  const durationMs = READING_MINUTES_DEFAULT * 60_000;
+  // The length the reader chose on the way in. Clamped rather than trusted: it
+  // arrives in the URL so a reset can reload without losing it, and an edited
+  // one only ever mis-sets its own owner's clock — but a clock is easier to
+  // reason about when it cannot be handed a negative or a week.
+  const durationMs = clampMinutes(params.get("minutes")) * 60_000;
 
   // Live room.
   useEffect(() => {
@@ -183,6 +193,13 @@ export default function ReadTogetherRoom() {
   );
 }
 
+/** The requested sitting length, in minutes, held inside what the app allows. */
+function clampMinutes(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return READING_MINUTES_DEFAULT;
+  return Math.min(READING_MINUTES_MAX, Math.max(READING_MINUTES_MIN, Math.round(n)));
+}
+
 /** `MM:SS`, and `H:MM:SS` once a sitting passes an hour. */
 function clock(ms) {
   const total = Math.max(0, Math.round(ms / 1000));
@@ -237,8 +254,11 @@ function Circle({ me, others, paused }) {
     if (!box) return undefined;
     const measure = () => {
       const w = box.getBoundingClientRect().width;
-      // Half the box, less half of the largest face, less a little air.
-      setRadius(Math.max(0, w / 2 - 40 - 6));
+      // Half the box, less half of the largest face, less the name hanging
+      // under it, less a little air. The label is part of the face now, so it
+      // has to be part of what the radius makes room for — without it the names
+      // on the lower half of the ring hang out of the box and into the controls.
+      setRadius(Math.max(0, w / 2 - 40 - LABEL_H - 6));
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -251,16 +271,13 @@ function Circle({ me, others, paused }) {
       {radius > 0 && ring.map((r, i) => {
         const size = 62 + ((hash(r.userId ?? r.id) % 3) * 9);
         return (
-          <img
+          // The animation moves this box rather than the picture, so the name
+          // travels with the face it belongs to. It stays upright for the same
+          // reason the picture does — the keyframe unwinds its own rotation.
+          <div
             key={r.userId ?? r.id}
-            src={coReadAvatarSrc(r.avatar)}
-            alt=""
-            aria-hidden="true"
-            width={size}
-            height={size}
             title={r.name || ""}
-            draggable={false}
-            className="absolute left-1/2 top-1/2 rounded-full bg-ink-100 select-none shadow-soft"
+            className="absolute left-1/2 top-1/2"
             style={{
               width: size,
               height: size,
@@ -273,7 +290,28 @@ function Circle({ me, others, paused }) {
               animationDelay: `${-(i / Math.max(ring.length, 1)) * ORBIT_MS}ms`,
               animationPlayState: paused ? "paused" : "running",
             }}
-          />
+          >
+            <img
+              src={coReadAvatarSrc(r.avatar)}
+              alt=""
+              aria-hidden="true"
+              width={size}
+              height={size}
+              draggable={false}
+              style={{ width: size, height: size }}
+              className="rounded-full bg-ink-100 select-none shadow-soft"
+            />
+            {/* Who that is, under the picture. Out of the box's flow — the box
+                is the face, and its size is what the orbit radius was measured
+                against, so a label taking height would push the pictures off
+                their circle. Capped and clipped rather than wrapped: two lines
+                under one face would run into the next one along. */}
+            <span
+              className="absolute top-full left-1/2 -translate-x-1/2 mt-1 block max-w-[92px] truncate text-center text-[10px] font-medium leading-tight text-ink-700"
+            >
+              {coReaderLabel(r)}
+            </span>
+          </div>
         );
       })}
 
@@ -292,6 +330,20 @@ function Circle({ me, others, paused }) {
       ) : null}
     </div>
   );
+}
+
+/**
+ * What to call a face on the ring.
+ *
+ * The nickname first, because that is the handle people are known by here and
+ * it is short enough to sit under a picture. A reader who has not set one gets
+ * their name — a face with nothing under it reads as a face that failed to
+ * load, and every presence row carries at least one of the two.
+ */
+function coReaderLabel(reader) {
+  const nickname = String(reader?.nickname ?? "").trim();
+  if (nickname) return `@${nickname}`;
+  return String(reader?.name ?? "").trim();
 }
 
 /** A tiny stable hash, so a reader's size does not change between renders. */

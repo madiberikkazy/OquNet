@@ -2934,6 +2934,87 @@ describe("community invitations", () => {
 // when they disagree the button is visible and the write is denied.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Co-reading presence.
+//
+// Written against the exact call the app makes rather than an idealised one:
+// `joinCoReading` goes through `setOne`, which is a `setDoc(..., { merge: true })`
+// carrying the normalizer's output plus a client `seenAt` and a server
+// `updatedAt`. A rule that accepts a hand-written document but refuses that
+// shape is a rule that fails only in production.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("co-reading presence", () => {
+  /** Exactly what firestore.joinCoReading commits. */
+  const joinDoc = (uid, over = {}) => ({
+    id: uid,
+    userId: uid,
+    communityId: C1,
+    avatar: "av7",
+    name: "Member A",
+    nickname: "membera",
+    photoURL: "",
+    minutes: 117,
+    seenAt: Date.now(),
+    updatedAt: serverTimestamp(),
+    ...over,
+  });
+
+  const join = (db, uid, over = {}) =>
+    setDoc(doc(db, "coReading", uid), joinDoc(uid, over), { merge: true });
+
+  it("a member MAY sit down in their own community's room", async () => {
+    await assertSucceeds(join(as(MEMBER_A), MEMBER_A));
+  });
+
+  it("…and may change avatar without leaving", async () => {
+    await assertSucceeds(join(as(MEMBER_A), MEMBER_A));
+    await assertSucceeds(join(as(MEMBER_A), MEMBER_A, { avatar: "av22" }));
+  });
+
+  it("the heartbeat is an ordinary update", async () => {
+    await assertSucceeds(join(as(MEMBER_A), MEMBER_A));
+    await assertSucceeds(updateDoc(doc(as(MEMBER_A), "coReading", MEMBER_A), {
+      seenAt: Date.now(), updatedAt: serverTimestamp(),
+    }));
+  });
+
+  it("nobody may seat somebody else", async () => {
+    await assertFails(join(as(MEMBER_A), MEMBER_A2));
+  });
+
+  it("nobody may join another community's room", async () => {
+    await assertFails(join(as(MEMBER_A), MEMBER_A, { communityId: C2 }));
+  });
+
+  it("somebody with no community may not join at all", async () => {
+    await assertFails(join(as(DRIFTER), DRIFTER));
+  });
+
+  it("a member MAY read their own community's room", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "coReading", MEMBER_A2), {
+        ...joinDoc(MEMBER_A2), updatedAt: Date.now(),
+      });
+    });
+    await assertSucceeds(getDocs(query(
+      collection(as(MEMBER_A), "coReading"), where("communityId", "==", C1)
+    )));
+  });
+
+  it("…and may not list somebody else's", async () => {
+    await assertFails(getDocs(query(
+      collection(as(MEMBER_B), "coReading"), where("communityId", "==", C1)
+    )));
+  });
+
+  it("standing up removes only your own seat", async () => {
+    await assertSucceeds(join(as(MEMBER_A), MEMBER_A));
+    await assertFails(deleteDoc(doc(as(MEMBER_A2), "coReading", MEMBER_A)));
+    await assertSucceeds(deleteDoc(doc(as(MEMBER_A), "coReading", MEMBER_A)));
+  });
+});
+
 describe("sending an invitation, end to end", () => {
   const PAIR = [ADMIN_A, DRIFTER].sort();
   const CHAT = `${PAIR[0]}__${PAIR[1]}`;

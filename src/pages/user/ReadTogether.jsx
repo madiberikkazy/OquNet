@@ -10,6 +10,7 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { joinCoReading, listUsersByCommunity, watchCoReaders } from "../../firebase/firestore.js";
 import { COREAD_AVATAR_COUNT } from "../../firebase/schema.js";
 import { coReadAvatarSrc } from "../../utils/icons.js";
+import { COREAD_MINUTE_OPTIONS, READING_MINUTES_DEFAULT } from "../../utils/readingProgress.js";
 import { qk } from "../../lib/queryKeys.js";
 import { peerName } from "../../utils/chatPeer.js";
 import { logger } from "../../utils/logger.js";
@@ -37,6 +38,11 @@ export default function ReadTogether() {
   const [step, setStep] = useState(1);        // 1 = people, 2 = avatar
   const [search, setSearch] = useState("");
   const [avatar, setAvatar] = useState(null);
+  // How long this sitting is meant to last. Chosen here rather than in the room
+  // because the room's clock starts the moment it opens — a length picked after
+  // that would either restart a sitting already under way or apply to the next
+  // one, and neither is what somebody reaching for it means.
+  const [minutes, setMinutes] = useState(READING_MINUTES_DEFAULT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -94,7 +100,10 @@ export default function ReadTogether() {
         photoURL: user.photoURL ?? "",
         minutes: Math.floor((user.readingSeconds ?? 0) / 60),
       });
-      navigate("/reading/together/room", { replace: true });
+      // In the URL, not in router state: the room's reset button reloads the
+      // page, and state handed over in memory does not survive that — a reset
+      // would quietly drop the sitting back to the default length.
+      navigate(`/reading/together/room?minutes=${minutes}`, { replace: true });
     } catch (err) {
       logger.error("readTogether.join", err?.message, { code: err?.code });
       setError(writeError(err));
@@ -141,6 +150,48 @@ export default function ReadTogether() {
           {error ? (
             <p className="mb-2 text-bad text-[13px] text-center px-2">{error}</p>
           ) : null}
+
+          {/* How long to sit for, immediately above the button that starts it.
+              Only on the last step: on step one the button means "next", and a
+              length offered before the decision to join has been made is a
+              setting for something that may never happen.
+
+              On a surface of its own, because this bar is drawn over the page
+              rather than behind a background — a bare label with avatars
+              scrolling under it is unreadable. The chips carry their own fill;
+              the label does not. */}
+          {step === 2 ? (
+            <div className="mb-3 rounded-2xl bg-surface border border-ink-100 shadow-soft px-3 py-2.5">
+              <p className="text-[12px] text-ink-500 text-center">{t.coReadPickDuration}</p>
+              <div
+                role="radiogroup"
+                aria-label={t.coReadPickDuration}
+                className="mt-2 flex items-center justify-center gap-2"
+              >
+                {COREAD_MINUTE_OPTIONS.map((value) => {
+                  const on = value === minutes;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setMinutes(value)}
+                      className={
+                        "rounded-full px-4 py-2 text-[13px] font-semibold tabular-nums transition active:scale-95 " +
+                        (on
+                          ? "bg-brand-500 text-white"
+                          : "bg-tint text-ink-700 border border-ink-100")
+                      }
+                    >
+                      {value} {t.minutesShort}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <button
             onClick={() => (step === 1 ? setStep(2) : join())}
             // Step two cannot be finished without a choice, and the button says

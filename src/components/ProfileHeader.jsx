@@ -272,7 +272,7 @@ export function ShareProfileAction({ user, className = "" }) {
       // sentence goes where there is no layout to break.
       aria-label={t.shareProfile}
       className={
-        "btn-secondary flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold " +
+        "btn-secondary flex items-center justify-center gap-2 py-2.5 rounded-2xl font-semibold " +
         "min-w-0 px-3 whitespace-nowrap " + className
       }
     >
@@ -304,7 +304,7 @@ export function ProfileCommunityAction({ community, className = "" }) {
     <Link
       to={`/community/${community.id}`}
       className={
-        "bg-brand-500 text-white font-semibold py-3 rounded-2xl text-[15px] " +
+        "bg-brand-500 text-white font-semibold py-2.5 rounded-2xl text-[15px] " +
         "flex items-center justify-center gap-2 px-3 min-w-0 transition active:scale-[0.98] " + className
       }
     >

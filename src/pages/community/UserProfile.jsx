@@ -9,9 +9,9 @@ import PostCard from "../../components/PostCard.jsx";
 import ProfileHeader from "../../components/ProfileHeader.jsx";
 import KebabMenu from "../../components/KebabMenu.jsx";
 import ProfileStatsRow, { MEMBER_STATS } from "../../components/ProfileStatsRow.jsx";
-import ReadingWeek from "../../components/ReadingWeek.jsx";
+import ReadingProgressCard from "../../components/ReadingProgressCard.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
-import { getBook } from "../../firebase/firestore.js";
+import { getBook, getCommunityReadingRank } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import { useMemberProfile, EMPTY_LISTS } from "../../utils/useMemberProfile.js";
 import { useProfileShare } from "../../utils/useProfileShare.js";
@@ -48,6 +48,16 @@ export default function UserProfile() {
   // Sharing moved off the name row and into the corner menu, so this screen
   // owns the action rather than the header — see the menu below.
   const { share, copied } = useProfileShare(memberQuery.data?.user ?? null);
+
+  // Their standing in their own community — the number beside the bar below.
+  const rankQuery = useQuery({
+    queryKey: qk.reading.rank(memberQuery.data?.user?.communityId, id),
+    enabled: !!id && !!memberQuery.data?.user?.communityId,
+    staleTime: 60_000,
+    queryFn: () => getCommunityReadingRank({
+      communityId: memberQuery.data.user.communityId, userId: id,
+    }),
+  });
 
   const member = memberQuery.data?.user ?? null;
   const community = memberQuery.data?.community ?? null;
@@ -193,7 +203,14 @@ export default function UserProfile() {
       </div>
 
       <div className="px-4 mt-2.5">
-        <ReadingWeek readingDays={member.readingDays || {}} />
+        {/* The same card the reader sees on their own profile, so the two
+            screens report reading the same way — see the note on `showRoom`
+            for the one half that cannot be shared. */}
+        <ReadingProgressCard
+          readingSeconds={member.readingSeconds ?? 0}
+          rank={rankQuery.data}
+          showRoom={false}
+        />
       </div>
 
       {/* What they have written. Below the reading week because that is where
