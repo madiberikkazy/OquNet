@@ -132,15 +132,25 @@ export default function ReadTogether() {
       withNav={false}
       header={header}
       bottomBar={
-        <button
-          onClick={() => (step === 1 ? setStep(2) : join())}
-          // Step two cannot be finished without a choice, and the button says so
-          // by being unusable rather than by complaining after the tap.
-          disabled={busy || (step === 2 && !avatar)}
-          className="btn-primary disabled:opacity-50"
-        >
-          {busy ? "…" : t.coReadJoin}
-        </button>
+        <>
+          {/* Above the button, not at the end of the page. A refusal used to be
+              printed below thirty avatars, where it was a full screen of
+              scrolling away from the thing that caused it — so a join the
+              server turned down looked exactly like a button that did nothing.
+              An error belongs next to the control that produced it. */}
+          {error ? (
+            <p className="mb-2 text-bad text-[13px] text-center px-2">{error}</p>
+          ) : null}
+          <button
+            onClick={() => (step === 1 ? setStep(2) : join())}
+            // Step two cannot be finished without a choice, and the button says
+            // so by being unusable rather than by complaining after the tap.
+            disabled={busy || (step === 2 && !avatar)}
+            className="btn-primary disabled:opacity-50"
+          >
+            {busy ? "…" : t.coReadJoin}
+          </button>
+        </>
       }
     >
       {step === 1 ? (
@@ -204,8 +214,8 @@ export default function ReadTogether() {
                   onClick={() => setAvatar(key)}
                   aria-pressed={avatar === key}
                   className={
-                    "rounded-full transition active:scale-95 " +
-                    (avatar === key ? "ring-4 ring-brand-500" : "ring-0")
+                    "rounded-full p-1.5 transition active:scale-95 " +
+                    (avatar === key ? "ring-[3px] ring-brand-500" : "ring-0")
                   }
                 >
                   <img
@@ -215,7 +225,12 @@ export default function ReadTogether() {
                     width={112}
                     height={112}
                     style={{ width: 112, height: 112 }}
-                    className="rounded-full bg-ink-100 select-none"
+                    // No disc behind it. The artwork brings its own shape and its
+                  // own background — a grey circle under a picture that is
+                  // already a rounded illustration reads as a placeholder that
+                  // failed to load, and it clips the ones that overflow a
+                  // circle on purpose.
+                  className="select-none"
                     draggable={false}
                   />
                 </button>
@@ -225,7 +240,6 @@ export default function ReadTogether() {
         </>
       )}
 
-      {error ? <p className="px-4 mt-4 text-bad text-[13px] text-center">{error}</p> : null}
     </MobileShell>
   );
 }
