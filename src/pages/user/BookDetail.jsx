@@ -735,44 +735,53 @@ export default function BookDetail() {
           </div>
         </div>
 
-        {/* Your rating — the write side of the same number above. */}
-        <div className="card mt-3 px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[13px] font-medium text-ink-700">{t.yourRating}</p>
-            <StarRating
-              value={pendingStars}
-              size={26}
-              label={t.yourRating}
-              onChange={canRate ? (v) => setDraftStars(v) : undefined}
-            />
-          </div>
+        {/* Your rating — the write side of the same number above, and drawn only
+            for somebody who may actually write it.
 
-          {canRate ? (
-            <>
-              <textarea
-                value={pendingReview}
-                onChange={(e) => setDraftReview(e.target.value)}
-                placeholder={t.reviewOptional}
-                rows={2}
-                className="input resize-none text-[14px] mt-3"
+            It used to be drawn for everyone, greyed: five stars that do not
+            respond to a tap, over a line explaining that only readers may rate.
+            That is a control offering something it cannot give — the stars look
+            exactly like the ones in the return flow that *are* tappable — and
+            the sentence underneath is an answer to a question nobody asked,
+            taking a card's worth of the page from every reader who is only here
+            to see whether the book is free.
+
+            Nothing is lost by hiding it. A reader who has not finished the book
+            cannot rate it whatever this says, and the one case with something
+            to promise — the person holding it now — is already promised it
+            properly: returning a book opens a screen that asks for the rating
+            outright, stars and review together. */}
+        {canRate ? (
+          <div className="card mt-3 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[13px] font-medium text-ink-700">{t.yourRating}</p>
+              <StarRating
+                value={pendingStars}
+                size={26}
+                label={t.yourRating}
+                onChange={(v) => setDraftStars(v)}
               />
-              <button
-                onClick={saveRating}
-                disabled={!ratingDirty || ratingMutation.isPending}
-                className="btn-primary mt-2 disabled:opacity-50"
-              >
-                {ratingMutation.isPending ? "…" : myRating ? t.updateRating : t.sendRating}
-              </button>
-              {ratingSavedAt && !ratingDirty ? (
-                <p className="text-[12px] text-ok text-center mt-2">{t.ratingSaved}</p>
-              ) : null}
-            </>
-          ) : (
-            <p className="text-[12px] text-ink-500 mt-2">
-              {isCurrentHolder ? t.rateAfterReturn : t.rateOnlyReaders}
-            </p>
-          )}
-        </div>
+            </div>
+
+            <textarea
+              value={pendingReview}
+              onChange={(e) => setDraftReview(e.target.value)}
+              placeholder={t.reviewOptional}
+              rows={2}
+              className="input resize-none text-[14px] mt-3"
+            />
+            <button
+              onClick={saveRating}
+              disabled={!ratingDirty || ratingMutation.isPending}
+              className="btn-primary mt-2 disabled:opacity-50"
+            >
+              {ratingMutation.isPending ? "…" : myRating ? t.updateRating : t.sendRating}
+            </button>
+            {ratingSavedAt && !ratingDirty ? (
+              <p className="text-[12px] text-ok text-center mt-2">{t.ratingSaved}</p>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="px-4 mt-5">

@@ -8,10 +8,12 @@ import ProfileHeader, {
 } from "../../components/ProfileHeader.jsx";
 import ProfileStatsRow, { PROFILE_STATS } from "../../components/ProfileStatsRow.jsx";
 import ReadingWeek from "../../components/ReadingWeek.jsx";
+import ReadingProgressCard from "../../components/ReadingProgressCard.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
-  getBook, listBooksHeldBy, listBorrowingsForUser, listPostsByAuthor,
+  getBook, getCommunityReadingRank, listBooksHeldBy, listBorrowingsForUser,
+  listPostsByAuthor, watchCoReaders,
 } from "../../firebase/firestore.js";
 import { qk } from "../../lib/queryKeys.js";
 import {
@@ -101,6 +103,28 @@ export default function Profile() {
 
   const activeBorrowing = statsQuery.data?.activeBorrowing ?? null;
 
+  // Standing in the community. Its own query rather than another branch of the
+  // one above: it depends on other people's reading as much as this reader's,
+  // and it is the one number here that is fine a minute stale.
+  const rankQuery = useQuery({
+    queryKey: qk.reading.rank(community?.id, user?.id),
+    enabled: !!user?.id && !!community?.id,
+    staleTime: 60_000,
+    queryFn: () => getCommunityReadingRank({ communityId: community.id, userId: user.id }),
+  });
+
+  // Who is in the reading room right now. Live, because the whole point of the
+  // row on that card is that it is true at the moment you look at it — three
+  // faces and a count that were right ten minutes ago say nothing.
+  const [coReaders, setCoReaders] = useState([]);
+  useEffect(() => {
+    if (!community?.id) return undefined;
+    return watchCoReaders(community.id, {
+      onRows: setCoReaders,
+      onError: (err) => logger.error("profile.coReaders", err?.message, { code: err?.code }),
+    });
+  }, [community?.id]);
+
   // The loan says which book and when it started; the book document carries the
   // cover, the score and the days allowed. Two reads, so the card is only worth
   // making once there is actually a loan to describe.
@@ -166,7 +190,18 @@ export default function Profile() {
         <h3 className="text-[17px] font-bold truncate">{t.readingSectionTitle}</h3>
       </div>
 
+      {/* All-time first, then the week. The two answer different questions and
+          the order is the point: how far you have got, and then how the last
+          seven days went. */}
       <div className="px-4 mt-2.5">
+        <ReadingProgressCard
+          readingSeconds={user?.readingSeconds ?? 0}
+          rank={rankQuery.data}
+          readers={coReaders}
+        />
+      </div>
+
+      <div className="px-4 mt-3">
         <ReadingWeek readingDays={readingDays} />
       </div>
 

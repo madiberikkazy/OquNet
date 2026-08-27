@@ -84,6 +84,21 @@ export const NAV_ICONS = Object.freeze({
   },
 });
 
+/**
+ * One of the co-reading avatars, by its stored key (`"av7"`).
+ *
+ * Thirty files under public/drawable, av1.gif … av30.gif, on exactly the same
+ * arrangement as every other drawable here: the artwork is a file, and swapping
+ * one is overwriting it. An unknown key falls back to the first rather than to a
+ * broken image, because a room with a hole in the circle is worse than a room
+ * where somebody is wearing the wrong hat.
+ */
+export function coReadAvatarSrc(key) {
+  const m = /^av(\d{1,2})$/.exec(String(key ?? ""));
+  const n = m ? Number(m[1]) : 0;
+  return `/drawable/av${n >= 1 && n <= 30 ? n : 1}.gif`;
+}
+
 /** The file for one tab in one state. */
 export function navIconSrc(name, active) {
   const pair = NAV_ICONS[name];
