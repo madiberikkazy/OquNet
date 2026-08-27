@@ -27,6 +27,14 @@ export default function ReadingProgressCard({
   rank = null,
   readers = [],
   to = "/reading/together",
+  /**
+   * The room row under the bar. Off on somebody else's profile: the progress
+   * above it is *theirs* and belongs there, but "read together" starts a
+   * sitting for whoever taps it, and a button that acts on you sitting under a
+   * stranger's name is a button in the wrong place. Their minutes read the same
+   * either way, which is the half that was asked to match.
+   */
+  showRoom = true,
 }) {
   const minutes = Math.floor(Math.max(0, Number(readingSeconds) || 0) / 60);
   const goal = Math.max(1, Math.round(goalMinutes));
@@ -73,6 +81,7 @@ export default function ReadingProgressCard({
 
       {/* The room. A tint rather than a divider, so the two halves read as one
           card with a floor rather than as two stacked ones. */}
+      {showRoom ? (
       <div className="bg-tint px-3 py-2.5 flex items-center gap-2.5">
         {faces.length > 0 ? (
           <span className="flex items-center shrink-0">
@@ -111,6 +120,7 @@ export default function ReadingProgressCard({
           {t.coReadTitle}
         </Link>
       </div>
+      ) : null}
     </div>
   );
 }

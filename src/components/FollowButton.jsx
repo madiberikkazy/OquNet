@@ -136,7 +136,7 @@ export default function FollowButton({
         aria-pressed={following}
         className={
           "w-full font-semibold transition active:scale-[0.98] disabled:opacity-60 " +
-          (compact ? "px-3 py-2 rounded-xl text-[13px] " : "py-3 rounded-2xl text-[15px] ") +
+          (compact ? "px-3 py-2 rounded-xl text-[13px] " : "py-2.5 rounded-2xl text-[15px] ") +
           // Green once it has worked. The two states have to be told apart at a
           // glance from across the screen, and a filled colour change says
           // "done" in a way that a swap of label alone does not.
