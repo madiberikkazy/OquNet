@@ -64,17 +64,6 @@ export const READING_MINUTES_MAX = 240;
 export const READING_MINUTES_DEFAULT = 30;
 
 /**
- * The lengths a co-reading sitting may be set to, in minutes.
- *
- * A short list rather than the free stepper the solo timer uses: this choice is
- * made in a bottom bar with a thumb, one tap before joining, and a control that
- * needs several taps to travel from 5 to 60 would be a control people leave on
- * whatever it opened at. Every value sits inside the MIN/MAX bounds above, and
- * the default is one of them so the picker always opens with something chosen.
- */
-export const COREAD_MINUTE_OPTIONS = Object.freeze([15, 30, 45, 60]);
-
-/**
  * The reader ladder, by hours read in the trailing week.
  *
  * `key` is an i18n key rather than a name: the ladder is the same in every
