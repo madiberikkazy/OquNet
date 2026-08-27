@@ -10,7 +10,8 @@ import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { joinCoReading, listUsersByCommunity, watchCoReaders } from "../../firebase/firestore.js";
 import { COREAD_AVATAR_COUNT } from "../../firebase/schema.js";
 import { coReadAvatarSrc } from "../../utils/icons.js";
-import { COREAD_MINUTE_OPTIONS, READING_MINUTES_DEFAULT } from "../../utils/readingProgress.js";
+import DurationPicker, { formatMinutes } from "../../components/DurationPicker.jsx";
+import { READING_MINUTES_DEFAULT } from "../../utils/readingProgress.js";
 import { qk } from "../../lib/queryKeys.js";
 import { peerName } from "../../utils/chatPeer.js";
 import { logger } from "../../utils/logger.js";
@@ -43,6 +44,7 @@ export default function ReadTogether() {
   // that would either restart a sitting already under way or apply to the next
   // one, and neither is what somebody reaching for it means.
   const [minutes, setMinutes] = useState(READING_MINUTES_DEFAULT);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -140,6 +142,14 @@ export default function ReadTogether() {
     <MobileShell
       withNav={false}
       header={header}
+      overlay={
+        <DurationPicker
+          open={pickerOpen}
+          minutes={minutes}
+          onCancel={() => setPickerOpen(false)}
+          onSave={(value) => { setMinutes(value); setPickerOpen(false); }}
+        />
+      }
       bottomBar={
         <>
           {/* Above the button, not at the end of the page. A refusal used to be
@@ -151,45 +161,27 @@ export default function ReadTogether() {
             <p className="mb-2 text-bad text-[13px] text-center px-2">{error}</p>
           ) : null}
 
-          {/* How long to sit for, immediately above the button that starts it.
-              Only on the last step: on step one the button means "next", and a
-              length offered before the decision to join has been made is a
-              setting for something that may never happen.
-
-              On a surface of its own, because this bar is drawn over the page
-              rather than behind a background — a bare label with avatars
-              scrolling under it is unreadable. The chips carry their own fill;
-              the label does not. */}
-          {step === 2 ? (
-            <div className="mb-3 rounded-2xl bg-surface border border-ink-100 shadow-soft px-3 py-2.5">
-              <p className="text-[12px] text-ink-500 text-center">{t.coReadPickDuration}</p>
-              <div
-                role="radiogroup"
-                aria-label={t.coReadPickDuration}
-                className="mt-2 flex items-center justify-center gap-2"
-              >
-                {COREAD_MINUTE_OPTIONS.map((value) => {
-                  const on = value === minutes;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      role="radio"
-                      aria-checked={on}
-                      onClick={() => setMinutes(value)}
-                      className={
-                        "rounded-full px-4 py-2 text-[13px] font-semibold tabular-nums transition active:scale-95 " +
-                        (on
-                          ? "bg-brand-500 text-white"
-                          : "bg-tint text-ink-700 border border-ink-100")
-                      }
-                    >
-                      {value} {t.minutesShort}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+          {/* Setting the timer, immediately above the button. On the first
+              step, where the room is still being looked at rather than entered:
+              choosing a length is part of deciding to sit down, and the last
+              step is about which face to do it behind. The button says what it
+              is currently set to, so nobody has to open it to find out. */}
+          {step === 1 ? (
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className="mb-3 w-full rounded-2xl bg-surface border border-ink-100 shadow-soft px-4 py-3 flex items-center gap-2.5 text-left active:scale-[0.99] transition"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 text-ink-500">
+                <circle cx="12" cy="13" r="8" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M12 9.5V13l2.5 1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M9.5 2.5h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              <span className="flex-1 min-w-0 text-[14px] font-medium truncate">{t.coReadSetTimer}</span>
+              <span className="shrink-0 text-[14px] font-semibold text-brand-500 tabular-nums">
+                {formatMinutes(minutes)}
+              </span>
+            </button>
           ) : null}
 
           <button
