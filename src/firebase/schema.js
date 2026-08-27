@@ -739,6 +739,80 @@ export function normalizeCommunityInvite(payload) {
   };
 }
 
+// ---------- co-reading presence ----------
+//
+// Who is sitting down to read *right now*, and what they are wearing while they
+// do it. One document per reader, at their own id, which is the whole design:
+//
+//   · a person can only be in one reading room at a time, and a document keyed
+//     by who they are makes that true rather than merely intended — joining
+//     twice overwrites, it does not accumulate;
+//   · the security rules can authorise a write with `coReaderId == uid()` and
+//     nothing else, no reads spent proving ownership;
+//   · leaving is a delete of a document whose id the leaver already knows.
+//
+// It is presence, not a log. `readingSessions` is the durable record of what was
+// read; this is a note on a door that says somebody is in, and it is expected to
+// be deleted, overwritten, and occasionally abandoned. `seenAt` is what makes
+// the last case survivable — see COREAD_STALE_MS.
+
+/** How many avatars there are: public/drawable/av1.gif … av30.gif. */
+export const COREAD_AVATAR_COUNT = 30;
+
+/**
+ * How long a reader may go without a heartbeat before the room stops drawing
+ * them.
+ *
+ * A tab that is killed mid-session never gets to delete its own document, so
+ * without this every crash would leave a ghost in the circle for ever. Readers
+ * refresh `seenAt` on a timer well inside this window; anything older is a
+ * reader whose device stopped talking, and the room simply stops showing them.
+ * The row is left in place rather than deleted — only its owner may remove it,
+ * and a stale row costs one ignored document.
+ */
+export const COREAD_STALE_MS = 90_000;
+
+/** True for a value that names one of the avatars that exist. */
+export function isCoReadAvatar(value) {
+  const m = /^av(\d{1,2})$/.exec(String(value ?? ""));
+  if (!m) return false;
+  const n = Number(m[1]);
+  return n >= 1 && n <= COREAD_AVATAR_COUNT;
+}
+
+/**
+ * One reader's presence in their community's room.
+ *
+ * The name, nickname and picture are denormalised onto it on purpose. The room
+ * draws a ring of people and has to name them; reading a user document per face
+ * would be a query per member of the circle, repeated on every snapshot, to
+ * learn three fields that do not change while somebody is sitting still.
+ */
+export function normalizeCoReadingPresence(payload) {
+  requirePayload("coReading", payload);
+
+  const userId = requiredId("coReading", "userId", payload.userId);
+  const avatar = str(payload.avatar);
+  if (!isCoReadAvatar(avatar)) {
+    throw new SchemaError(`coReading: unknown avatar "${payload.avatar}"`, {
+      collection: "coReading", field: "avatar", errorKey: "coReadPickAvatar",
+    });
+  }
+
+  return {
+    id: userId,
+    userId,
+    communityId: requiredId("coReading", "communityId", payload.communityId),
+    avatar,
+    name: clampText(payload.name, LIMITS.NAME_MAX),
+    nickname: str(payload.nickname),
+    photoURL: str(payload.photoURL),
+    // Minutes read all told, so the room can say how much reading each face has
+    // behind it. A number the reader already owns, copied rather than computed.
+    minutes: Math.max(0, Math.round(Number(payload.minutes) || 0)),
+  };
+}
+
 // ---------- return requests ----------
 //
 // The mirror image of a pickup: a pickup is a reader asking for somebody else's

@@ -25,6 +25,7 @@ import {
   userSearchFields, USER_SEARCH_SOURCES,
   normalizeNewReadingSession, normalizeReadingProgress,
   stripServerOwned,
+  COREAD_STALE_MS, normalizeCoReadingPresence,
 } from "./schema.js";
 import { rankByWeeklyReading } from "../utils/readingProgress.js";
 
@@ -2078,6 +2079,71 @@ export async function acceptCommunityInvite({ userId, requestId, communityId } =
 export async function declineCommunityInvite(requestId) {
   if (!requestId) throw new Error("declineCommunityInvite: missing requestId");
   return updateOne("requests", requestId, { status: "declined" });
+}
+
+// ---------- Co-reading rooms ----------
+//
+// See `normalizeCoReadingPresence` for the shape and why it is keyed by reader.
+// Everything here is one document: joining writes it, the heartbeat touches it,
+// leaving deletes it.
+
+/**
+ * Sit down in the community's room, or change what you are wearing in it.
+ *
+ * A `set`, not a create: rejoining after a crash, or picking a different avatar
+ * mid-session, has to land on the same document rather than making a second
+ * one. `seenAt` rides along so a join counts as its own first heartbeat.
+ */
+export async function joinCoReading(payload) {
+  const row = normalizeCoReadingPresence(payload);
+  await setOne("coReading", row.userId, { ...row, seenAt: Date.now() });
+  return row;
+}
+
+/**
+ * Still here.
+ *
+ * Deliberately the smallest possible write — one field — because it repeats for
+ * as long as somebody is reading. It is also the only thing standing between
+ * the room and a circle full of people whose phones died an hour ago.
+ */
+export async function touchCoReading(userId, patch = {}) {
+  if (!userId) return;
+  await updateOne("coReading", userId, { ...patch, seenAt: Date.now() });
+}
+
+/** Stand up and leave. */
+export async function leaveCoReading(userId) {
+  if (!userId) return;
+  await deleteOne("coReading", userId);
+}
+
+/** True while a presence row is recent enough to draw. */
+export function isCoReaderPresent(row, now = Date.now()) {
+  return now - toMillis(row?.seenAt, 0) < COREAD_STALE_MS;
+}
+
+/**
+ * Everyone in this community's room, kept open.
+ *
+ * The staleness filter is applied here rather than in the query: `seenAt` moves
+ * every few seconds for every reader, and a range filter on it would make the
+ * listener re-run against a moving boundary. One equality filter on the
+ * community is the query; whether a row is still warm is arithmetic.
+ */
+export function watchCoReaders(communityId, { onRows, ...rest } = {}) {
+  if (!communityId || typeof onRows !== "function") return () => {};
+  return watchCollection(
+    "coReading",
+    { where: [["communityId", "==", communityId]] },
+    {
+      ...rest,
+      onRows: (rows) => {
+        const now = Date.now();
+        onRows(rows.filter((r) => isCoReaderPresent(r, now)));
+      },
+    }
+  );
 }
 
 // ---------- Leave requests ----------

@@ -1230,6 +1230,48 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ── Co-reading presence ───────────────────────────────────────────────────
+    //
+    // One document per reader, at their own uid, saying they are sitting in
+    // their community's reading room right now. See the note above
+    // `normalizeCoReadingPresence` in schema.js for why it is keyed that way.
+    //
+    // The id *is* the authorisation. Every write is `coReaderId == uid()`, so
+    // nobody can put somebody else in a room, take them out of one, or move
+    // their avatar — and none of it costs a document read to prove.
+    //
+    // Reading is scoped to the caller's own community, stated as a filter the
+    // `list` rule can check: a room is the people you share a shelf with, and
+    // an unscoped query over everybody's presence is refused rather than
+    // trimmed.
+    match /coReading/{coReaderId} {
+      allow get: if signedIn() && (
+           coReaderId == uid()
+        || resource.data.communityId == myCommunity()
+      );
+      allow list: if signedIn() && resource.data.communityId == myCommunity();
+
+      // Joining and changing avatar are the same write, so create and update
+      // share one rule. `minutes` is the reader's own total copied onto the
+      // row for the circle to show; it is cosmetic, and bounded so a doctored
+      // client cannot claim a year of reading on the leaderboard face.
+      allow create, update: if signedIn()
+        && coReaderId == uid()
+        && request.resource.data.userId == uid()
+        && request.resource.data.communityId == myCommunity()
+        && request.resource.data.keys().hasOnly(
+             ['id', 'userId', 'communityId', 'avatar', 'name', 'nickname',
+              'photoURL', 'minutes', 'seenAt', 'createdAt', 'updatedAt'])
+        && request.resource.data.avatar is string
+        && request.resource.data.minutes is number
+        && request.resource.data.minutes >= 0
+        && request.resource.data.minutes <= 1000000;
+
+      // Leaving. Only your own seat, and there is nothing to moderate here —
+      // a stale row stops being drawn on its own once its heartbeat lapses.
+      allow delete: if signedIn() && coReaderId == uid();
+    }
+
     // Web Push registrations: one document per device, written and read only by
     // the Admin SDK in server/push.js, which bypasses these rules entirely.
     //

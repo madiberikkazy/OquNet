@@ -34,6 +34,8 @@ const NewChat            = lazyRoute(() => import("./pages/user/NewChat.jsx"));
 const Profile            = lazyRoute(() => import("./pages/user/Profile.jsx"), "/profile");
 const OwnedBooks         = lazyRoute(() => import("./pages/user/OwnedBooks.jsx"));
 const ReadingTimer       = lazyRoute(() => import("./pages/user/ReadingTimer.jsx"));
+const ReadTogether       = lazyRoute(() => import("./pages/user/ReadTogether.jsx"));
+const ReadTogetherRoom   = lazyRoute(() => import("./pages/user/ReadTogetherRoom.jsx"));
 const ReadingNow         = lazyRoute(() => import("./pages/user/ReadingNow.jsx"));
 const CompletedBooks     = lazyRoute(() => import("./pages/user/CompletedBooks.jsx"));
 const SavedBooks         = lazyRoute(() => import("./pages/user/SavedBooks.jsx"));
@@ -181,6 +183,12 @@ export default function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/profile/owned"     element={<OwnedBooks />} />
             <Route path="/profile/timer"     element={<ReadingTimer />} />
+            {/* Reading with other people: pick who and what you look like, then
+                the room itself. The room is its own route so it can be returned
+                to — a reader who backs out of it and comes back is still in it,
+                because presence is a document rather than a screen. */}
+            <Route path="/reading/together"      element={<ReadTogether />} />
+            <Route path="/reading/together/room" element={<ReadTogetherRoom />} />
             <Route path="/profile/reading"   element={<ReadingNow />} />
             <Route path="/profile/completed" element={<CompletedBooks />} />
             <Route path="/profile/saved"     element={<SavedBooks />} />

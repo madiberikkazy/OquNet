@@ -140,6 +140,25 @@
     .app-glass { background: var(--bg-base); }
   }
 
+  /* One face travelling once around the reading room, staying upright.
+     
+     Everything is in this single animation on purpose. The obvious build — turn
+     a parent ring, counter-turn each face — needs the two animations to stay in
+     phase for ever, and they do not: React re-creates a face's element on any
+     re-render, its animation restarts from zero while the ring's keeps going,
+     and every picture ends up lying at whatever angle the drift has reached.
+     
+     Here the outer `rotate` carries the face around a circle of `--coread-r`,
+     and the inner one unwinds it by exactly as much, in the same keyframe.
+     Nothing can fall out of step with anything, because there is nothing to
+     fall out of step with. Faces are spread around the ring by giving each a
+     negative `animation-delay` — a fraction of the way through the same loop —
+     rather than by a starting angle. */
+  @keyframes coread-orbit {
+    from { transform: rotate(0deg)   translate(var(--coread-r)) rotate(0deg); }
+    to   { transform: rotate(360deg) translate(var(--coread-r)) rotate(-360deg); }
+  }
+
   /* The acrylic pane across the front of a genre tile — the sheet a shop's
      display holder has, with the books standing behind it and their spines
      going soft where they pass under.
