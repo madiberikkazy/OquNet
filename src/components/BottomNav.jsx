@@ -19,19 +19,16 @@ import { t } from "../utils/i18n.js";
  * ── The lens ────────────────────────────────────────────────────────────────
  * `liquid-glass-web-react` does the optics, and the reason to take a dependency
  * for this rather than write it is that the effect is not a *look*, it is a
- * simulation. What Apple's glass actually does is refract: a displacement map
- * bends the pixels underneath, harder near the rim than at the centre, with the
- * red, green and blue channels bent by slightly different amounts so the edge
- * splits into colour the way a real lens does. CSS cannot express any of that.
- * `backdrop-filter` can blur, brighten and saturate a backdrop, and the result
- * looks like frosted plastic laid on top — which is what the first attempt at
- * this was, and it is why it read as wrong however the numbers were tuned.
+ * simulation. Apple's glass refracts: a displacement map bends the pixels
+ * underneath, harder near the rim than at the centre, with red, green and blue
+ * bent by slightly different amounts so the edge splits into colour the way a
+ * real lens does. CSS cannot express any of that — `backdrop-filter` blurs,
+ * brightens and saturates, and the result reads as frosted plastic laid on top.
  *
- * The library builds an SVG `feDisplacementMap` chain over the live DOM — three
- * displacement passes, one per channel, plus a baked specular highlight — and
+ * The library builds an SVG `feDisplacementMap` chain over the live DOM and
  * applies it with `filter` on the content rather than `backdrop-filter` behind
- * it, which is also what makes it work in Safari, where `backdrop-filter:
- * url()` does not exist at all.
+ * it, which is also what makes it work in Safari, where `backdrop-filter: url()`
+ * does not exist.
  *
  * So the tabs are its children: the lens refracts them, and they stay live —
  * still links, still tappable, still readable by a screen reader.
@@ -124,16 +121,19 @@ export default function BottomNav() {
   /** A tab index as the fraction of the bar's width the engine wants. */
   const fractionFor = (index) => (index + 0.5) / tabs;
 
-  // The lens is sized in pixels, so the bar has to be measured. A
-  // ResizeObserver rather than a one-off read: the bar is as wide as the
-  // content column, which changes at the two breakpoints and on rotation.
+  // The lens is sized in pixels, so the bar has to be measured.
   const [size, setSize] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
     const rail = railRef.current;
     if (!rail) return undefined;
     const measure = () => {
       const box = rail.getBoundingClientRect();
-      setSize({ w: box.width, h: box.height });
+      setSize((prev) => (
+        Math.round(prev.w) === Math.round(box.width) &&
+        Math.round(prev.h) === Math.round(box.height)
+          ? prev
+          : { w: box.width, h: box.height }
+      ));
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -243,8 +243,72 @@ export default function BottomNav() {
   // The bead is one tab wide and most of the bar tall — the proportions of the
   // one in iOS, where it reads as a single button's worth of glass rather than
   // a moving panel.
-  const lensWidth = size.w ? size.w / tabs : 88;
-  const lensHeight = size.h ? size.h * 0.86 : 56;
+  const measured = size.w > 0 && size.h > 0;
+
+  /**
+   * The bar itself: the painted surface and the four tabs.
+   *
+   * A variable because it is rendered two ways — bare on the first pass, and
+   * inside the lens once the bar has been measured. Rendering nothing until
+   * then would mean a frame with an empty bar, which is far worse than a frame
+   * without the bead.
+   */
+  const bar = (
+    <div className="nav-surface rounded-[30px]">
+      <ul className="grid grid-cols-4 py-2.5">
+        {items.map((it) => (
+          <li key={it.to}>
+            <NavLink
+              to={it.to}
+              end={it.to === "/"}
+              // Taps navigate through the link, exactly as they always did.
+              // Only the click a *drag* leaves behind is swallowed.
+              onClick={(e) => {
+                if (!suppressClick.current) return;
+                suppressClick.current = false;
+                e.preventDefault();
+              }}
+              draggable={false}
+              // "Home (3)" rather than the "Home 3" that the badge's bare number
+              // would otherwise be read as — the same shape LikeButton uses for
+              // a count beside a label. The truncated "9+" is deliberately not
+              // what is announced: the real number is useful to somebody who
+              // cannot see how big the dot is.
+              aria-label={it.count > 0 ? `${it.label} (${it.count})` : undefined}
+              className={({ isActive }) =>
+                "flex flex-col items-center gap-1 py-1 text-[11px] font-medium " +
+                "transition-colors duration-200 " +
+                (isActive ? "text-brand-500" : "text-ink-500")
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <span className="relative block">
+                    <img
+                      src={navIconSrc(it.icon, isActive)}
+                      alt=""
+                      aria-hidden="true"
+                      width={22}
+                      height={22}
+                      style={{ width: 22, height: 22 }}
+                      className="shrink-0 select-none"
+                      draggable={false}
+                    />
+                    {it.count > 0 ? (
+                      <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        {it.count > 9 ? "9+" : it.count}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span>{it.label}</span>
+                </>
+              )}
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 
   return (
     // Not `fixed` itself: MobileShell pins the whole bottom stack, and this is
@@ -259,82 +323,55 @@ export default function BottomNav() {
       className="px-3 pt-2 w-full mx-auto sm:max-w-xl lg:max-w-2xl"
       style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
     >
+      {/* `overflow-hidden`, and it is not tidiness. An SVG filter paints into a
+          region larger than the element it is applied to — the default is 10%
+          of the box in every direction — and a displacement map pushes real
+          pixels out there: a smear of the bar's surface and a torn-off piece of
+          the selected icon, floating above and below the pill where nothing is
+          meant to be. Clipping to the pill's own rounded box is what keeps the
+          bead of glass inside the bar it is riding on. */}
       <div
         ref={railRef}
-        className="relative rounded-[30px] touch-none select-none"
+        className="relative rounded-[30px] overflow-hidden touch-none select-none"
       >
-        <LiquidGlass
-          ref={lensRef}
-          x={fractionFor(startIndex)}
-          y={0.5}
-          width={lensWidth}
-          height={lensHeight}
-          radius="auto"
-          // Close to the library's defaults, which are already tuned for this
-          // effect; only the rim is thinned, because the bead here is one tab
-          // wide and a 10px edge on it leaves almost no flat centre. The
-          // chromatic aberration is the default 0.2 and is left alone — the
-          // colour split at the rim is the detail that reads as glass.
-          depth={8}
-          glow={0.35}
-          edgeHighlight={0.5}
-          shadow="0 2px 8px rgba(0, 0, 0, 0.14)"
-        >
-          <div className="nav-surface rounded-[30px]">
-          <ul className="grid grid-cols-4 py-2.5">
-            {items.map((it) => (
-              <li key={it.to}>
-                <NavLink
-                  to={it.to}
-                  end={it.to === "/"}
-                  // Taps navigate through the link, exactly as they always did.
-                  // Only the click a *drag* leaves behind is swallowed.
-                  onClick={(e) => {
-                    if (!suppressClick.current) return;
-                    suppressClick.current = false;
-                    e.preventDefault();
-                  }}
-                  draggable={false}
-                  // "Home (3)" rather than the "Home 3" that the badge's bare
-                  // number would otherwise be read as — the same shape
-                  // LikeButton uses for a count beside a label. The truncated
-                  // "9+" is deliberately not what is announced: the real number
-                  // is useful to somebody who cannot see how big the dot is.
-                  aria-label={it.count > 0 ? `${it.label} (${it.count})` : undefined}
-                  className={({ isActive }) =>
-                    "flex flex-col items-center gap-1 py-1 text-[11px] font-medium " +
-                    "transition-colors duration-200 " +
-                    (isActive ? "text-brand-500" : "text-ink-500")
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span className="relative block">
-                        <img
-                          src={navIconSrc(it.icon, isActive)}
-                          alt=""
-                          aria-hidden="true"
-                          width={22}
-                          height={22}
-                          style={{ width: 22, height: 22 }}
-                          className="shrink-0 select-none"
-                          draggable={false}
-                        />
-                        {it.count > 0 ? (
-                          <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                            {it.count > 9 ? "9+" : it.count}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span>{it.label}</span>
-                    </>
-                  )}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-          </div>
-        </LiquidGlass>
+        {/* Mounted only once the bar has been measured, and rebuilt from
+            scratch when that measurement changes.
+
+            The engine is constructed in a layout effect from the props of the
+            render that created it, and a later size reaches it through a
+            regeneration scheduled on `requestAnimationFrame`. Both halves of
+            that matter here. The bar cannot be measured until it exists, so the
+            first render has no honest number to give — and a guess is what the
+            lens then keeps, because the correction is one frame away and a
+            frame is not guaranteed: on a backgrounded page it never comes. The
+            symptom is a bead sized for one bar sitting on a bar of another
+            width, which is not subtle.
+
+            Waiting a render costs nothing visible, and the `key` handles the
+            rest: a breakpoint change or a rotation replaces the lens outright
+            rather than asking it to resize. */}
+        {measured ? (
+          <LiquidGlass
+            key={`${Math.round(size.w)}x${Math.round(size.h)}`}
+            ref={lensRef}
+            x={fractionFor(startIndex)}
+            y={0.5}
+            width={size.w / tabs}
+            height={size.h * 0.86}
+            radius="auto"
+            // Close to the library's defaults, which are already tuned for this
+            // effect; only the rim is thinned, because the bead here is one tab
+            // wide and a 10px edge on it leaves almost no flat centre. The
+            // chromatic aberration is the default 0.2 and is left alone — the
+            // colour split at the rim is the detail that reads as glass.
+            depth={8}
+            glow={0.35}
+            edgeHighlight={0.5}
+            shadow="0 2px 8px rgba(0, 0, 0, 0.14)"
+          >
+            {bar}
+          </LiquidGlass>
+        ) : bar}
       </div>
     </nav>
   );
