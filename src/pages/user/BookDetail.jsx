@@ -455,6 +455,12 @@ export default function BookDetail() {
   // same two sources it reads, asked before it guesses.
   const hasPageCount = isPageBand(book.pages) || Number(book.maxDays) > 0;
 
+  // How long the reader gets to keep it. The same sum the pickup screen states
+  // and the same one the borrow mutation above hands out, so a reader who is
+  // still deciding whether to take the book reads the period here rather than
+  // finding it out one screen into the pickup flow.
+  const loanDays = loanDaysForPages(pagesForBook(book));
+
   /**
    * The action for this book, whoever is looking at it.
    *
@@ -689,6 +695,25 @@ export default function BookDetail() {
           <SaveButton saved={saved} onClick={(e) => e.preventDefault()} />
         </button>
       </div>
+
+      {/* Borrowing period — a fact about the book, not about this copy today,
+          so it is drawn for every reader whatever the book's status. The page
+          band under it is the reason the number is what it is. */}
+      <section className="px-4 mt-5">
+        <div className="card px-4 py-3 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-[15px] font-medium">{t.loanTermLabel}</p>
+            <p className="text-[12px] text-ink-500 mt-0.5">
+              {hasPageCount
+                ? `${pagesRangeLabel(pagesForBook(book))} ${t.pagesUnit} · ${t.loanTermNote}`
+                : t.loanTermNote}
+            </p>
+          </div>
+          <p className="text-[20px] font-semibold tabular-nums leading-none whitespace-nowrap">
+            {loanDays} {t.loanDaysUnit}
+          </p>
+        </div>
+      </section>
 
       <section className="px-4 mt-5">
         <h3 className="section-title">{t.bookDescription}</h3>

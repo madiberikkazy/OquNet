@@ -1,14 +1,19 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import MobileShell from "../../components/MobileShell.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
-import { leaveCoReading, touchCoReading, watchCoReaders } from "../../firebase/firestore.js";
+import {
+  leaveCoReading, logReadingSession, touchCoReading, watchCoReaders,
+} from "../../firebase/firestore.js";
 import { COREAD_STALE_MS } from "../../firebase/schema.js";
 import { coReadAvatarSrc } from "../../utils/icons.js";
 import {
+  MIN_SESSION_SECONDS,
   READING_MINUTES_DEFAULT, READING_MINUTES_MAX, READING_MINUTES_MIN,
 } from "../../utils/readingProgress.js";
+import { qk } from "../../lib/queryKeys.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
 
@@ -44,21 +49,33 @@ const LABEL_H = 16;
  */
 export default function ReadTogetherRoom() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const { community } = useCommunity();
   const [params] = useSearchParams();
+  const queryClient = useQueryClient();
 
   const [readers, setReaders] = useState([]);
-  const [startedAt] = useState(() => Date.now());
+  const [startedAt, setStartedAt] = useState(() => Date.now());
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [paused, setPaused] = useState(false);
   const pausedMsRef = useRef(0);
   const pausedAtRef = useRef(null);
 
-  // The length the reader chose on the way in. Clamped rather than trusted: it
-  // arrives in the URL so a reset can reload without losing it, and an edited
-  // one only ever mis-sets its own owner's clock — but a clock is easier to
-  // reason about when it cannot be handed a negative or a week.
+  // How much of this sitting is already in the log, and where the next unwritten
+  // stretch starts. Reading here counts towards the same total the solo timer
+  // feeds, and it is banked as it goes rather than at the end — see `commit`.
+  const committedMsRef = useRef(0);
+  const segmentStartRef = useRef(startedAt);
+  // Which sitting the numbers above belong to. Reset starts a new one while a
+  // commit for the old one may still be in flight, and that commit must not be
+  // allowed to write its bookkeeping over the fresh sitting's — see `commit`.
+  const sittingRef = useRef(0);
+
+  // The length the reader chose on the way in. It arrives in the URL so that a
+  // reload lands back in the same sitting rather than at the default. Clamped
+  // rather than trusted: an edited one only ever mis-sets its own owner's
+  // clock, but a clock is easier to reason about when it cannot be handed a
+  // negative or a week.
   const durationMs = clampMinutes(params.get("minutes")) * 60_000;
 
   // Live room.
@@ -98,6 +115,104 @@ export default function ReadTogetherRoom() {
   );
   const remainingMs = Math.max(0, durationMs - elapsedMs);
 
+  /**
+   * Write down what has been read but not yet recorded.
+   *
+   * Reading in the room is reading: it counts towards the same day map and the
+   * same total the solo timer feeds, and it counted for nothing before this —
+   * a reader who sat down with everybody else for half an hour and then left
+   * before the clock ran out came away with the half hour unrecorded, because
+   * the room only ever deleted its presence row on the way out.
+   *
+   * What is written is the time actually spent reading: elapsed wall-clock time
+   * with the paused stretches taken out, not the length the timer was set to.
+   * Leaving early records the part that happened; sitting past the end records
+   * that too.
+   *
+   * Safe to call as often as any of the ways out of this screen happen, because
+   * it writes the *delta* since the last successful write. The floor is the
+   * server's — the rules refuse a row under `MIN_SESSION_SECONDS` — so a smaller
+   * delta is held back rather than sent to be rejected, and rides along with the
+   * next one.
+   */
+  const commit = useCallback(async (totalMs) => {
+    if (!user?.id) return null;
+    const seconds = Math.floor((totalMs - committedMsRef.current) / 1000);
+    if (seconds < MIN_SESSION_SECONDS) return null;
+
+    // Reserved before the await, so a second caller arriving while this one is
+    // in flight cannot claim the same seconds.
+    committedMsRef.current += seconds * 1000;
+    const sitting = sittingRef.current;
+    const endedAt = Date.now();
+    const from = segmentStartRef.current ?? endedAt - seconds * 1000;
+    try {
+      const { patch } = await logReadingSession({
+        userId: user.id,
+        communityId: community?.id ?? null,
+        // No book: the room is a sitting with other people rather than with a
+        // particular loan, and guessing one would mislabel the log.
+        bookId: null,
+        seconds,
+        startedAt: from,
+        endedAt,
+        readingDays: user.readingDays || {},
+      });
+      if (sittingRef.current === sitting) segmentStartRef.current = endedAt;
+      // The profile's chart and this room's own totals read straight off auth
+      // state, so it has to learn the new total here rather than after a refetch.
+      setUser({ ...user, ...patch });
+      // And the face in the circle, so the minutes under it climb while the
+      // reader is sitting there rather than only after they come back.
+      touchCoReading(user.id, { minutes: Math.floor((patch.readingSeconds ?? 0) / 60) })
+        .catch((err) => logger.warn("coReadRoom.minutes", err?.message));
+      queryClient.invalidateQueries({ queryKey: qk.reading.sessions(user.id) });
+      if (community?.id) {
+        queryClient.invalidateQueries({ queryKey: qk.reading.rank(community.id, user.id) });
+      }
+      return seconds;
+    } catch (err) {
+      // Hand the seconds back, so the next commit tries them again rather than
+      // swallowing the sitting — but only to the sitting they were taken from.
+      // Refunding into a sitting that has since been reset would leave its
+      // ledger below zero, and the next commit would write time nobody read.
+      if (sittingRef.current === sitting) committedMsRef.current -= seconds * 1000;
+      logger.error("coReadRoom.commit", err?.message, { code: err?.code });
+      return null;
+    }
+  }, [user, community?.id, setUser, queryClient]);
+
+  // Every way out of this screen banks first. The unmount covers Back and any
+  // navigation; `visibilitychange` and `pagehide` cover the case a phone makes
+  // the common one — the screen locked, or the tab reclaimed by the system —
+  // where no unmount ever runs and the whole sitting used to disappear with it.
+  //
+  // Both the elapsed time and the commit are held in a ref so these effects can
+  // stay `[]`-dependent: given their real dependencies they would tear down and
+  // re-arm four times a second, and a handler that keeps being replaced is one
+  // that eventually misses the event it was armed for.
+  const exitRef = useRef({ elapsedMs, commit });
+  exitRef.current = { elapsedMs, commit };
+
+  useEffect(() => () => {
+    const { elapsedMs: ms, commit: save } = exitRef.current;
+    save(ms);
+  }, []);
+
+  useEffect(() => {
+    const bank = () => {
+      const { elapsedMs: ms, commit: save } = exitRef.current;
+      save(ms);
+    };
+    const onVisibility = () => { if (document.visibilityState === "hidden") bank(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", bank);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", bank);
+    };
+  }, []);
+
   function togglePause() {
     setPaused((was) => {
       if (was) {
@@ -111,7 +226,32 @@ export default function ReadTogetherRoom() {
     });
   }
 
+  /**
+   * Start the sitting over.
+   *
+   * It used to reload the page, which threw the clock away along with every
+   * minute that had not been written down yet — the reload's `pagehide` had to
+   * race a Firestore write it could not wait for. Resetting in place banks what
+   * was read first and then puts the clock back to zero, so the button costs
+   * the reader nothing but the count.
+   */
+  function reset() {
+    commit(elapsedMs);
+    const now = Date.now();
+    sittingRef.current += 1;
+    committedMsRef.current = 0;
+    segmentStartRef.current = now;
+    pausedMsRef.current = 0;
+    pausedAtRef.current = null;
+    setPaused(false);
+    setStartedAt(now);
+    setNowMs(now);
+  }
+
   async function leave() {
+    // What was read is written down first. Leaving before the timer runs out is
+    // an ordinary way to end a sitting, not a reason to lose it.
+    commit(elapsedMs);
     try {
       await leaveCoReading(user?.id);
     } catch (err) {
@@ -155,7 +295,7 @@ export default function ReadTogetherRoom() {
 
       {/* ── Controls ── */}
       <div className="flex items-center justify-center gap-5 mt-6">
-        <button onClick={() => window.location.reload()} className="timer-side-btn" aria-label={t.reset}>
+        <button onClick={reset} className="timer-side-btn" aria-label={t.reset}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
             <path d="M4 12a8 8 0 1 1 2.5 5.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
             <path d="M4 6.5V12h5.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
