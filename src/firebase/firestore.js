@@ -2190,6 +2190,50 @@ export async function joinOfflineMeetup({ userId, meetup, name, nickname, photoU
   return row;
 }
 
+/**
+ * Why the server just refused a meet-up.
+ *
+ * Every rule on this collection turns on one comparison — the community named
+ * on the document against `myCommunity()`, which the rules read off the
+ * caller's *server-side* profile. A client cannot see that value: the
+ * `communityId` it holds came from its own cached profile, and the whole class
+ * of bug worth naming here is those two having drifted apart.
+ *
+ * So this asks the server. One read of the caller's own profile — allowed by
+ * the rules whatever else is refused — and the answer separates the only two
+ * things a `permission-denied` here can mean:
+ *
+ *   the ids agree     → the rule that would have allowed this is not on the
+ *                       server. The deployed ruleset predates the collection,
+ *                       and every operation on it falls through to the
+ *                       catch-all deny.
+ *   the ids differ    → the profile on the server belongs to a different
+ *                       community than this device thinks it does, so the
+ *                       comparison is against the wrong id.
+ *
+ * Called only from a `permission-denied` handler on a user-initiated write, so
+ * it costs one read per refusal and nothing at all when things work.
+ */
+export async function diagnoseMeetupAccess({ userId, communityId } = {}) {
+  if (!userId) return { verdict: "no-user" };
+  try {
+    const profile = await getOne("users", userId);
+    const serverCommunityId = profile?.communityId ?? null;
+    return {
+      queried: communityId ?? null,
+      serverCommunityId,
+      verdict:
+        serverCommunityId && serverCommunityId === communityId
+          ? "ids-agree: the meetups rules are not on the server — deploy firestore.rules"
+          : "ids-differ: this device's community is not the one the server profile names",
+    };
+  } catch (err) {
+    // Being unable to read your own profile is a third answer, and a louder
+    // one: it means the refusal is not about this collection at all.
+    return { verdict: "profile-unreadable", code: err?.code ?? null };
+  }
+}
+
 /** Stand up. Only ever your own seat — the table outlives it. */
 export async function leaveOfflineMeetup(userId) {
   if (!userId) return;

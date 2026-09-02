@@ -41,6 +41,7 @@ const {
   cancelReturnRequest, expireReturnRequest,
   completeReturnToOwner, transferBookHolder, getActiveBorrowingByBook,
   NEW_BOOK_WINDOW_DAYS,
+  diagnoseMeetupAccess,
 } = await import("../src/firebase/firestore.js");
 
 const {
@@ -2017,5 +2018,47 @@ describe("phone verification over Telegram", () => {
     const attempt = await getPhoneVerification(token);
     assert.equal(attempt.status, "cancelled");
     assert.equal(readPendingVerification(), null);
+  });
+});
+
+// ── Why a meet-up was refused ────────────────────────────────────────────────
+//
+// This is a diagnostic, which is exactly the kind of code nobody tests and
+// everybody trusts: it is read once, under pressure, by somebody trying to work
+// out why a screen says no. A verdict that names the wrong cause sends them to
+// the wrong fix, so the two answers it can give are pinned down here.
+describe("diagnoseMeetupAccess", () => {
+  const profile = (over = {}) => createUserDoc({
+    id: "diag-user", email: "diag@oqunet.kz", nickname: "diaguser",
+    firstName: "Diag", lastName: "User", ...over,
+  });
+
+  it("blames the ruleset when the server agrees about the community", async () => {
+    await profile();
+    await updateUser("diag-user", { communityId: "c-alpha" });
+
+    const out = await diagnoseMeetupAccess({ userId: "diag-user", communityId: "c-alpha" });
+    assert.equal(out.serverCommunityId, "c-alpha");
+    assert.match(out.verdict, /^ids-agree/);
+  });
+
+  it("blames the community when the server names a different one", async () => {
+    await profile();
+    await updateUser("diag-user", { communityId: "c-beta" });
+
+    const out = await diagnoseMeetupAccess({ userId: "diag-user", communityId: "c-alpha" });
+    assert.equal(out.serverCommunityId, "c-beta");
+    assert.match(out.verdict, /^ids-differ/);
+  });
+
+  it("…including the case where the server has no community at all", async () => {
+    await profile();
+    const out = await diagnoseMeetupAccess({ userId: "diag-user", communityId: "c-alpha" });
+    assert.equal(out.serverCommunityId, null);
+    assert.match(out.verdict, /^ids-differ/);
+  });
+
+  it("says so rather than guessing when there is nobody to ask about", async () => {
+    assert.equal((await diagnoseMeetupAccess({})).verdict, "no-user");
   });
 });
