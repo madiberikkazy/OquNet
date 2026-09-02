@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import MeetupCard from "./MeetupCard.jsx";
 import {
+  diagnoseMeetupAccess,
   joinOfflineMeetup, leaveOfflineMeetup, watchOfflineMeetups,
 } from "../firebase/firestore.js";
 import { meetupTables, meetupsFor, memberId, tableFor } from "../utils/meetups.js";
@@ -78,9 +79,14 @@ export default function MeetupFeed({ user, communityId, className = "" }) {
     } catch (err) {
       logger.error("profile.meetups.join", err?.message, {
         code: err?.code, collection: "meetups",
-        // The pair the rule compares — see the note in publish().
-        communityId, profileCommunityId: user?.communityId ?? null,
       });
+      if (err?.code === "permission-denied") {
+        // See the note on reportRefusal in ReadTogetherOffline.jsx: the ids the
+        // rule compares are a server value and a client one, and only the
+        // server can be asked for its half.
+        const diagnosis = await diagnoseMeetupAccess({ userId: user?.id, communityId });
+        logger.error("profile.meetups.join.diagnosis", diagnosis.verdict, diagnosis);
+      }
       setError(writeError(err) || t.meetupJoinFailed);
       setBusy(false);
     }

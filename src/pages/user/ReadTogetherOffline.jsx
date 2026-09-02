@@ -6,6 +6,7 @@ import GenderFigure from "../../components/GenderFigure.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
+  diagnoseMeetupAccess,
   joinOfflineMeetup, leaveOfflineMeetup, openOfflineMeetup, watchOfflineMeetups,
 } from "../../firebase/firestore.js";
 import { MEETUP_PLACE_MAX, isMeetupGender } from "../../firebase/schema.js";
@@ -119,18 +120,10 @@ export default function ReadTogetherOffline({ tabs }) {
       setStep(1);
       setPlace("");
     } catch (err) {
-      logger.error("meetups.open", err?.message, {
-        code: err?.code,
-        // Named, because "Missing or insufficient permissions" does not say
-        // which document it was about, and this flow touches two collections.
-        collection: "meetups",
-        // The two values the rule actually compares. A refusal here is either
-        // a ruleset that predates this collection, or these two disagreeing —
-        // the profile on the server naming a different community than the one
-        // this device thinks it is in. Both are invisible without them.
-        communityId: community.id,
-        profileCommunityId: user?.communityId ?? null,
-      });
+      // Named, because "Missing or insufficient permissions" does not say which
+      // document it was about, and this flow touches two collections.
+      logger.error("meetups.open", err?.message, { code: err?.code, collection: "meetups" });
+      await reportRefusal(err, user, community.id, "meetups.open");
       setError(writeError(err) || t.meetupOpenFailed);
     } finally {
       setBusy(false);
@@ -166,11 +159,8 @@ export default function ReadTogetherOffline({ tabs }) {
       });
       navigate(`/chats/${table.hostId}`);
     } catch (err) {
-      logger.error("meetups.join", err?.message, {
-        code: err?.code, collection: "meetups",
-        // The pair the rule compares — see the note in publish().
-        communityId: community.id, profileCommunityId: user?.communityId ?? null,
-      });
+      logger.error("meetups.join", err?.message, { code: err?.code, collection: "meetups" });
+      await reportRefusal(err, user, community.id, "meetups.join");
       setError(writeError(err) || t.meetupJoinFailed);
       setBusy(false);
     }
@@ -409,6 +399,21 @@ function SearchSheet({
       </div>
     </div>
   );
+}
+
+/**
+ * Say out loud why the server refused, when it did.
+ *
+ * Only for `permission-denied`, and only from a write somebody actually asked
+ * for, so it costs one profile read per refusal and nothing when things work.
+ * The verdict it prints is the difference between "deploy the rules" and "this
+ * account is not in the community it thinks it is" — two problems that look
+ * identical from the screen and have nothing in common.
+ */
+async function reportRefusal(err, user, communityId, scope) {
+  if (err?.code !== "permission-denied") return;
+  const diagnosis = await diagnoseMeetupAccess({ userId: user?.id, communityId });
+  logger.error(`${scope}.diagnosis`, diagnosis.verdict, diagnosis);
 }
 
 /**
