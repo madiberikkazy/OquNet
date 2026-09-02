@@ -3069,6 +3069,14 @@ describe("offline reading meet-ups", () => {
     await assertFails(sit(as(MEMBER_A), MEMBER_A, { place: "x".repeat(121) }));
   });
 
+  it("accepts a place at the app's own limit, in the app's own alphabet", async () => {
+    // 120 Cyrillic characters — the exact ceiling `clampText` allows, and 240
+    // bytes of UTF-8. If `size()` counted bytes rather than characters this
+    // would be refused, and every Kazakh place name over sixty letters with it.
+    const place = "ә".repeat(120);
+    await assertSucceeds(sit(as(MEMBER_A), MEMBER_A, { place }));
+  });
+
   it("a member MAY list their own community's sittings", async () => {
     await testEnv.withSecurityRulesDisabled(async (ctx) => {
       await setDoc(doc(ctx.firestore(), "meetups", MEMBER_A2), {
