@@ -1,11 +1,31 @@
-export default function SaveButton({ saved, onClick, size = 22 }) {
+import { t } from "../utils/i18n.js";
+
+/**
+ * The bookmark — the one control that appears at three sizes.
+ *
+ * A card in a grid carries the small one; the book's own page carries it in the
+ * sticky bar at the top, where it is the page's second action and has to weigh
+ * the same as the back arrow beside it. Hence `className`: the shape is the
+ * caller's, the glyph and the two states are this component's.
+ */
+export default function SaveButton({
+  saved,
+  onClick,
+  size = 22,
+  className = "w-8 h-8 rounded-lg",
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={saved ? "Unsave" : "Save"}
+      // Localised, like every other label in the app. It used to say "Save" and
+      // "Unsave" in English on a Kazakh screen — invisible to everyone except
+      // the readers who have only this to go on.
+      aria-label={saved ? t.unsaveBook : t.saveBtn}
+      aria-pressed={!!saved}
       className={
-        "w-8 h-8 rounded-lg inline-flex items-center justify-center transition " +
+        "inline-flex items-center justify-center transition active:scale-95 " +
+        className + " " +
         (saved ? "bg-ink-100 text-ink-900" : "text-ink-500 hover:bg-ink-100")
       }
     >

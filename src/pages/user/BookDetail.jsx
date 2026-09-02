@@ -622,22 +622,53 @@ export default function BookDetail() {
     </div>
   );
 
-  return (
-    <MobileShell bottomBar={actionBar} overlay={returnSheet}>
-      {/* A back button and nothing else. This used to be a SearchBar with its
-          field wired to nothing — `value=""` and an onChange that discarded the
-          keystroke — and a filter button beside it with no handler at all. Two
-          controls that looked like the ones on the shelf screen and did nothing
-          on this one; a dead search box is worse than no search box, because a
-          reader has to try it to find out. */}
-      <div className="px-4 pb-1">
-        <button onClick={() => navigate(-1)} aria-label={t.back} className="icon-btn">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      </div>
+  /**
+   * The bar at the top of the page, and it stays there.
+   *
+   * It used to be an ordinary first row of the page — a back arrow that scrolled
+   * away with the cover — on a screen that is one of the longest in the app:
+   * cover, description, the loan, the rating editor, every review, and the
+   * book's whole journey underneath. A reader halfway down had no way back and
+   * no way to save without scrolling to one end or the other.
+   *
+   * So it goes through MobileShell's header slot, which is `position: sticky`
+   * and frosted (see the note in MobileShell.jsx about what had to change for
+   * sticky to work here at all). Two controls, one at each end: back, and the
+   * bookmark.
+   *
+   * The bookmark used to be a full-width "Сақтау" button under the badges,
+   * which is a whole row of the page spent on a secondary action — and one that
+   * scrolled away exactly like the arrow did. As an icon in the bar it is
+   * always reachable, and its own two states say what the word did: filled and
+   * tinted when the book is saved, hollow when it is not.
+   */
+  const header = (
+    <div className="px-4 pb-2 flex items-center gap-3">
+      <button onClick={() => navigate(-1)} aria-label={t.back} className="icon-btn shrink-0">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
 
+      {/* Nothing between them. A title here would be the same words as the
+          heading two lines below it for the whole of the first screenful,
+          which is where a reader spends most of their time on this page. */}
+      <span className="flex-1" />
+
+      <SaveButton
+        saved={saved}
+        onClick={toggleSaved}
+        size={26}
+        // Sized to the arrow it sits opposite, rather than to the smaller one on
+        // a book card: a bar with a 40px control at one end and a 32px control
+        // at the other reads as two different kinds of thing.
+        className="w-10 h-10 rounded-xl shrink-0"
+      />
+    </div>
+  );
+
+  return (
+    <MobileShell bottomBar={actionBar} overlay={returnSheet} header={header}>
       <div className="px-4 pt-4 flex gap-3">
         <img
           src={safeImageUrl(book.coverUrl) || undefined}
@@ -684,16 +715,6 @@ export default function BookDetail() {
             ))}
           </div>
         </div>
-      </div>
-
-      <div className="px-4 mt-5">
-        <button
-          onClick={toggleSaved}
-          className="w-full bg-ink-100 hover:bg-ink-100/80 rounded-xl py-3.5 font-medium flex items-center justify-center gap-2"
-        >
-          {t.saveBtn}
-          <SaveButton saved={saved} onClick={(e) => e.preventDefault()} />
-        </button>
       </div>
 
       {/* Borrowing period — a fact about the book, not about this copy today,
