@@ -36,6 +36,12 @@ const FEED_MAX = 3;
  * visit should not take a heading and a card's worth of a profile to say so —
  * the empty state, and the way to open a sitting, live on the offline tab where
  * somebody has gone looking for one.
+ *
+ * And no heading even when it does draw. These cards belong under the profile's
+ * reading section, directly beneath the card that counts minutes and offers the
+ * room — reading with other people is one subject, and it had grown two titles
+ * on one screen with the word "бірге оқу" in both of them. The section above
+ * names it; this is the rest of the same answer.
  */
 export default function MeetupFeed({ user, communityId, className = "" }) {
   const navigate = useNavigate();
@@ -115,23 +121,10 @@ export default function MeetupFeed({ user, communityId, className = "" }) {
   const shown = open.slice(0, FEED_MAX);
 
   return (
-    <section className={className}>
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-[17px] font-bold truncate">{t.meetupSectionTitle}</h3>
-        {/* The way to the full list, and to opening one of your own. Shown
-            whenever there is anything here at all, not only when the list
-            overflows: this section is a glimpse, and the tab is the screen. */}
-        <Link
-          to="/reading/together?tab=offline"
-          className="shrink-0 text-[13px] font-semibold text-brand-500 active:opacity-60"
-        >
-          {open.length > shown.length ? t.showMore : t.coReadTitle}
-        </Link>
-      </div>
+    <div className={className}>
+      {error ? <p className="mb-2 text-bad text-[13px]">{error}</p> : null}
 
-      {error ? <p className="mt-2 text-bad text-[13px]">{error}</p> : null}
-
-      <div className="mt-2.5 space-y-2.5">
+      <div className="space-y-2.5">
         {mine ? (
           <MeetupCard
             table={mine}
@@ -152,6 +145,20 @@ export default function MeetupFeed({ user, communityId, className = "" }) {
           />
         ))}
       </div>
-    </section>
+
+      {/* Only when there is something this glimpse could not fit. With a
+          heading gone there is no longer a permanent link to the tab here, and
+          that is right: the section above already offers "Бірге оқу", and a
+          second way in under every card would be the duplication this change
+          was made to remove. */}
+      {open.length > shown.length ? (
+        <Link
+          to="/reading/together?tab=offline"
+          className="mt-2 block text-center text-[13px] font-semibold text-brand-500 active:opacity-60"
+        >
+          {t.showMore}
+        </Link>
+      ) : null}
+    </div>
   );
 }
