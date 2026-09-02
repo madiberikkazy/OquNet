@@ -371,7 +371,6 @@ const kz = {
   // Офлайн бірге оқу — нақты жердегі кездесу.
   coReadOnlineTab: "Онлайн",
   coReadOfflineTab: "Офлайн",
-  meetupSectionTitle: "Офлайн бірге оқу",
   meetupSearchPeople: "Адам іздеу",
   meetupPickGender: "Жынысыңызды таңдаңыз",
   meetupGenderNote: "Хабарландыру тек сол жыныстағы оқырмандарға барады. Мұны Баптаулардан өзгертуге болады.",
@@ -1343,7 +1342,6 @@ const ru = {
   // Офлайн-чтение вместе — встреча в реальном месте.
   coReadOnlineTab: "Онлайн",
   coReadOfflineTab: "Офлайн",
-  meetupSectionTitle: "Читать вместе офлайн",
   meetupSearchPeople: "Найти людей",
   meetupPickGender: "Выберите пол",
   meetupGenderNote: "Уведомление увидят только читатели того же пола. Это можно изменить в настройках.",
@@ -2307,7 +2305,6 @@ const en = {
   // Reading together offline — meeting somewhere real.
   coReadOnlineTab: "Online",
   coReadOfflineTab: "Offline",
-  meetupSectionTitle: "Reading together offline",
   meetupSearchPeople: "Search people",
   meetupPickGender: "Choose your gender",
   meetupGenderNote: "Only readers of the same gender are notified. You can change this in Settings.",
