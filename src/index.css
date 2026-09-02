@@ -159,6 +159,57 @@
     to   { transform: rotate(360deg) translate(var(--coread-r)) rotate(-360deg); }
   }
 
+  /* ── Offline meet-ups ──────────────────────────────────────────────────
+     Reading with somebody in a real place. Three motions, and each one is
+     saying something the copy beside it cannot:
+
+       `.meetup-rise`  — a card arriving. These cards appear on a profile
+                         while the reader is looking at it, because somebody
+                         across town has just opened a sitting; without an
+                         entrance a new one simply *is* there, and the eye
+                         reads that as the page having jumped.
+       `.meetup-pulse` — a ring going out from a table that has people at it.
+                         The difference between an invitation and a sitting is
+                         a number nobody reads, so it is drawn as a heartbeat
+                         instead.
+       `.meetup-float` — the two figures on the gender picker, breathing. A
+                         still illustration on a card reads as an icon; a
+                         moving one reads as a thing you are choosing to be.
+
+     The ring around a table reuses `coread-orbit` above — same faces, same
+     circle, same reason for the single-keyframe build. */
+  @keyframes meetup-rise {
+    from { opacity: 0; transform: translateY(10px) scale(0.985); }
+    to   { opacity: 1; transform: none; }
+  }
+  .meetup-rise {
+    /* `backwards`, not `both`, for the reason `.page-transition` gives at
+       length below: a persisting identity transform makes the element the
+       containing block for every fixed child inside it. */
+    animation: meetup-rise 0.34s cubic-bezier(0.22, 0.9, 0.32, 1) backwards;
+  }
+
+  @keyframes meetup-pulse {
+    from { opacity: 0.5; transform: scale(0.9); }
+    to   { opacity: 0;   transform: scale(1.9); }
+  }
+  .meetup-pulse {
+    animation: meetup-pulse 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  }
+
+  @keyframes meetup-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-5px); }
+  }
+  .meetup-float { animation: meetup-float 3.2s ease-in-out infinite; }
+
+  /* Every one of them is decoration over content that is already legible
+     without it — a card still arrives, a table still says how many are at it,
+     a figure is still a figure. */
+  @media (prefers-reduced-motion: reduce) {
+    .meetup-rise, .meetup-pulse, .meetup-float { animation: none; }
+  }
+
   /* The acrylic pane across the front of a genre tile — the sheet a shop's
      display holder has, with the books standing behind it and their spines
      going soft where they pass under.

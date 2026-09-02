@@ -3015,6 +3015,84 @@ describe("co-reading presence", () => {
   });
 });
 
+describe("offline reading meet-ups", () => {
+  /** Exactly what firestore.openOfflineMeetup commits. */
+  const seatDoc = (uid, over = {}) => ({
+    id: uid,
+    userId: uid,
+    hostId: uid,
+    communityId: C1,
+    gender: "male",
+    place: "Central library, 2nd floor",
+    name: "Member A",
+    nickname: "membera",
+    photoURL: "",
+    startedAt: Date.now(),
+    updatedAt: serverTimestamp(),
+    ...over,
+  });
+
+  const sit = (db, uid, over = {}) =>
+    setDoc(doc(db, "meetups", uid), seatDoc(uid, over), { merge: true });
+
+  it("a member MAY open a sitting in their own community", async () => {
+    await assertSucceeds(sit(as(MEMBER_A), MEMBER_A));
+  });
+
+  it("…and MAY join somebody else's by naming them as host", async () => {
+    await assertSucceeds(sit(as(MEMBER_A), MEMBER_A, { hostId: MEMBER_A2 }));
+  });
+
+  it("…and MAY move their own without leaving it", async () => {
+    await assertSucceeds(sit(as(MEMBER_A), MEMBER_A));
+    await assertSucceeds(sit(as(MEMBER_A), MEMBER_A, { place: "Coffee Boom" }));
+  });
+
+  it("nobody may seat somebody else", async () => {
+    await assertFails(sit(as(MEMBER_A), MEMBER_A2));
+  });
+
+  it("nobody may open one in another community", async () => {
+    await assertFails(sit(as(MEMBER_A), MEMBER_A, { communityId: C2 }));
+  });
+
+  it("somebody with no community may not open one at all", async () => {
+    await assertFails(sit(as(DRIFTER), DRIFTER));
+  });
+
+  it("the gender has to be one of the two the picker offers", async () => {
+    await assertFails(sit(as(MEMBER_A), MEMBER_A, { gender: "anything" }));
+  });
+
+  it("a sitting has to say where it is", async () => {
+    await assertFails(sit(as(MEMBER_A), MEMBER_A, { place: "" }));
+    await assertFails(sit(as(MEMBER_A), MEMBER_A, { place: "x".repeat(121) }));
+  });
+
+  it("a member MAY list their own community's sittings", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "meetups", MEMBER_A2), {
+        ...seatDoc(MEMBER_A2), updatedAt: Date.now(),
+      });
+    });
+    await assertSucceeds(getDocs(query(
+      collection(as(MEMBER_A), "meetups"), where("communityId", "==", C1)
+    )));
+  });
+
+  it("…and may not list somebody else's", async () => {
+    await assertFails(getDocs(query(
+      collection(as(MEMBER_B), "meetups"), where("communityId", "==", C1)
+    )));
+  });
+
+  it("standing up removes only your own seat", async () => {
+    await assertSucceeds(sit(as(MEMBER_A), MEMBER_A));
+    await assertFails(deleteDoc(doc(as(MEMBER_A2), "meetups", MEMBER_A)));
+    await assertSucceeds(deleteDoc(doc(as(MEMBER_A), "meetups", MEMBER_A)));
+  });
+});
+
 describe("sending an invitation, end to end", () => {
   const PAIR = [ADMIN_A, DRIFTER].sort();
   const CHAT = `${PAIR[0]}__${PAIR[1]}`;

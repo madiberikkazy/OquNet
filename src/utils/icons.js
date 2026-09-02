@@ -99,6 +99,25 @@ export function coReadAvatarSrc(key) {
   return `/drawable/av${n >= 1 && n <= 30 ? n : 1}.gif`;
 }
 
+/**
+ * The two figures on the gender picker, for an offline reading meet-up.
+ *
+ * Animated, and full-bleed like the co-reading avatars: the picker is two
+ * cards a reader taps once, and a moving illustration is the whole of what
+ * makes that a choice rather than a form field. Same arrangement as every
+ * other drawable — the artwork is a file, and re-skinning the picker is
+ * overwriting public/drawable/male.gif and female.gif.
+ */
+export const maleIcon   = "/drawable/male.gif";
+export const femaleIcon = "/drawable/female.gif";
+
+/** The figure for one answer, or an empty string for anything else. */
+export function genderGifSrc(gender) {
+  if (gender === "male") return maleIcon;
+  if (gender === "female") return femaleIcon;
+  return "";
+}
+
 /** The file for one tab in one state. */
 export function navIconSrc(name, active) {
   const pair = NAV_ICONS[name];

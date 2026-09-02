@@ -8,6 +8,7 @@ import ProfileHeader, {
 } from "../../components/ProfileHeader.jsx";
 import ProfileStatsRow, { PROFILE_STATS } from "../../components/ProfileStatsRow.jsx";
 import ReadingProgressCard from "../../components/ReadingProgressCard.jsx";
+import MeetupFeed from "../../components/MeetupFeed.jsx";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import {
@@ -192,6 +193,17 @@ export default function Profile() {
           readers={coReaders}
         />
       </div>
+
+      {/* Who is looking for company in a real place, and whichever arrangement
+          you are part of yourself.
+
+          This is where an offline invitation lands — there is no notification
+          for one, deliberately, and MeetupFeed explains why at length: an
+          invitation to be somewhere at four o'clock is a fact about right now,
+          and an inbox is the wrong shape for something that stops being true.
+          It draws nothing when there is nothing, so on most visits this is not
+          a section at all. */}
+      <MeetupFeed user={user} communityId={community?.id} className="px-4 mt-6" />
 
       <div className="h-4" />
     </MobileShell>
