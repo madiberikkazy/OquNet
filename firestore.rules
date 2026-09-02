@@ -1272,6 +1272,46 @@ service cloud.firestore {
       allow delete: if signedIn() && coReaderId == uid();
     }
 
+    // An offline reading meet-up: one seat, at its owner's id.
+    //
+    // The same shape as co-reading presence and authorised the same way, with
+    // one addition worth stating: a table is a set of rows agreeing on
+    // `hostId`, and nothing here checks that the host's own row exists. It
+    // deliberately does not. A joiner copies the host's id off a row they were
+    // allowed to read, and a row naming a host who has since stood up is a
+    // table carrying on without whoever booked it — see utils/meetups.js.
+    //
+    // What is enforced is that a seat belongs to the person writing it, and
+    // that the meeting is inside their own community. Anything past that is
+    // between the two people who agreed to meet.
+    match /meetups/{seatId} {
+      allow get: if signedIn() && (
+           seatId == uid()
+        || resource.data.communityId == myCommunity()
+      );
+      allow list: if signedIn() && resource.data.communityId == myCommunity();
+
+      // Opening a sitting and joining somebody else's are the same write, and
+      // so is moving your own: one row, set at your own id.
+      allow create, update: if signedIn()
+        && seatId == uid()
+        && request.resource.data.userId == uid()
+        && request.resource.data.communityId == myCommunity()
+        && request.resource.data.keys().hasOnly(
+             ['id', 'userId', 'hostId', 'communityId', 'gender', 'place',
+              'name', 'nickname', 'photoURL', 'startedAt', 'createdAt', 'updatedAt'])
+        && request.resource.data.hostId is string
+        && (request.resource.data.gender == 'male' || request.resource.data.gender == 'female')
+        && request.resource.data.place is string
+        && request.resource.data.place.size() > 0
+        && request.resource.data.place.size() <= 120
+        && request.resource.data.startedAt is number;
+
+      // Standing up. Your own seat only; a sitting nobody closed simply ages
+      // out of every screen that draws it.
+      allow delete: if signedIn() && seatId == uid();
+    }
+
     // Web Push registrations: one document per device, written and read only by
     // the Admin SDK in server/push.js, which bypasses these rules entirely.
     //

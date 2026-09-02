@@ -137,6 +137,11 @@ export const userSchema = Object.freeze({
     // with a phone — see firebase/phoneVerify.js and server/server.js.
     phoneVerifiedAt: null,
     photoURL: "", notificationsEnabled: true, savedBookIds: [],
+    // Who this reader is matched with when they look for somebody to read
+    // beside in person — see the offline meet-up section below. Null until
+    // they answer, which they do the first time they open one (or in
+    // Settings → Жыныс). Nothing else in the app reads it.
+    gender: null,
     // Denormalised totals for the follow graph — see the follows section below.
     // A profile born with both at zero is what lets every screen read a number
     // rather than testing for one; accounts created before follows existed have
@@ -810,6 +815,90 @@ export function normalizeCoReadingPresence(payload) {
     // Minutes read all told, so the room can say how much reading each face has
     // behind it. A number the reader already owns, copied rather than computed.
     minutes: Math.max(0, Math.round(Number(payload.minutes) || 0)),
+  };
+}
+
+// ---------- offline reading meet-ups ----------
+//
+// The other half of "read together": the room above is a circle of avatars on a
+// screen, this is two people in the same café with the same hour free.
+//
+// One document per *participant*, at their own id — the same arrangement as
+// co-reading presence, and for the same three reasons: a person can only be
+// sitting in one place at a time, the rules can authorise a write from the path
+// alone, and standing up is deleting a document whose id the leaver knows.
+//
+// What makes it a *group* rather than a row is `hostId`. Whoever opens a sitting
+// writes a row hosted by themselves; whoever joins writes their own row naming
+// the same host, copying the place and the gender off it. Everybody with one
+// `hostId` is one table. No document is ever written by anybody but its owner,
+// so there is no array of members for two phones to race each other over.
+//
+// Presence here is not a heartbeat. A reader in the online room is looking at
+// the room; somebody who has agreed to meet at four o'clock has put their phone
+// away, and a ninety-second staleness window would delete the arrangement while
+// they were on the bus. A sitting instead carries the hour it was opened and is
+// simply not drawn once MEETUP_TTL_MS has passed — the same "stale rows cost one
+// ignored document" trade the room makes, over a window measured in hours.
+
+/** Who a sitting is open to. A match is exact — see `meetupMatches`. */
+export const MEETUP_GENDERS = Object.freeze(["male", "female"]);
+
+/** True for one of the two answers the picker offers, and nothing else. */
+export function isMeetupGender(value) {
+  return MEETUP_GENDERS.includes(str(value));
+}
+
+/**
+ * How long an arrangement stays on other people's profiles.
+ *
+ * Long enough to cover the afternoon somebody opened it for, short enough that
+ * a sitting nobody ever showed up to is gone by the evening rather than sitting
+ * on every profile in the community until its owner remembers to close it.
+ */
+export const MEETUP_TTL_MS = 3 * 60 * 60 * 1000;
+
+/** Where the reading happens, as typed. A room number, a café, a bench. */
+export const MEETUP_PLACE_MAX = 120;
+
+/**
+ * One person's seat at one offline sitting.
+ *
+ * Name, handle and picture are denormalised for the reason the room's are: a
+ * card that draws a table of four faces would otherwise read four user
+ * documents per snapshot to learn three fields that do not change while people
+ * are sitting down. Unlike the room, the picture is the reader's *real* one —
+ * an avatar is a costume for a screen, and this is an arrangement to meet a
+ * stranger in a real place.
+ */
+export function normalizeOfflineMeetup(payload) {
+  requirePayload("meetups", payload);
+
+  const userId = requiredId("meetups", "userId", payload.userId);
+  const gender = str(payload.gender);
+  if (!isMeetupGender(gender)) {
+    throw new SchemaError(`meetups: unknown gender "${payload.gender}"`, {
+      collection: "meetups", field: "gender", errorKey: "meetupPickGender",
+    });
+  }
+
+  return {
+    id: userId,
+    userId,
+    // The host's own row names itself. That is what makes "am I hosting this?"
+    // a comparison rather than a lookup, and it means the group survives its
+    // host leaving: the remaining rows still agree on which table they are.
+    hostId: requiredId("meetups", "hostId", payload.hostId),
+    communityId: requiredId("meetups", "communityId", payload.communityId),
+    gender,
+    place: requiredText("meetups", "place", payload.place, MEETUP_PLACE_MAX, "meetupPlaceRequired"),
+    name: clampText(payload.name, LIMITS.NAME_MAX),
+    nickname: str(payload.nickname),
+    photoURL: safeImageUrl(payload.photoURL),
+    // When this seat was taken, by the clock of the phone that took it. The
+    // window it is measured against is hours wide, so the drift between two
+    // devices' clocks is not a quantity that matters here.
+    startedAt: Math.max(0, Math.round(Number(payload.startedAt) || Date.now())),
   };
 }
 

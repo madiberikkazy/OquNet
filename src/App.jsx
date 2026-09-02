@@ -56,6 +56,8 @@ const SecuritySettings     = lazyRoute(() => import("./pages/user/settings/Secur
 const NotificationSettings = lazyRoute(() => import("./pages/user/settings/NotificationSettings.jsx"));
 const ThemeSettings        = lazyRoute(() => import("./pages/user/settings/ThemeSettings.jsx"));
 const LanguageSettings     = lazyRoute(() => import("./pages/user/settings/LanguageSettings.jsx"));
+// Who may invite this reader to read somewhere in person — see utils/meetups.js.
+const GenderSettings       = lazyRoute(() => import("./pages/user/settings/GenderSettings.jsx"));
 const AboutApp             = lazyRoute(() => import("./pages/user/settings/AboutApp.jsx"));
 const Support              = lazyRoute(() => import("./pages/user/settings/Support.jsx"));
 const CommunitySettings    = lazyRoute(() => import("./pages/user/settings/CommunitySettings.jsx"));
@@ -183,10 +185,14 @@ export default function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/profile/owned"     element={<OwnedBooks />} />
             <Route path="/profile/timer"     element={<ReadingTimer />} />
-            {/* Reading with other people: pick who and what you look like, then
-                the room itself. The room is its own route so it can be returned
-                to — a reader who backs out of it and comes back is still in it,
-                because presence is a document rather than a screen. */}
+            {/* Reading with other people, in the two places it happens: the
+                room on a screen, and an arrangement to be somewhere real. One
+                route with a tab — `?tab=offline` — because they are two answers
+                to one question; see ReadTogether.jsx. Pick who and what you look
+                like, then the room itself. The room is its own route so it can
+                be returned to — a reader who backs out of it and comes back is
+                still in it, because presence is a document rather than a
+                screen. */}
             <Route path="/reading/together"      element={<ReadTogether />} />
             <Route path="/reading/together/room" element={<ReadTogetherRoom />} />
             <Route path="/profile/reading"   element={<ReadingNow />} />
@@ -200,6 +206,7 @@ export default function App() {
             <Route path="/settings/notifications" element={<NotificationSettings />} />
             <Route path="/settings/theme"         element={<ThemeSettings />} />
             <Route path="/settings/language"      element={<LanguageSettings />} />
+            <Route path="/settings/gender"        element={<GenderSettings />} />
             <Route path="/settings/about"         element={<AboutApp />} />
             <Route path="/settings/support"       element={<Support />} />
             <Route path="/settings/community"     element={<CommunitySettings />} />
