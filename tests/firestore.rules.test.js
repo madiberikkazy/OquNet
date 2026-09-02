@@ -3099,6 +3099,16 @@ describe("offline reading meet-ups", () => {
     await assertFails(deleteDoc(doc(as(MEMBER_A2), "meetups", MEMBER_A)));
     await assertSucceeds(deleteDoc(doc(as(MEMBER_A), "meetups", MEMBER_A)));
   });
+
+  // The whole of what the "Адам іздеу" button does, in the order it does it.
+  // Two writes to two collections, and either one of them being refused shows
+  // the reader the same sentence — so the flow is pinned down here as a flow,
+  // not just as two rules that pass in isolation.
+  it("opening a sitting from the picker goes through, gender write and all", async () => {
+    const db = as(MEMBER_A);
+    await assertSucceeds(updateDoc(doc(db, "users", MEMBER_A), { gender: "male" }));
+    await assertSucceeds(sit(db, MEMBER_A));
+  });
 });
 
 describe("sending an invitation, end to end", () => {

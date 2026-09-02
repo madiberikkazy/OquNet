@@ -86,11 +86,26 @@ export default function ReadTogetherOffline({ tabs }) {
 
     setBusy(true);
     setError("");
+
+    // Two writes, two collections, and two separate refusals. They used to
+    // share one `try`, which meant a profile write the server turned down was
+    // reported as "could not open the meet-up" — a sentence about the wrong
+    // half of the flow, pointing whoever had to fix it at the wrong rule.
     try {
       // The answer is remembered before the sitting is opened, because it is
       // what every future invitation is matched by — this flow is where the
       // question is asked, not where the answer belongs.
       if (user?.gender !== gender) await updateProfile({ gender });
+    } catch (err) {
+      logger.error("meetups.gender", err?.message, {
+        code: err?.code, collection: "users", userId: user?.id,
+      });
+      setError(writeError(err) || t.saveFailed);
+      setBusy(false);
+      return;
+    }
+
+    try {
       await openOfflineMeetup({
         userId: user.id,
         communityId: community.id,
@@ -104,7 +119,18 @@ export default function ReadTogetherOffline({ tabs }) {
       setStep(1);
       setPlace("");
     } catch (err) {
-      logger.error("meetups.open", err?.message, { code: err?.code });
+      logger.error("meetups.open", err?.message, {
+        code: err?.code,
+        // Named, because "Missing or insufficient permissions" does not say
+        // which document it was about, and this flow touches two collections.
+        collection: "meetups",
+        // The two values the rule actually compares. A refusal here is either
+        // a ruleset that predates this collection, or these two disagreeing —
+        // the profile on the server naming a different community than the one
+        // this device thinks it is in. Both are invisible without them.
+        communityId: community.id,
+        profileCommunityId: user?.communityId ?? null,
+      });
       setError(writeError(err) || t.meetupOpenFailed);
     } finally {
       setBusy(false);
@@ -140,7 +166,11 @@ export default function ReadTogetherOffline({ tabs }) {
       });
       navigate(`/chats/${table.hostId}`);
     } catch (err) {
-      logger.error("meetups.join", err?.message, { code: err?.code });
+      logger.error("meetups.join", err?.message, {
+        code: err?.code, collection: "meetups",
+        // The pair the rule compares — see the note in publish().
+        communityId: community.id, profileCommunityId: user?.communityId ?? null,
+      });
       setError(writeError(err) || t.meetupJoinFailed);
       setBusy(false);
     }

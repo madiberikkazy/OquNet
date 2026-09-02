@@ -76,7 +76,11 @@ export default function MeetupFeed({ user, communityId, className = "" }) {
       // agreeing to meet somebody is the start of arranging it, not the end.
       navigate(`/chats/${table.hostId}`);
     } catch (err) {
-      logger.error("profile.meetups.join", err?.message, { code: err?.code });
+      logger.error("profile.meetups.join", err?.message, {
+        code: err?.code, collection: "meetups",
+        // The pair the rule compares — see the note in publish().
+        communityId, profileCommunityId: user?.communityId ?? null,
+      });
       setError(writeError(err) || t.meetupJoinFailed);
       setBusy(false);
     }
