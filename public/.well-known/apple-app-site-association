@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["REPLACE_WITH_APPLE_TEAM_ID.app.oqunet"],
+        "components": [
+          { "/": "/users/*", "comment": "A shared profile" },
+          { "/": "/posts/*", "comment": "A shared post" },
+          { "/": "/books/*", "comment": "A book" },
+          { "/": "/community/*", "comment": "A community, and its invites" }
+        ]
+      }
+    ]
+  }
+}
