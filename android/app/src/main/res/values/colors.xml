@@ -15,4 +15,8 @@
          carries the dark one, so a phone in dark mode gets a dark strip
          instead of a white band. -->
     <color name="appBackground">#FFFFFF</color>
+
+    <!-- Tints the small icon in the notification shade. The brand blue, same
+         value the logo is drawn in. -->
+    <color name="notificationAccent">#032081</color>
 </resources>

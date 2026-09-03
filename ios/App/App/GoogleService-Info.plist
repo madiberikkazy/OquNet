@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>544975764973-ich2fc95l47ecqu8gjm681lt9353dahe.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.544975764973-ich2fc95l47ecqu8gjm681lt9353dahe</string>
+	<key>API_KEY</key>
+	<string>AIzaSyA0psd9Qup95vlGtCkdVo391G2Y5xmeYE8</string>
+	<key>GCM_SENDER_ID</key>
+	<string>544975764973</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>app.oqunet</string>
+	<key>PROJECT_ID</key>
+	<string>oqunet-6070b</string>
+	<key>STORAGE_BUCKET</key>
+	<string>oqunet-6070b.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:544975764973:ios:24bccafdf9cbacdf8d7be4</string>
+</dict>
+</plist>

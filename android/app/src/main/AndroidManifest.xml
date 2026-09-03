@@ -52,6 +52,19 @@
 
         </activity>
 
+        <!-- What the system uses when it draws a notification itself, with no
+             app code running: a push that arrives while OquNet is closed. The
+             plugin cannot supply these at that moment, so they are declared. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notify" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notificationAccent" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="oqunet-default" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

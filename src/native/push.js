@@ -45,10 +45,11 @@
  */
 
 import { PushNotifications } from "@capacitor/push-notifications";
-import { isNative, hasPlugin, platform } from "./platform.js";
+import { isNative, isAndroid, hasPlugin, platform } from "./platform.js";
 import { safeGet, safeSet, safeRemove } from "../utils/safeStorage.js";
 import { logger } from "../utils/logger.js";
 import { track } from "../utils/analytics.js";
+import { t } from "../utils/i18n.js";
 
 const PUSH_SERVER = (import.meta.env?.VITE_PUSH_SERVER || "").replace(/\/+$/, "");
 
@@ -64,6 +65,36 @@ const TOKEN_KEY = "oqunet:push:token";
 
 export function isNativePushSupported() {
   return Boolean(isNative && hasPlugin("PushNotifications") && PUSH_SERVER);
+}
+
+/**
+ * The Android notification channel.
+ *
+ * From Android 8 every notification belongs to a channel, and one that names no
+ * existing channel is dropped by the system without a word — the commonest way
+ * for push to look broken when everything else is right. The id here matches
+ * `default_notification_channel_id` in AndroidManifest.xml and the `channelId`
+ * the server puts on each message, so all three agree.
+ *
+ * Created before registering rather than at launch: it only matters once
+ * notifications are actually turned on, and creating it is idempotent — calling
+ * it again updates the name, which is what makes the channel follow the app's
+ * language after the reader changes it.
+ *
+ * The importance and the sound are the reader's to change from here on. Android
+ * deliberately does not let an app override a channel a person has adjusted,
+ * which is the point of channels.
+ */
+async function ensureChannel() {
+  if (!isAndroid || !hasPlugin("PushNotifications")) return;
+  await PushNotifications.createChannel({
+    id: "oqunet-default",
+    name: t.notifications,
+    description: t.pushNotificationsHint,
+    importance: 4, // heads-up: it appears briefly over whatever is on screen
+    visibility: 1, // shown on the lock screen, contents and all
+    vibration: true,
+  }).catch((err) => logger.warn("push.channel", err?.message));
 }
 
 async function idToken() {
@@ -144,6 +175,7 @@ export async function enablePush() {
       return { ok: false, reason: "denied" };
     }
 
+    await ensureChannel();
     const token = await registerForToken();
     await postToServer("/push/fcm/subscribe", { token, platform });
 
@@ -219,6 +251,7 @@ export async function syncSubscription() {
     const status = await PushNotifications.checkPermissions();
     if (status.receive !== "granted") return;
 
+    await ensureChannel();
     const token = await registerForToken();
     await postToServer("/push/fcm/subscribe", { token, platform });
     safeSet(TOKEN_KEY, token);

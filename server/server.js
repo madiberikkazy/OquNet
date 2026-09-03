@@ -44,7 +44,9 @@
 
 import express from "express";
 import admin from "firebase-admin";
-import { mountPushRoutes, watchNotifications, pushReady } from "./push.js";
+import { mountPushRoutes, pushReady } from "./push.js";
+import { mountFcmRoutes, fcmReady } from "./fcm.js";
+import { watchNotifications } from "./notify.js";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -233,6 +235,9 @@ app.use("/push", (req, res, next) => {
 });
 
 mountPushRoutes(app, { db, admin });
+// The native half — the iOS and Android store builds register a token here
+// rather than a Web Push subscription. See server/fcm.js.
+mountFcmRoutes(app, { db, admin });
 
 const telegramReady = Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_WEBHOOK_SECRET);
 
@@ -252,7 +257,9 @@ app.get("/health", (_req, res) => {
       webhookSecret: Boolean(TELEGRAM_WEBHOOK_SECRET),
       ready: telegramReady,
     },
-    push: { ready: pushReady },
+    // Two transports, reported separately: "push is broken" is almost always
+    // one of them being unconfigured, and one number cannot say which.
+    push: { web: pushReady, fcm: fcmReady(admin) },
   });
 });
 

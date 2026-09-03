@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "544975764973",
+    "project_id": "oqunet-6070b",
+    "storage_bucket": "oqunet-6070b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:544975764973:android:239a792c8e7122ab8d7be4",
+        "android_client_info": {
+          "package_name": "app.oqunet"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "544975764973-fq67vg5t3f9s8t4cu1rdcqe2f4chr93a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.oqunet",
+            "certificate_hash": "8380baf945fd1188f40eb46d2854ddd4b6f299c5"
+          }
+        },
+        {
+          "client_id": "544975764973-ln4e9d54p5tbega6vneprpaklesg0soq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD7Kh4kkrGfmZPVbp3yPE_aiBPqT4hLGcM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "544975764973-ln4e9d54p5tbega6vneprpaklesg0soq.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "544975764973-ich2fc95l47ecqu8gjm681lt9353dahe.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "app.oqunet"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The small icon Android draws in the status bar and beside the notification.
+
+  It has to be a flat white silhouette on transparency: from Android 5 the
+  system takes only the alpha channel and paints it itself, so handing it the
+  full-colour launcher icon produces a solid white square — which is what every
+  app that skipped this step ships.
+
+  Same path as the logo, so it is recognisably OquNet at 24dp. A vector rather
+  than a set of PNGs: it is drawn from the same coordinates as the real mark, it
+  scales to every density from one file, and it needed no image tooling.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="700"
+    android:viewportHeight="700">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M428 116C514.156 116 584 185.844 584 272V428C584 514.156 514.156 584 428 584H272C185.844 584 116 514.156 116 428V272C116 185.844 185.844 116 272 116H428ZM528.78 170.995C474.107 116.322 349.692 152.093 250.893 250.893C152.093 349.692 116.322 474.107 170.995 528.78C225.669 583.453 350.083 547.682 448.883 448.883C547.682 350.083 583.453 225.669 528.78 170.995Z" />
+</vector>

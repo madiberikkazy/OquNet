@@ -68,8 +68,11 @@ export const publicOrigin = (() => {
   const configured = import.meta.env?.VITE_PUBLIC_ORIGIN;
   if (configured) return String(configured).replace(/\/+$/, "");
   if (isNative) return FALLBACK_ORIGIN;
-  if (typeof window !== "undefined") return window.location.origin;
-  return FALLBACK_ORIGIN;
+  // `window?.location?.origin`, not `window.location.origin`: the data-layer
+  // tests run these modules under Node with a partial `window` shim that has
+  // storage but no location, and reaching through it threw on import — which
+  // took down every test in the file, not just the ones that share links.
+  return window?.location?.origin || FALLBACK_ORIGIN;
 })();
 
 /** A public, shareable URL for an in-app path. Always pass paths through this. */

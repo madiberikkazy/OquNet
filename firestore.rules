@@ -1285,6 +1285,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Native push registrations: the same idea for the iOS and Android store
+    // builds, written and read only by the Admin SDK in server/fcm.js.
+    //
+    // An FCM token is the same kind of capability as a Web Push endpoint —
+    // anybody holding one can send a notification to that device — and no
+    // client needs to read one, since a device already has its own token from
+    // the OS. So the closure is the same, and spelled out for the same reason.
+    match /pushDevices/{deviceId} {
+      allow read, write: if false;
+    }
+
     // Everything not matched above is already denied — this only says so out
     // loud. It grants nothing: `allow` is additive, and this one never fires.
     match /{document=**} {
