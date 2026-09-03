@@ -13,10 +13,12 @@ import {
   deleteUser,
   reauthenticateWithCredential,
   reauthenticateWithPopup,
+  signInWithCredential,
   verifyBeforeUpdateEmail,
   EmailAuthProvider,
 } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "./config.js";
+import { googleCredential, hasNativeGoogleAuth, signOutNativeGoogle } from "../native/googleAuth.js";
 import {
   createUserDoc,
   claimUsername,
@@ -476,6 +478,13 @@ export async function deleteAccount({ password } = {}) {
       if (!password) throw new Error(t.deleteAccountNeedPassword);
       const credential = EmailAuthProvider.credential(fbUser.email, password);
       await reauthenticateWithCredential(fbUser, credential);
+    } else if (hasNativeGoogleAuth) {
+      // Same substitution as signInWithGoogle, for the same reason: there is no
+      // popup to reauthenticate in. A dismissed picker leaves the account
+      // alone, which is the right outcome for a cancelled deletion.
+      const credential = await googleCredential();
+      if (!credential) throw new Error(t.sessionExpired);
+      await reauthenticateWithCredential(fbUser, credential);
     } else {
       await reauthenticateWithPopup(fbUser, new GoogleAuthProvider());
     }
@@ -534,6 +543,11 @@ export async function signOut() {
     try { await fbSignOut(auth); }
     catch (err) { logger.warn("auth.signOut", err?.message, { code: err?.code }); }
   }
+  // The native Google layer caches the last account so the picker can be
+  // skipped. Left in place, the next "continue with Google" would silently
+  // return the account the reader just signed out of — no picker, no choice.
+  // A no-op on web and best-effort on native: the session already ended above.
+  await signOutNativeGoogle();
   writeMock(null);
 }
 
@@ -542,19 +556,36 @@ export function getMockSession() {
 }
 
 /**
- * Sign in (or register) with Google via popup.
+ * Sign in (or register) with Google.
  * - Returning users: loads existing profile from Firestore.
  * - New users: auto-creates a profile with data from the Google account.
  *   Nickname is derived from the email prefix (unique suffix added if needed).
  *   The user can update nickname/photo in Settings afterwards.
+ *
+ * Two ways in, one session out. In a browser it is the popup it always was; in
+ * the store builds a popup does not exist, so the OS account picker produces a
+ * credential and that credential is signed into this same `auth` object — see
+ * native/googleAuth.js. Everything below this point is identical either way,
+ * because both paths end at a Firebase user.
+ *
+ * Returns null when the reader dismissed the native picker. A cancellation is
+ * not a failure and the caller should leave the screen alone; the popup path
+ * still throws `auth/popup-closed-by-user`, which Login and Register already
+ * handle.
  */
 export async function signInWithGoogle() {
   if (!isFirebaseConfigured) {
     throw new Error("Google sign-in requires Firebase. Configure .env first.");
   }
-  const provider = new GoogleAuthProvider();
-  const cred = await signInWithPopup(auth, provider);
-  const fbUser = cred.user;
+
+  let fbUser;
+  if (hasNativeGoogleAuth) {
+    const credential = await googleCredential();
+    if (!credential) return null;
+    fbUser = (await signInWithCredential(auth, credential)).user;
+  } else {
+    fbUser = (await signInWithPopup(auth, new GoogleAuthProvider())).user;
+  }
 
   // Check if this Google account already has a profile
   let profile = await getUserById(fbUser.uid);

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Must match the bg-base token under .dark in src/index.css. -->
+    <color name="appBackground">#0D1420</color>
+</resources>

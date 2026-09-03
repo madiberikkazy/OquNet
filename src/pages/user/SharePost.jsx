@@ -10,6 +10,8 @@ import { qk } from "../../lib/queryKeys.js";
 import { peerName } from "../../utils/chatPeer.js";
 import { logger } from "../../utils/logger.js";
 import { writeError } from "../../utils/writeError.js";
+import { shareLink } from "../../native/share.js";
+import { publicUrl } from "../../native/platform.js";
 import { t } from "../../utils/i18n.js";
 
 /**
@@ -71,7 +73,10 @@ export default function SharePost() {
       .sort((a, b) => (order.get(a.id) ?? 1e6) - (order.get(b.id) ?? 1e6));
   }, [chats, membersQuery.data, user?.id]);
 
-  const url = `${window.location.origin}/posts/${id}`;
+  // The link that leaves the app. Built from the public origin rather than
+  // `window.location.origin`, which inside the store builds is the WebView's
+  // own scheme and reaches nobody — see native/platform.js.
+  const url = publicUrl(`/posts/${id}`);
 
   async function shareWith(person) {
     if (sendingTo || !user?.id || !post) return;
@@ -93,17 +98,11 @@ export default function SharePost() {
   }
 
   async function shareOutside() {
-    try {
-      if (navigator.share) {
-        await navigator.share({ text: t.sharePostText(handle || t.app), url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
-      setSentTo("clipboard");
-    } catch (err) {
-      // A cancelled sheet rejects exactly like a failure, and is far commoner.
-      logger.warn("sharePost.outside", err?.message, { postId: id });
-    }
+    // The OS sheet on a phone, `navigator.share` in a browser that has it, the
+    // clipboard otherwise — native/share.js decides, and only tells us here so
+    // that the clipboard case can be acknowledged on screen.
+    const result = await shareLink({ text: t.sharePostText(handle || t.app), url });
+    if (result === "copied") setSentTo("clipboard");
   }
 
   return (

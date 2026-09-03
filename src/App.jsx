@@ -8,6 +8,7 @@ import { lazyRoute } from "./utils/lazyRoute.js";
 import { useInstallNotification } from "./utils/useInstallNotification.js";
 import { useRoutePreload } from "./utils/prefetch.js";
 import { trackScreen } from "./utils/analytics.js";
+import NativeBridge from "./native/bridge.jsx";
 
 // Eager: the auth screens and the route gate. These are on the critical path
 // for a signed-out visitor, so splitting them would only add a round trip.
@@ -111,6 +112,15 @@ export default function App() {
   useLang(); // re-render entire tree whenever language changes so all t.key proxies update
   // Says hello once, when the app is added to the home screen. Here rather than
   // on a screen, because the install can happen on any of them.
+  //
+  // Web only, and not because it fails on native — because it has no meaning
+  // there. Both signals it watches for are the *transition* from a website to
+  // something on the home screen: Chrome's `appinstalled`, and a launch that
+  // turns out to be in standalone display mode. Inside a store build the app
+  // was already installed, by the store, before it ever ran — so the message
+  // would fire on first launch and read as a notification about something the
+  // reader did minutes ago somewhere else. The hook itself returns early there
+  // — it cannot be called conditionally from here.
   useInstallNotification();
   // Speculative, idle-time, and staggered — see utils/prefetch.js. These four
   // are the tab bar: whatever screen the reader is on, each of them is a
@@ -122,8 +132,14 @@ export default function App() {
     <>
       {/* Paints the OS strips above and below the app the colour of whatever
           the current screen puts against them. Inside the router, because the
-          answer changes with the route. */}
+          answer changes with the route. On native it drives the real status bar
+          through native/statusBar.js; on web, the theme-color meta tag. */}
       <SystemBars />
+      {/* Everything the OS says to the app: the Android back gesture, deep
+          links, foreground/background, network, keyboard. Renders nothing on
+          web, where every one of those is either the browser's job or absent.
+          Inside the router because most of what it does is navigate. */}
+      <NativeBridge />
       <OfflineIndicator />
       <Suspense fallback={<RouteFallback />}>
         <Routes>

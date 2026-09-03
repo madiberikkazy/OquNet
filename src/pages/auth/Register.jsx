@@ -16,6 +16,9 @@ import { getUsernameEntry } from "../../firebase/firestore.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useLang } from "../../contexts/LanguageContext.jsx";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
+import { usePhotoPicker } from "../../native/usePhotoPicker.js";
+import { publicUrl } from "../../native/platform.js";
+import { externalLink } from "../../native/browser.js";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -49,7 +52,6 @@ export default function Register() {
   const [nickStatus, setNickStatus] = useState(null); // null | "checking" | "available" | "taken"
   const nickTimer = useRef(null);
 
-  const photoInputRef = useRef(null);
 
   function update(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
@@ -75,6 +77,9 @@ export default function Register() {
     setGoogleBusy(true);
     try {
       const profile = await signInWithGoogle();
+      // null is a dismissed OS account picker in the native builds — not a
+      // failure, and not a sign-in. Leave the screen exactly as it was.
+      if (!profile) return;
       setUser(profile);
       navigate("/", { replace: true });
     } catch (err) {
@@ -84,13 +89,15 @@ export default function Register() {
     }
   }
 
-  function handlePhotoChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Takes a File rather than an event: the OS picker and the file input both
+  // arrive here, and only usePhotoPicker knows which one ran. See
+  // native/usePhotoPicker.js.
+  function handlePhotoPicked(file) {
     setPhotoFile(file);
     setPhotoPreview(URL.createObjectURL(file));
-    e.target.value = "";
   }
+
+  const photoPicker = usePhotoPicker({ kind: "avatar", onPick: handlePhotoPicked });
 
   function removePhoto() {
     setPhotoFile(null);
@@ -494,13 +501,7 @@ export default function Register() {
             <h2 className="text-xl font-bold mb-1">{t.uploadPhoto}</h2>
             <p className="text-[13px] text-ink-500 mb-3">{t.registerSkippable}</p>
 
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handlePhotoChange}
-            />
+            <input {...photoPicker.inputProps} />
 
             {photoPreview ? (
               <div className="relative rounded-2xl overflow-hidden h-56 bg-ink-100">
@@ -512,7 +513,7 @@ export default function Register() {
                 <div className="absolute bottom-3 right-3 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => photoInputRef.current?.click()}
+                    onClick={photoPicker.open}
                     className="px-3 py-1.5 rounded-xl bg-surface/90 text-[13px] font-medium text-ink-700 shadow"
                   >
                     {t.changePhoto}
@@ -529,7 +530,7 @@ export default function Register() {
             ) : (
               <button
                 type="button"
-                onClick={() => photoInputRef.current?.click()}
+                onClick={photoPicker.open}
                 className="w-full h-56 rounded-2xl bg-brand-50 border-2 border-dashed border-brand-200
                            flex flex-col items-center justify-center gap-3
                            text-brand-500 hover:bg-brand-100 transition active:scale-[0.99] cursor-pointer"
@@ -553,10 +554,12 @@ export default function Register() {
               />
               <span className="text-[14px] leading-snug">
                 {t.registerAcceptTerms.split(t.registerAcceptTermsLink)[0]}
+                {/* The published copy, not the bundled one. Inside the binary
+                    "/drawable/…" is a path in the app's own container that no
+                    other app can open — so the link has to name the website. */}
                 <a
-                  href="/drawable/TermsofUse.docx.pdf"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={publicUrl("/drawable/TermsofUse.docx.pdf")}
+                  {...externalLink(publicUrl("/drawable/TermsofUse.docx.pdf"))}
                   className="text-brand-500 underline underline-offset-2"
                   onClick={(e) => e.stopPropagation()}
                 >

@@ -76,7 +76,17 @@ export default function MobileShell({
             </div>
           ) : null}
 
-          <div className={"page-transition " + (header ? "" : "pt-4")}>
+          {/* No header means this content *is* the top of the screen, so it
+              carries the status-bar inset itself. `max()` keeps the old 1rem
+              wherever the inset is zero — a browser tab, and the installed iOS
+              PWA, which insets its own viewport (see the note above). In the
+              native builds the WebView runs edge to edge and the inset is real,
+              and without this every header-less screen would start its first
+              line of text under the clock. */}
+          <div
+            className="page-transition"
+            style={header ? undefined : { paddingTop: "max(1rem, env(safe-area-inset-top))" }}
+          >
             {children}
           </div>
         </div>

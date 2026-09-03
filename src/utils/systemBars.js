@@ -22,10 +22,23 @@
  * scrolls away, a themed banner, a screen with no bottom bar at all — all of
  * them are already correct, because none of them has to remember to say so.
  *
- * iOS is not part of this. `apple-mobile-web-app-status-bar-style` is read once
- * at launch and has three fixed values, so a standalone iOS install keeps the
- * static bar it always had.
+ * iOS *on the web* is not part of this. `apple-mobile-web-app-status-bar-style`
+ * is read once at launch and has three fixed values, so a standalone iOS PWA
+ * keeps the static bar it always had.
+ *
+ * ── Native ───────────────────────────────────────────────────────────────────
+ *
+ * Inside the Capacitor binary neither delivery mechanism above exists: a
+ * WebView ignores `theme-color`, and the document background is behind the
+ * activity's own bars rather than under the OS's. The *measurement* is still
+ * exactly right, though — it is a question about the page, and the page is the
+ * same page. So both writes below now also go to native/statusBar.js, which
+ * hands the same two colours to the platform APIs that do own those strips.
+ * One measurement, three deliveries, and no screen has to know which app it is
+ * running in.
  */
+
+import { applyStatusBarColor, resetStatusBar } from "../native/statusBar.js";
 
 const THEME_COLOR = 'meta[name="theme-color"]';
 
@@ -140,6 +153,10 @@ export function syncSystemBars() {
 
   if (top !== lastTop) {
     lastTop = top;
+    // The native status bar, where there is one. Before the meta tag rather
+    // than after it, because on native the meta tag is the write that does
+    // nothing and this is the one that counts.
+    applyStatusBarColor(top);
     let meta = document.querySelector(THEME_COLOR);
     if (!meta) {
       meta = document.createElement("meta");
@@ -162,4 +179,5 @@ export function syncSystemBars() {
 export function resetSystemBars() {
   lastTop = null;
   lastBottom = null;
+  resetStatusBar();
 }

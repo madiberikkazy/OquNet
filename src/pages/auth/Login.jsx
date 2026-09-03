@@ -56,6 +56,9 @@ export default function Login() {
     setGoogleBusy(true);
     try {
       const profile = await signInWithGoogle();
+      // null is a dismissed OS account picker in the native builds — not a
+      // failure, and not a sign-in. Leave the screen exactly as it was.
+      if (!profile) return;
       setUser(profile);
       track("auth.signIn", { method: "google" });
       navigate("/", { replace: true });

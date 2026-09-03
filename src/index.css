@@ -3,6 +3,27 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════════
+   KEYBOARD  — native builds only
+   ═══════════════════════════════════════════════════════════════════
+   `keyboard-open` is put on <html> by src/native/bridge.jsx while the
+   on-screen keyboard is up, and taken off when it goes away.
+
+   Capacitor is configured with `resize: "native"`, so the WebView itself
+   shrinks to the space left over — which is why nothing here adds padding to
+   compensate, and why adding any would push every bottom bar up twice.
+
+   What the resize alone gets wrong is the tab bar. It is pinned to the bottom
+   of the app, so a shrunk WebView leaves it sitting directly on the keys: four
+   tabs wedged against the keyboard, over a list that now has almost no room.
+   Every phone app hides its tab bar while you are typing, and this is that.
+   The bar is only ever a tap away again — dismissing the keyboard brings it
+   back — and the screens where typing is the whole point (Chat, CreatePost)
+   never draw it in the first place. */
+.keyboard-open .app-tabbar {
+  display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    COLOUR TOKENS  — light mode defaults
    ═══════════════════════════════════════════════════════════════════ */
 :root {

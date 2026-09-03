@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">OquNet</string>
+    <string name="title_activity_main">OquNet</string>
+    <string name="package_name">app.oqunet</string>
+    <string name="custom_url_scheme">app.oqunet</string>
+</resources>

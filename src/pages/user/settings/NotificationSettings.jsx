@@ -10,13 +10,30 @@ import {
   getNotificationPermissionStatus,
   areNotificationsSupported,
 } from "../../../utils/notificationService.js";
-import { isWebPushSupported, isPushEnabled, enablePush, disablePush } from "../../../utils/webPush.js";
+import { isPushSupported, isPushEnabled, enablePush, disablePush } from "../../../utils/push.js";
+import { isNative } from "../../../native/platform.js";
 
-/** Уведомления — master switch, sound, and the browser permission. */
+/**
+ * Уведомления — master switch, sound, and the permission behind push.
+ *
+ * Two things on this screen are web-only, and both are hidden in the store
+ * builds rather than shown broken:
+ *
+ *   browser notifications  the `Notification` constructor, which draws a
+ *                          notification from inside a running page. A WebView
+ *                          has no such thing, and it would be the wrong control
+ *                          anyway — on a phone the OS draws notifications, and
+ *                          the push row below is the switch for that.
+ *   the permission rows    `Notification.permission` is a browser permission.
+ *                          The native one is asked for by the push toggle
+ *                          itself, through the platform, at the moment it is
+ *                          turned on — so there is nothing separate to grant.
+ */
 export default function NotificationSettings() {
   const [prefs, setPrefs] = useState(() => loadNotificationPreferences());
   const [permission, setPermission] = useState(() => getNotificationPermissionStatus());
-  const supported = areNotificationsSupported();
+  // In-page notifications: a browser thing. See the note above.
+  const supported = !isNative && areNotificationsSupported();
 
   // ── Push ──────────────────────────────────────────────────────────────────
   //
@@ -27,7 +44,7 @@ export default function NotificationSettings() {
   //
   // `null` means "not looked up yet" — distinct from false, so the switch does
   // not flick from off to on in front of the reader on the way in.
-  const pushSupported = isWebPushSupported();
+  const pushSupported = isPushSupported();
   const [pushOn, setPushOn] = useState(null);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState("");
@@ -55,7 +72,8 @@ export default function NotificationSettings() {
       // already says the browser is refusing, and the reader is the one who
       // refused. Anything else is worth naming.
       if (result.reason !== "denied") setPushError(t.pushFailed);
-      setPermission(getNotificationPermissionStatus());
+      else if (isNative) setPushError(t.pushDeniedNative);
+      if (!isNative) setPermission(getNotificationPermissionStatus());
     }
     setPushBusy(false);
   }
@@ -144,7 +162,14 @@ export default function NotificationSettings() {
               label={t.pushNotifications}
               subtitle={pushSupported ? t.pushNotificationsHint : t.pushUnsupported}
               checked={pushOn === true}
-              disabled={!pushSupported || pushBusy || pushOn === null || permission === "denied"}
+              disabled={
+                !pushSupported || pushBusy || pushOn === null ||
+                // Only meaningful on web. On native the platform permission is
+                // asked for by this very toggle, so there is nothing to be
+                // blocked by yet — and a refusal is reported as `denied` from
+                // `enablePush`, which flips the switch back.
+                (!isNative && permission === "denied")
+              }
               onChange={togglePush}
             />
           </SettingsGroup>
@@ -154,7 +179,11 @@ export default function NotificationSettings() {
         </>
       ) : null}
 
-      {!supported ? (
+      {/* `supported` is deliberately false on native — see the note at the top —
+          so this line has to ask why. A store build is not a browser that
+          cannot do notifications; it is one that does them a different way, and
+          the push row above is where it says so. */}
+      {!isNative && !supported ? (
         <p className="px-5 pt-4 text-[13px] text-ink-500">{t.notificationsNotSupported}</p>
       ) : null}
     </SettingsPage>

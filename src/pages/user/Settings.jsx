@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Avatar from "../../components/Avatar.jsx";
@@ -12,6 +12,7 @@ import { IMAGE_SIZES, uploadImage } from "../../firebase/storage.js";
 import { logger } from "../../utils/logger.js";
 import { t, SUPPORTED_LANGS } from "../../utils/i18n.js";
 import { useGoBack } from "../../utils/useGoBack.js";
+import { usePhotoPicker } from "../../native/usePhotoPicker.js";
 
 /**
  * Settings hub.
@@ -26,7 +27,6 @@ export default function Settings() {
   // Settings is reached from either profile, so the fallback is the profile
   // route — the arrow still pops normally when there is a history entry.
   const goBack = useGoBack("/profile");
-  const fileRef = useRef(null);
   const { user, updateProfile, signOut } = useAuth();
   const { theme } = useTheme();
   const { lang } = useLang();
@@ -36,10 +36,10 @@ export default function Settings() {
   const [photoError, setPhotoError] = useState("");
   const [confirmLogout, setConfirmLogout] = useState(false);
 
-  async function onPickPhoto(e) {
-    const file = e.target.files?.[0];
-    // Reset the input so re-picking the same file still fires a change event.
-    e.target.value = "";
+  // A File, from the OS picker on a phone and from the hidden input in a
+  // browser — usePhotoPicker owns that choice, and the input reset that used to
+  // be the first thing this function did. See native/usePhotoPicker.js.
+  async function onPickPhoto(file) {
     if (!file || photoBusy) return;
 
     setPhotoError("");
@@ -62,6 +62,8 @@ export default function Settings() {
       setPhotoBusy(false);
     }
   }
+
+  const photoPicker = usePhotoPicker({ kind: "avatar", onPick: onPickPhoto });
 
   async function handleLogout() {
     setConfirmLogout(false);
@@ -95,7 +97,7 @@ export default function Settings() {
       <div className="flex flex-col items-center pt-4 pb-6">
         <button
           type="button"
-          onClick={() => fileRef.current?.click()}
+          onClick={photoPicker.open}
           disabled={photoBusy}
           className="relative rounded-full focus:outline-none focus:ring-2 focus:ring-brand-200"
           aria-label={t.uploadPhoto}
@@ -110,7 +112,7 @@ export default function Settings() {
             </span>
           ) : null}
         </button>
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
+        <input {...photoPicker.inputProps} />
 
         <h2 className="text-[24px] font-semibold mt-4 text-center px-6">{fullName || "—"}</h2>
         <p className="text-ink-300 text-[16px] mt-0.5">@{user?.nickname}</p>

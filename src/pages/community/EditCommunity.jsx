@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import SettingsPage from "../../components/SettingsPage.jsx";
 import Avatar from "../../components/Avatar.jsx";
@@ -12,6 +12,7 @@ import {
 import { uploadImage } from "../../firebase/storage.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../utils/i18n.js";
+import { usePhotoPicker } from "../../native/usePhotoPicker.js";
 import { clampText, LIMITS } from "../../utils/validators.js";
 import Loading from "../../components/Loading.jsx";
 
@@ -32,7 +33,6 @@ export default function EditCommunity() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { community: myCommunity, setCommunity } = useCommunity();
-  const fileRef = useRef(null);
 
   const [community, setLocalCommunity] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -75,13 +75,13 @@ export default function EditCommunity() {
 
   function updateForm(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
-  function onPickPhoto(e) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  // A File, whichever picker produced it — see native/usePhotoPicker.js.
+  function onPickPhoto(file) {
     setPhotoFile(file);
     setPhotoPreview(URL.createObjectURL(file));
   }
+
+  const photoPicker = usePhotoPicker({ kind: "cover", onPick: onPickPhoto });
 
   async function save() {
     if (saving || !community) return;
@@ -178,16 +178,16 @@ export default function EditCommunity() {
         <div className="flex flex-col items-center mb-6">
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
+            onClick={photoPicker.open}
             className="rounded-full focus:outline-none focus:ring-2 focus:ring-brand-200"
             aria-label={t.communityPhoto}
           >
             <Avatar src={avatarSrc} name={form.name || community.name} size={96} />
           </button>
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickPhoto} />
+          <input {...photoPicker.inputProps} />
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
+            onClick={photoPicker.open}
             className="mt-2 text-[13px] font-semibold text-brand-500"
           >
             {t.changePhoto}

@@ -2,6 +2,8 @@ import { useState } from "react";
 import SettingsPage from "../../../components/SettingsPage.jsx";
 import { t } from "../../../utils/i18n.js";
 import { SUPPORT_TELEGRAM, SUPPORT_TELEGRAM_URL } from "../../../utils/appInfo.js";
+import { copyText } from "../../../native/share.js";
+import { externalLink } from "../../../native/browser.js";
 
 /**
  * Қолдау қызметіне жазу — support runs through the project's Telegram channel.
@@ -11,17 +13,22 @@ import { SUPPORT_TELEGRAM, SUPPORT_TELEGRAM_URL } from "../../../utils/appInfo.j
  * somewhere the user still reaches if they lose access to the account they are
  * writing about. The handle is on screen as well, so it is usable even when the
  * link cannot open — a locked-down browser, a screenshot, a dictated address.
+ *
+ * `externalLink` is what keeps the first clause true inside the store builds.
+ * A WebView has nothing behind it: an ordinary anchor navigates the one view
+ * the app lives in, so the reader ends up looking at t.me with no way back
+ * except force-quitting. It stays a real `<a href>` — long-pressable, copyable,
+ * readable by a screen reader — and only the tap is redirected to the OS.
  */
 export default function Support() {
   const [copied, setCopied] = useState(false);
 
   async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(SUPPORT_TELEGRAM_URL);
+    // The Capacitor clipboard on native, `navigator.clipboard` on web. A
+    // refusal is not worth reporting — the handle is on screen either way.
+    if (await copyText(SUPPORT_TELEGRAM_URL)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard blocked — the handle is on screen anyway */
     }
   }
 
@@ -44,8 +51,7 @@ export default function Support() {
 
         <a
           href={SUPPORT_TELEGRAM_URL}
-          target="_blank"
-          rel="noopener noreferrer"
+          {...externalLink(SUPPORT_TELEGRAM_URL)}
           className="btn-primary block text-center"
         >
           {t.writeUs}

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "OquNet — Book sharing community (MVP)",
+  "description": "OquNet \u2014 Book sharing community (MVP)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,9 +12,27 @@
     "test:rules": "firebase emulators:exec --only firestore --project demo-oqunet-rules 'node --test tests/firestore.rules.test.js'",
     "test:data": "node --import ./tests/helpers/register.mjs --test tests/dataLayer.test.mjs tests/installNotification.test.mjs tests/chat.test.mjs tests/rateLimit.test.mjs tests/analytics.test.mjs tests/bookFilters.test.mjs tests/communityInvite.test.mjs",
     "test:queries": "firebase emulators:exec --only firestore --project demo-oqunet-idx 'node --test tests/queries.emulator.test.mjs'",
-    "test": "npm run test:data && npm run test:queries && npm run test:rules"
+    "test": "npm run test:data && npm run test:queries && npm run test:rules",
+    "sync": "npm run build && cap sync",
+    "ios": "npm run sync && cap open ios",
+    "android": "npm run sync && cap open android"
   },
   "dependencies": {
+    "@capacitor-firebase/authentication": "^8.5.1",
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/camera": "^8.2.4",
+    "@capacitor/clipboard": "^8.0.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.1",
+    "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "@tanstack/query-async-storage-persister": "^5.101.4",
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-query-persist-client": "^5.101.4",
@@ -26,6 +44,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
     "@firebase/rules-unit-testing": "^3.0.4",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
@@ -33,5 +52,10 @@
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
     "vite": "^5.4.0"
+  },
+  "overrides": {
+    "@capacitor-firebase/authentication": {
+      "firebase": "$firebase"
+    }
   }
 }

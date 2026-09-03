@@ -4,6 +4,7 @@ import { isAppInstalled } from "./pwaUtils.js";
 import { announceInstall, PENDING_KEY } from "./installNotification.js";
 import { safeGet, safeSet } from "./safeStorage.js";
 import { logger } from "./logger.js";
+import { isNative } from "../native/platform.js";
 
 // Two different signals, because no single one covers both platforms.
 //
@@ -39,6 +40,15 @@ export function useInstallNotification() {
   const userId = user?.id;
 
   useEffect(() => {
+    // Nothing to announce in a store build. Both signals below describe the
+    // moment a *website* became something on the home screen, and a native app
+    // never has that moment — it arrives installed. Worse, the second signal
+    // would be true forever: a WebView reports standalone display mode on every
+    // launch, so the "OquNet is on your home screen" message would be waiting
+    // for every new account the first time they open an app they downloaded
+    // from a store. See src/App.jsx, which calls this unconditionally.
+    if (isNative) return undefined;
+
     let cancelled = false;
 
     function announce() {

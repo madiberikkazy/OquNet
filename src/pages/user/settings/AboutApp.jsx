@@ -2,8 +2,19 @@ import SettingsPage from "../../../components/SettingsPage.jsx";
 import PWASettings from "../../../components/PWASettings.jsx";
 import { t } from "../../../utils/i18n.js";
 import { APP_NAME, APP_VERSION, TERMS_URL } from "../../../utils/appInfo.js";
+import { isNative, publicUrl } from "../../../native/platform.js";
+import { externalLink } from "../../../native/browser.js";
 
-/** Информация — what the app is, which version, the terms, and storage. */
+/**
+ * Информация — what the app is, which version, and the terms.
+ *
+ * The storage panel below is web-only. Every control on it — "add to home
+ * screen", the service-worker cache size, "keep my data" — is a browser asking
+ * to behave more like an app. Inside a store build the app is installed, its
+ * assets are in the bundle rather than in a cache, and its storage is already
+ * persistent by the platform's own rules, so the panel would be three rows that
+ * either lie or do nothing.
+ */
 export default function AboutApp() {
   return (
     <SettingsPage title={t.information}>
@@ -20,10 +31,11 @@ export default function AboutApp() {
               {t.appVersion} {APP_VERSION}
             </span>
           </div>
+          {/* The published copy on native: TERMS_URL is a path inside the
+              app's own container there, which no other app can open. */}
           <a
-            href={TERMS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
+            href={isNative ? publicUrl(TERMS_URL) : TERMS_URL}
+            {...externalLink(isNative ? publicUrl(TERMS_URL) : TERMS_URL)}
             className="flex items-center justify-between py-3.5"
           >
             <span className="text-[15px] text-ink-900">{t.termsOfUse}</span>
@@ -33,8 +45,8 @@ export default function AboutApp() {
           </a>
         </div>
 
-        {/* Install prompt, cache size, persistent storage. */}
-        <PWASettings />
+        {/* Install prompt, cache size, persistent storage — see above. */}
+        {isNative ? null : <PWASettings />}
       </div>
     </SettingsPage>
   );

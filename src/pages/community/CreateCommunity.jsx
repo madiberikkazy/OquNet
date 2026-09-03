@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import MobileShell from "../../components/MobileShell.jsx";
 import Stepper from "../../components/Stepper.jsx";
@@ -8,6 +8,7 @@ import { uploadImage } from "../../firebase/storage.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import { useCommunity } from "../../contexts/CommunityContext.jsx";
 import { t } from "../../utils/i18n.js";
+import { usePhotoPicker } from "../../native/usePhotoPicker.js";
 
 export default function CreateCommunity() {
   const navigate = useNavigate();
@@ -22,16 +23,14 @@ export default function CreateCommunity() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState(""); // human-readable progress label
-  const photoInputRef = useRef(null);
 
-  function handlePhotoChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // A File, whichever picker produced it — see native/usePhotoPicker.js.
+  function handlePhotoPicked(file) {
     setPhotoFile(file);
     setPhotoPreview(URL.createObjectURL(file));
-    // reset so same file can be re-selected after removal
-    e.target.value = "";
   }
+
+  const photoPicker = usePhotoPicker({ kind: "cover", onPick: handlePhotoPicked });
 
   function removePhoto() {
     setPhotoFile(null);
@@ -222,14 +221,9 @@ export default function CreateCommunity() {
           <>
             <h2 className="text-xl font-bold mb-2">{t.stepPhotoTitle}</h2>
 
-            {/* Hidden file input — triggered by button click via ref */}
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handlePhotoChange}
-            />
+            {/* The web half of the picker. On a phone the tap opens the OS
+                camera/library sheet instead and this is never reached. */}
+            <input {...photoPicker.inputProps} />
 
             {photoPreview ? (
               /* ── Preview + actions ── */
@@ -242,7 +236,7 @@ export default function CreateCommunity() {
                 <div className="absolute bottom-3 right-3 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => photoInputRef.current?.click()}
+                    onClick={photoPicker.open}
                     className="px-3 py-1.5 rounded-xl bg-surface/90 text-[13px] font-medium text-ink-700 shadow"
                   >
                     {t.changePhoto}
@@ -260,7 +254,7 @@ export default function CreateCommunity() {
               /* ── Upload area ── */
               <button
                 type="button"
-                onClick={() => photoInputRef.current?.click()}
+                onClick={photoPicker.open}
                 className="w-full h-48 rounded-2xl bg-brand-50 border-2 border-dashed border-brand-200
                            flex flex-col items-center justify-center gap-3
                            text-brand-500 hover:bg-brand-100 transition active:scale-[0.99] cursor-pointer"

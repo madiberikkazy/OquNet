@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The window background: what shows in the strips beside the system bars
+         on the one path where the app cannot paint them itself, which is
+         Android 15+ running a WebView older than 140. There Capacitor insets
+         the WebView, because env(safe-area-inset-*) is broken on those
+         versions (crbug 40699457).
+
+         Everywhere else this is never seen. Below Android 15 the strip is
+         painted per screen by utils/systemBars.js through
+         StatusBar.setBackgroundColor, and on WebView 140+ the app runs edge to
+         edge and paints behind the bars itself.
+
+         Must match the bg-base token in src/index.css. The values-night copy
+         carries the dark one, so a phone in dark mode gets a dark strip
+         instead of a white band. -->
+    <color name="appBackground">#FFFFFF</color>
+</resources>

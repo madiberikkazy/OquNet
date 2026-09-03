@@ -1,14 +1,16 @@
 import { useCallback, useState } from "react";
-import { logger } from "./logger.js";
+import { shareLink } from "../native/share.js";
+import { publicUrl } from "../native/platform.js";
 import { t } from "./i18n.js";
 
 /**
  * Share the profile — the action, without the button around it.
  *
- * `navigator.share` where it exists — on a phone that is the whole point, since
- * it opens the OS sheet the reader already knows. Everywhere else the link goes
+ * The OS share sheet where there is one — on a phone that is the whole point,
+ * since it is the sheet the reader already knows. Everywhere else the link goes
  * to the clipboard and the caller says so for a moment, because a share button
- * that appears to do nothing is worse than no share button.
+ * that appears to do nothing is worse than no share button. Which of the three
+ * happens is native/share.js's problem, not this hook's.
  *
  * A hook rather than a component because the same act is drawn two ways: a
  * full-width button on the reader's own profile, where it stands in the place a
@@ -25,20 +27,18 @@ export function useProfileShare(user) {
 
   const share = useCallback(async () => {
     if (!user?.id) return;
-    const url = `${window.location.origin}/users/${user.id}`;
+    // `publicUrl`, not `window.location.origin`: inside the store builds the
+    // origin is the WebView's own scheme, and a `capacitor://localhost/users/…`
+    // link pasted into a chat is dead on arrival for whoever receives it.
+    const url = publicUrl(`/users/${user.id}`);
     const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || `@${user.nickname ?? ""}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: name, text: t.shareProfileText(name), url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
+
+    const result = await shareLink({ title: name, text: t.shareProfileText(name), url });
+    // Only the clipboard needs saying out loud. A sheet that opened is its own
+    // feedback, and a sheet the reader dismissed wanted nothing to happen.
+    if (result === "copied") {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-    } catch (err) {
-      // A cancelled share sheet rejects exactly like a failure does, and it is
-      // by far the more common of the two — so this is logged, never surfaced.
-      logger.warn("profile.share", err?.message);
     }
   }, [user]);
 

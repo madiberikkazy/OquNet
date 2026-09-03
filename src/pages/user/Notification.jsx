@@ -10,6 +10,7 @@ import {
 } from "../../firebase/firestore.js";
 import { useNotifications } from "../../contexts/NotificationContext.jsx";
 import { useGoBack } from "../../utils/useGoBack.js";
+import { clearDelivered } from "../../utils/push.js";
 import { t } from "../../utils/i18n.js";
 
 export default function Notification() {
@@ -24,6 +25,10 @@ export default function Notification() {
 
   useEffect(() => {
     loadNotifications();
+    // Opening this list is reading them, so the pull-down shade should not
+    // still be holding six of the same announcements. A no-op on web, where a
+    // browser owns its notifications and offers no way to retract them.
+    clearDelivered();
   }, [loadNotifications]);
 
   const filtered = notifications.filter(

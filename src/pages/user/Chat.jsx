@@ -295,7 +295,16 @@ export default function Chat() {
     // edge of the screen.
     <div className="h-screen bg-base flex flex-col" style={{ height: "100dvh" }}>
       {/* ── Who this is ── */}
-      <header className="shrink-0 bg-surface border-b border-ink-100">
+      {/* This screen builds its own three rows rather than using MobileShell,
+          so it also carries its own status-bar inset. Zero in a browser tab and
+          in the installed PWA; a real value in the native builds, where the
+          WebView runs edge to edge and this row would otherwise sit under the
+          clock. The padding is on the <header> rather than inside it so the
+          surface colour reaches the top of the screen. */}
+      <header
+        className="shrink-0 bg-surface border-b border-ink-100"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <div className="w-full mx-auto sm:max-w-xl lg:max-w-2xl flex items-center gap-3 px-3 py-2.5">
           <button onClick={() => navigate(-1)} aria-label={t.back} className="icon-btn shrink-0">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">

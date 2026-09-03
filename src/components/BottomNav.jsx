@@ -49,7 +49,9 @@ export default function BottomNav() {
     // the bottom of it. That is what lets a screen put an action bar directly on
     // top of these tabs — the two are adjacent boxes in normal flow, so they
     // meet exactly, with no offset for anybody to compute and get wrong.
-    <nav className="app-glass">
+    // `app-tabbar` is a hook, not a style: index.css hides it while the
+    // on-screen keyboard is up in the native builds. See the note there.
+    <nav className="app-glass app-tabbar">
       <ul className="grid grid-cols-4 py-2 w-full mx-auto sm:max-w-xl lg:max-w-2xl" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
         {items.map((it) => (
           <li key={it.to}>

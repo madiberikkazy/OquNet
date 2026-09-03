@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { t } from "../utils/i18n.js";
+import { usePhotoPicker } from "../native/usePhotoPicker.js";
 
 /**
  * The book cover field, for both Add Book and Edit Book.
  *
  * A photo taken on the phone is the normal case — an admin standing in front of
- * a shelf has the book, not a URL for it — so the file picker is the primary
- * action and the URL box stays underneath for the times someone does have a
- * link. Either one wins on its own; picking a file clears the URL, and typing a
+ * a shelf has the book, not a URL for it — so the picker is the primary action
+ * and the URL box stays underneath for the times someone does have a link. In
+ * the store builds that tap opens the camera directly, which is the whole
+ * reason the wording above was ever true. Either one wins on its own; picking a file clears the URL, and typing a
  * URL clears the file, because two sources for one field is how a screen ends
  * up showing one cover and saving another.
  *
@@ -15,7 +17,6 @@ import { t } from "../utils/i18n.js";
  * happens, so an abandoned Add Book leaves nothing behind in Storage.
  */
 export default function CoverPicker({ coverUrl, file, onFile, onUrlChange }) {
-  const inputRef = useRef(null);
   const [filePreview, setFilePreview] = useState(null);
 
   // An object URL is a live handle into the picked file — it has to be revoked
@@ -27,14 +28,12 @@ export default function CoverPicker({ coverUrl, file, onFile, onUrlChange }) {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  function pick(e) {
-    const picked = e.target.files?.[0];
-    // Reset so re-picking the same file still fires a change event.
-    e.target.value = "";
-    if (!picked) return;
+  function pick(picked) {
     onUrlChange("");
     onFile(picked);
   }
+
+  const photoPicker = usePhotoPicker({ kind: "cover", onPick: pick });
 
   function clear() {
     onFile(null);
@@ -47,7 +46,7 @@ export default function CoverPicker({ coverUrl, file, onFile, onUrlChange }) {
     <div>
       <p className="text-[13px] text-ink-500 mb-2">{t.bookPhoto}</p>
 
-      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={pick} />
+      <input {...photoPicker.inputProps} />
 
       {preview ? (
         <div className="relative rounded-2xl h-52 bg-ink-100 overflow-hidden">
@@ -55,7 +54,7 @@ export default function CoverPicker({ coverUrl, file, onFile, onUrlChange }) {
           <div className="absolute bottom-3 right-3 flex gap-2">
             <button
               type="button"
-              onClick={() => inputRef.current?.click()}
+              onClick={photoPicker.open}
               className="px-3 py-1.5 rounded-xl bg-surface/90 text-[13px] font-medium text-ink-700 shadow"
             >
               {t.changePhoto}
@@ -72,7 +71,7 @@ export default function CoverPicker({ coverUrl, file, onFile, onUrlChange }) {
       ) : (
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
+          onClick={photoPicker.open}
           className="w-full h-52 rounded-2xl bg-brand-50 border-2 border-dashed border-brand-200
                      flex flex-col items-center justify-center gap-2
                      text-brand-500 hover:bg-brand-100 transition active:scale-[0.99]"

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep links, the custom-scheme half. Anything that cannot use a
+                 verified domain arrives here: a notification payload, a return
+                 from an external flow. Parsed by routeFromUrl() in
+                 src/native/navigation.js, which refuses anything that is not
+                 ours. `singleTask` above is what makes a link reach the running
+                 app rather than starting a second copy of it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="oqunet" />
+            </intent-filter>
+
+            <!-- App Links, the https half — this is what a shared profile or
+                 post link opens. `autoVerify` makes Android check
+                 https://oqunet.app/.well-known/assetlinks.json for this app's
+                 package name and signing fingerprint; until that file is
+                 served, links open in the browser instead of the app, which is
+                 the correct fallback and is why the shared URL is an https one
+                 in the first place. See publicUrl() in src/native/platform.js. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="oqunet.app" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Taking a book or profile photo — @capacitor/camera. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Reading a picked photo. Android 13 split the old blanket storage
+         permission into per-type ones; both are declared so the picker works
+         on every version the app supports, and the old one is capped so it is
+         not requested where it no longer exists. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!-- Notifications became a runtime permission in Android 13. Without this
+         the OS silently drops every push; the prompt itself is raised by the
+         settings toggle, through @capacitor/push-notifications. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Whether the phone is actually reachable — @capacitor/network, which is
+         what draws the offline banner. `navigator.onLine` cannot answer this
+         inside a WebView. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Package visibility, Android 11+. Without declaring what the app
+         intends to open, `window.open(url, "_system")` resolves to nothing and
+         the two flows that depend on leaving the app fail silently: the
+         Telegram phone verification, and the support link. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="tg" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="text/plain" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+</manifest>

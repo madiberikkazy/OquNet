@@ -10,7 +10,7 @@ import {
   syncEmailFromAuth,
 } from "../firebase/auth.js";
 import { setAnalyticsUser } from "../utils/analytics.js";
-import { syncSubscription } from "../utils/webPush.js";
+import { syncSubscription } from "../utils/push.js";
 
 const AuthContext = createContext(null);
 
@@ -31,7 +31,8 @@ export function AuthProvider({ children }) {
   // that was not already subscribed, and does nothing at all for a reader who
   // has never turned push on. It is here because subscriptions rotate and get
   // pruned, and the symptom of a stale one is notifications silently stopping.
-  // See utils/webPush.js.
+  // See utils/push.js, which picks the transport: APNs/FCM inside the store
+  // builds, Web Push in the browser and the installed PWA.
   useEffect(() => {
     if (!user?.id) return;
     syncSubscription();

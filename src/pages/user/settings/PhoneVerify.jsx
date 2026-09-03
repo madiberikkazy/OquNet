@@ -20,6 +20,7 @@ import { toE164 } from "../../../utils/validators.js";
 import { t } from "../../../utils/i18n.js";
 import { logger } from "../../../utils/logger.js";
 import { writeError } from "../../../utils/writeError.js";
+import { externalLink } from "../../../native/browser.js";
 
 /**
  * Proving a phone number, by starting our Telegram bot.
@@ -38,6 +39,14 @@ import { writeError } from "../../../utils/writeError.js";
  * an iPhone. So the token is minted as soon as the number looks valid, the
  * anchor carries the real `t.me` href before anyone taps it, and writing the
  * attempt happens alongside the navigation rather than in front of it.
+ *
+ * ── And why it goes through `externalLink` ───────────────────────────────────
+ * This whole flow is built on leaving the app and coming back, which a WebView
+ * does not do by itself: an ordinary anchor would navigate the app's one view
+ * to t.me and there would be nothing to come back to. `externalLink` hands the
+ * URL to the OS instead, so Telegram — the *app*, which is the only thing that
+ * can send a contact card — opens beside this screen and leaves it waiting
+ * exactly where the reader left it.
  *
  * Reached from the two places a number has to be real — joining a community and
  * changing the number afterwards — and `?next=` is where to go once it is done,
@@ -246,9 +255,7 @@ export default function PhoneVerify() {
             {/* An anchor, not a button: see the note at the top of the file. */}
             <a
               href={link || "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleStart}
+              {...externalLink(link, handleStart)}
               aria-disabled={!available || !e164}
               className={
                 "w-full font-semibold rounded-xl py-3.5 transition active:scale-[0.99] " +
@@ -303,8 +310,7 @@ function Waiting({ pending, onStartOver, onFakeBot, busy }) {
       {pending.link ? (
         <a
           href={pending.link}
-          target="_blank"
-          rel="noopener noreferrer"
+          {...externalLink(pending.link)}
           className="w-full font-semibold rounded-xl py-3.5 transition active:scale-[0.99] flex items-center justify-center gap-2 text-white bg-[#2AABEE]"
         >
           <TelegramIcon />
